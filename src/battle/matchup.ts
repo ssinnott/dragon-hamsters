@@ -3,7 +3,9 @@
 // Reads the chart live through src/data/index.ts, so it always reflects the authored table.
 import type { MoveId, TypeId } from '../data/schema.ts';
 import { TYPE_IDS } from '../data/schema.ts';
-import { CHART, getMove } from '../data/index.ts';
+import { getMove } from '../data/index.ts';
+// The chart is not re-exported by src/data/index.ts, so it is read from its table module directly.
+import { CHART } from '../data/types.ts';
 
 /** Multiplier of an attack of type `attack` against a defender with `defender` types (product over its types). */
 export function typeEffectiveness(attack: TypeId, defender: readonly TypeId[]): number {

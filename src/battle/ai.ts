@@ -274,17 +274,15 @@ function bossChoice(s: BattleState, opts: Option[]): Option {
 }
 
 export function chooseEnemyAction(state: BattleState): EnemyAction {
-  const me = enemyActive(state);
   const opts = options(state);
   if (!opts.length) return { kind: 'move', slot: 0 }; // out of PP: the battle uses the internal struggle
   if (state.aiLevel === 'boss') {
-    const opts2 = opts;
-    const canKo = opts2.some((o) => o.ko && !o.useless);
-    if (!canKo) {
+    // Never swap away from a sure knockout.
+    if (!opts.some((o) => o.ko && !o.useless)) {
       const swap = counterSwapTarget(state);
       if (swap >= 0) return { kind: 'switch', index: swap };
     }
-    return { kind: 'move', slot: bossChoice(state, opts2).slot };
+    return { kind: 'move', slot: bossChoice(state, opts).slot };
   }
   if (state.aiLevel === 'elite') {
     const live = opts.filter((o) => !o.useless);
@@ -299,7 +297,6 @@ export function chooseEnemyAction(state: BattleState): EnemyAction {
     }
     return { kind: 'move', slot: weightedPick(state, pool).slot };
   }
-  void me;
   return { kind: 'move', slot: weightedPick(state, opts).slot };
 }
 

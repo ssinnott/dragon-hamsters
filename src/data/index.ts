@@ -5,7 +5,7 @@ import type {
   LocationId, MissionDef, MissionId, MissionTypeDef, MissionTypeId, MoveDef, MoveId, OrgDef, OrgId,
   PersonalityDef, PersonalityId, SpeciesDef, SpeciesId, TypeId, TypeInfo, VillainDef, VillainId,
 } from './schema.ts';
-import { TYPES } from './types.ts';
+import { TYPES, CHART, effectiveness } from './types.ts';
 import { MOVES } from './moves.ts';
 import { ABILITIES } from './abilities.ts';
 import { PERSONALITIES } from './personalities.ts';
@@ -49,6 +49,7 @@ export const MISSIONS_IN_ORDER: readonly MissionDef[] = [...MISSIONS].sort(
 );
 
 export {
+  CHART, effectiveness,
   TYPES, MOVES, ABILITIES, PERSONALITIES, FOODS, ITEMS, ACTIVITIES, SPECIES, ORGS, VILLAINS,
   MISSION_TYPES, LOCATIONS, MISSIONS,
 };
