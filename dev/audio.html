@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b1426">
+<title>Dragon Hamsters: audio gallery</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #1b1426; color: #f4ead8; }
+  body { font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  #app { max-width: 1080px; margin: 0 auto; padding: 16px; box-sizing: border-box; }
+  h1 { font-size: 20px; letter-spacing: 2px; margin: 0 0 4px; color: #ffd166; }
+  h2 { font-size: 14px; letter-spacing: 1px; margin: 22px 0 8px; color: #ffd166; text-transform: uppercase; }
+  p.note { margin: 0 0 6px; color: #b9a8c9; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  button { font: inherit; color: #1b1426; background: #f4ead8; border: 2px solid #1b1426; border-radius: 6px;
+           box-shadow: 0 3px 0 #0d0914; padding: 7px 10px; cursor: pointer; text-align: left; }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #0d0914; }
+  button b { display: block; text-transform: uppercase; letter-spacing: 1px; }
+  button small { display: block; opacity: .75; font-size: 11px; }
+  button.on { outline: 3px solid #ffd166; }
+  .status { padding: 6px 10px; border-radius: 6px; background: #2b2140; color: #f4ead8; }
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+  th, td { padding: 3px 8px; border-bottom: 1px solid #3a2d52; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td.ok { color: #7bd88f; } td.fail { color: #ff6b6b; font-weight: bold; }
+  canvas.wave { display: block; background: #120d1c; border-radius: 3px; }
+  #errors { position: fixed; left: 0; top: 0; max-width: 100%; margin: 0; padding: 6px 8px; box-sizing: border-box;
+            background: rgba(120, 0, 0, .9); color: #fff; font: 12px/1.4 monospace; white-space: pre-wrap; z-index: 10; display: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="errors"></pre>
+<script>
+  // Installed BEFORE the module graph loads, so an import or transform failure is captured too.
+  (function () {
+    var hooks = window.__game = { ready: false, errors: [] };
+    var box = document.getElementById('errors');
+    function record(msg) {
+      hooks.errors.push(String(msg));
+      if (box) { box.style.display = 'block'; box.textContent = hooks.errors.slice(-8).join('\n'); }
+    }
+    window.addEventListener('error', function (e) {
+      var m = e.message || (e.error && e.error.message) || 'unknown error';
+      if (e.filename) m += ' (' + e.filename.replace(/^.*\//, '') + ':' + e.lineno + ')';
+      record(m);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason; record('unhandled rejection: ' + (r && r.message ? r.message : r));
+    });
+  })();
+</script>
+<script type="module" src="/src/dev/audioGallery.ts"></script>
+</body>
+</html>
