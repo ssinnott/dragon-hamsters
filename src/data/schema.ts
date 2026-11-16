@@ -505,8 +505,12 @@ export type MissionNode =
   | { kind: 'battle'; label: string; encounter: EncounterSpec }
   /** Heals every squad dragon by `heal` of max HP (fainted ones revive to that fraction). */
   | { kind: 'rest'; label: string; text: string; heal: number }
-  /** The player picks one route; its nodes are spliced in. */
-  | { kind: 'branch'; label: string; text: string; options: { label: string; description: string; nodes: MissionNode[] }[] }
+  /**
+   * The player picks one route; its nodes are spliced in. A route's `supercharge` is applied to the
+   * mission's boss at the start of the boss battle (sabotage: rushing in lets the device power him up;
+   * cutting the power first costs an extra battle but leaves him normal).
+   */
+  | { kind: 'branch'; label: string; text: string; options: { label: string; description: string; nodes: MissionNode[]; supercharge?: StageChanges }[] }
   /** Final battle. `supercharge` stages are applied to the boss at battle start (sabotage missions). */
   | { kind: 'boss'; label: string; encounter: EncounterSpec; supercharge?: StageChanges };
 
