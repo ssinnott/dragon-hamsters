@@ -612,17 +612,9 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     drawText(ctx, sp.category.toUpperCase(), tx, y + 36, { color: UI.textDim, shadow: false });
     drawTypeBadges(ctx, sp.types, tx, y + 48);
     drawText(ctx, `LV ${d.level}`, tx, y + 68, { color: UI.text, shadow: false });
-    // backstory
-    const lines = wrapText(sp.backstory, tw2);
-    const maxLines = 5;
-    lines.slice(0, maxLines).forEach((l, k) => drawText(ctx, l, tx, y + 84 + k * 10, { color: UI.text, shadow: false }));
-    const below = y + 132;
-    if (lines.length > maxLines) {
-      // the rest of the story runs under the stage, full width
-      lines.length = 0;
-      const rest = wrapText(sp.backstory, tw2).slice(maxLines).join(' ');
-      wrapText(rest, w - 24).slice(0, 4).forEach((l, k) => drawText(ctx, l, x + 12, below + k * 10, { color: UI.text, shadow: false }));
-    }
+    // the dex fact beside the stage, the story under it
+    wrapText(sp.fact, tw2).slice(0, 4).forEach((l, k) => drawText(ctx, l, tx, y + 84 + k * 10, { color: UI.textDim, shadow: false }));
+    wrapText(sp.backstory, w - 24).slice(0, 8).forEach((l, k) => drawText(ctx, l, x + 12, y + 134 + k * 10, { color: UI.text, shadow: false }));
     // joined banner
     const jt = `${name} JOINED THE BURROW!`;
     const jw = Math.min(w - 24, measureText(jt) + 20);
