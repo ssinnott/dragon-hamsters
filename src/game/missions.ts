@@ -227,13 +227,13 @@ export function completeMission(state: GameState, run: MissionRun): MissionRewar
       const add = Math.max(0, Math.min(qty, BAG_MAX - state.food[r.id]));
       state.food[r.id] += add;
       rewards.food[r.id] = (rewards.food[r.id] ?? 0) + add;
-      lines.push(`+${qty} ${getFood(r.id).name}`);
+      lines.push(add > 0 ? `+${add} ${getFood(r.id).name}` : `No room in the pantry for more ${getFood(r.id).name}.`);
     } else {
       const id = r.id;
       const add = Math.max(0, Math.min(qty, BAG_MAX - state.items[id]));
       state.items[id] += add;
       rewards.items[id] = (rewards.items[id] ?? 0) + add;
-      lines.push(`+${qty} ${getItem(id).name}`);
+      lines.push(add > 0 ? `+${add} ${getItem(id).name}` : `No room in the bag for more ${getItem(id).name}.`);
     }
   }
 
@@ -253,7 +253,7 @@ export function completeMission(state: GameState, run: MissionRun): MissionRewar
         const name = getSpecies(pick).name;
         lines.push(def.type === 'rescue'
           ? `The rescued ${name} wants to join the agency! Welcome to the burrow!`
-          : `A wild ${name} followed you home! It wants to join the agency!`);
+          : `New recruit! ${name} wants to join the agency!`);
       } else {
         const bonus = Math.max(10, Math.round(def.level * CONSOLATION_COINS_PER_LEVEL));
         rewards.coins += bonus;

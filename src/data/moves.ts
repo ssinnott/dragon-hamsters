@@ -56,7 +56,7 @@ const LIST: MoveDef[] = [
   stat('curl-up', 'Curl Up', 'FLUFF', 'self', 10, 'shield', [{ kind: 'protect' }], 'Curls into a fluffy ball and blocks every attack.', { priority: 4 }),
   stat('hibernate', 'Hibernate', 'FLUFF', 'self', 5, 'heal', [{ kind: 'rest' }], 'Sleeps for 2 turns to heal all HP and cure its status.'),
   stat('hammy-hoedown', 'Hammy Hoedown', 'FLUFF', 'self', 20, 'buff', [self({ atk: 2 })], 'A wiggly little dance. ATTACK sharply rises.'),
-  stat('cheek-stuff', 'Cheek Stuff', 'FLUFF', 'self', 20, 'buff', [self({ def: 1, spd: 1 })], 'Stuffs its cheeks till hits bounce off. DEF and SP. DEF rise.'),
+  stat('cheek-stuff', 'Cheek Stuff', 'FLUFF', 'self', 20, 'buff', [self({ def: 1, spd: 1 })], 'Stuffs its cheeks so hits bounce off. DEF and SP. DEF rise.'),
   stat('squeak', 'Squeak', 'FLUFF', 'foe', 40, 'sound', [foe({ atk: -1 })], "A squeak so cute that the foe's ATTACK drops."),
   stat('lullaby', 'Lullaby', 'FLUFF', 'foe', 15, 'sound', [inflict('snooze')], 'Hums a soft lullaby. The foe falls SNOOZING.', { accuracy: 55 }),
 

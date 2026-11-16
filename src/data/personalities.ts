@@ -7,7 +7,7 @@ export const PERSONALITIES: PersonalityDef[] = [
 
   // ATTACK up
   { id: 'bitey', name: 'Bitey', up: 'atk', down: 'def', blurb: 'Nibbles first and worries about the bruises later.' },
-  { id: 'scrappy', name: 'Scrappy', up: 'atk', down: 'spa', blurb: 'Would much rather wrestle than think about it.' },
+  { id: 'rowdy', name: 'Rowdy', up: 'atk', down: 'spa', blurb: 'Would much rather wrestle than think about it.' },
   { id: 'grumpy', name: 'Grumpy', up: 'atk', down: 'spd', blurb: 'Rattles the cage bars when breakfast is late.' },
   { id: 'chonky', name: 'Chonky', up: 'atk', down: 'spe', blurb: 'Hits like a dumpling falling off a very high shelf.' },
 
@@ -19,7 +19,7 @@ export const PERSONALITIES: PersonalityDef[] = [
 
   // SP. ATK up
   { id: 'dreamy', name: 'Dreamy', up: 'spa', down: 'atk', blurb: 'Spends all day dreaming up big, sparkly ideas.' },
-  { id: 'sparky', name: 'Sparky', up: 'spa', down: 'def', blurb: 'Full of bright ideas and very easily bruised.' },
+  { id: 'brainy', name: 'Brainy', up: 'spa', down: 'def', blurb: 'Full of bright ideas and very easily bruised.' },
   { id: 'cheeky', name: 'Cheeky', up: 'spa', down: 'spd', blurb: 'Clever, cheeky, and terrible at taking a joke.' },
   { id: 'bookish', name: 'Bookish', up: 'spa', down: 'spe', blurb: 'Reads every word on the snack label. Slowly.' },
 

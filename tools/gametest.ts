@@ -973,9 +973,10 @@ test('missions: branches splice and supercharge', () => {
   const bi = m.nodes.findIndex((n) => n.kind === 'branch');
   const branch = m.nodes[bi];
   if (branch.kind !== 'branch') return;
+  const refresh = (): void => { for (const d of s.dragons) d.needs = { fullness: 100, happiness: 60, energy: 100 }; };
   branch.options.forEach((opt, oi) => {
+    refresh();
     const run = startMission(s, m.id, [s.dragons[0].id]);
-    endDay(s);
     run.index = bi;
     const len = run.nodes.length;
     chooseBranch(run, oi);
@@ -984,6 +985,7 @@ test('missions: branches splice and supercharge', () => {
     ok(opt.nodes.length === 0 || run.nodes[bi] !== opt.nodes[0], 'spliced nodes are copies');
   });
   let threw = false;
+  refresh();
   const run = startMission(s, m.id, [s.dragons[1].id]);
   try { chooseBranch(run, 0); } catch { threw = true; }
   ok(threw || m.nodes[0].kind === 'branch', 'chooseBranch only on a branch node');
@@ -991,6 +993,7 @@ test('missions: branches splice and supercharge', () => {
   const sup = MISSIONS.map((x) => ({ x, n: [...x.nodes, ...x.nodes.flatMap((n) => (n.kind === 'branch' ? n.options.flatMap((o) => o.nodes) : []))].find((n) => n.kind === 'boss' && n.supercharge) }))
     .find((y) => y.n);
   if (!sup || !sup.n || sup.n.kind !== 'boss') { skip('supercharge (no boss node has one)'); return; }
+  refresh();
   const r = startMission(s, sup.x.id, [s.dragons[0].id]);
   r.nodes = [sup.n];
   r.index = 0;
@@ -1050,8 +1053,13 @@ function dailyCare(s: GameState): void {
       if (!r.ok) break;
       if (r.xp) evolveReported(s, [r.xp]);
     }
+    // Wheel and Ball Pit, like a sensible keeper: a dragon that would end up too tired for
+    // today's mission naps in the Cozy Nest instead.
     for (const act of ['wheel', 'play'] as ActivityId[]) {
-      const r = doActivity(s, d.id, act);
+      const cost = getActivity(act).energy;
+      const pick: ActivityId = d.needs.energy - cost < MISSION_ENERGY ? 'nap' : act;
+      if (pick === 'nap' && d.needs.energy >= 100) continue;
+      const r = doActivity(s, d.id, pick);
       if (r.xp) evolveReported(s, [r.xp]);
     }
   }

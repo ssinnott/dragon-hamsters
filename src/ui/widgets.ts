@@ -88,17 +88,25 @@ function rgbOf(c: string): [number, number, number] | null {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+const tintCache = new Map<string, string>();
+
 /**
  * Lighten (t > 0, toward warm white) or darken (t < 0, toward ink) a hex colour by |t| (0..1).
  * Non-hex colours come back unchanged.
  */
 export function tint(color: string, t: number): string {
+  const key = color + '|' + t;
+  const hitC = tintCache.get(key);
+  if (hitC) return hitC;
   const c = rgbOf(color);
   if (!c) return color;
   const to = t >= 0 ? [255, 250, 236] : [27, 20, 38];
   const k = Math.min(1, Math.abs(t));
   const ch = (i: number): string => Math.round(c[i] + (to[i] - c[i]) * k).toString(16).padStart(2, '0');
-  return '#' + ch(0) + ch(1) + ch(2);
+  const out = '#' + ch(0) + ch(1) + ch(2);
+  if (tintCache.size > 2000) tintCache.clear();
+  tintCache.set(key, out);
+  return out;
 }
 
 /** Perceived brightness 0..1 (non-hex colours count as mid-grey). */
@@ -110,7 +118,7 @@ function luma(color: string): number {
 
 /** Readable text colour for a surface. */
 export function textOn(surface: string): string {
-  return luma(surface) > 0.58 ? UI.text : UI.textLight;
+  return luma(surface) > 0.7 ? UI.text : UI.textLight;
 }
 
 const CORNERS: readonly (readonly number[])[] = [[], [1], [2, 1], [3, 1, 1], [4, 2, 1, 1], [5, 3, 2, 1, 1]];
@@ -265,7 +273,7 @@ export class Button {
     if (focused && enabled) {
       const pulse = 0.5 + 0.5 * Math.sin(now() * 6);
       fillRoundRect(ctx, x - 2, top - 2, w + 4, bh + 4, 5, UI.ink);
-      fillRoundRect(ctx, x - 1, top - 1, w + 2, bh + 2, 4, pulse > 0.5 ? UI.focus : tint(UI.focus, 0.55));
+      fillRoundRect(ctx, x - 1, top - 1, w + 2, bh + 2, 4, pulse > 0.5 ? UI.focus : tint(UI.focus, 0.3));
     } else if (!pressed && h > 8) {
       // soft contact shadow so the button sits on the panel
       fillRoundRect(ctx, x + 1, y + 2, w - 1, h - 1, 3, 'rgba(27, 20, 38, 0.18)');
@@ -402,7 +410,9 @@ export class ButtonGroup {
         ? Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h))
         : Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w));
       const perpCentre = dx !== 0 ? Math.abs(bcy - acy) : Math.abs(bcx - acx);
-      if (along > 1) {
+      // a real candidate lies past our centre: its near edge is beyond the middle of this button
+      const beyond = dx > 0 ? b.x >= acx - 1 : dx < 0 ? b.x + b.w <= acx + 1 : dy > 0 ? b.y >= acy - 1 : b.y + b.h <= acy + 1;
+      if (along > 1 && beyond) {
         const edgeGap = dx > 0 ? b.x - (a.x + a.w) : dx < 0 ? a.x - (b.x + b.w) : dy > 0 ? b.y - (a.y + a.h) : a.y - (b.y + b.h);
         const score = Math.max(0, edgeGap) + perpGap * 3 + perpCentre * 0.4 + along * 0.05;
         if (score < bestScore) { bestScore = score; best = i; }
@@ -507,31 +517,36 @@ export function hpColor(frac: number): string {
   return frac > 0.5 ? UI.hpGreen : frac > 0.2 ? UI.hpYellow : UI.hpRed;
 }
 
+// 3x5 "HP" for the tag on HP bars (the 5x7 font would fill the tag edge to edge).
+const MINI_HP = ['#.#.##.', '#.#.#.#', '###.##.', '#.#.#..', '#.#.#..'];
+
 /**
- * An HP bar with its little "HP" tag, 9 px tall, `w` wide in total. Bosses get a gold frame and
- * a star tag.
+ * An HP bar with its little "HP" tag: 9 px tall, `w` wide in total. Bosses get a gold-ringed bar,
+ * a gold tag and a sparkle.
  */
 export function drawHpBar(ctx: Ctx, x: number, y: number, w: number, hp: number, maxHp: number, opts: { boss?: boolean } = {}): void {
   x = Math.round(x); y = Math.round(y); w = Math.round(w);
   const frac = maxHp > 0 ? hp / maxHp : 0;
   const boss = !!opts.boss;
-  const tagW = boss ? 22 : 17, h = 9;
+  const tagW = 13, h = 9;
   const tagFill = boss ? UI.gold : '#f2a33a';
-  fillRoundRect(ctx, x, y, tagW + 2, h, 2, UI.ink);
+  fillRoundRect(ctx, x, y, tagW, h, 2, UI.ink);
+  ctx.fillStyle = tint(tagFill, -0.25);
+  ctx.fillRect(x + 1, y + 1, tagW - 2, h - 2);
   ctx.fillStyle = tagFill;
-  ctx.fillRect(x + 1, y + 1, tagW, h - 2);
-  ctx.fillStyle = tint(tagFill, 0.45);
-  ctx.fillRect(x + 1, y + 1, tagW, 1);
-  drawText(ctx, boss ? '★HP' : 'HP', x + 3, y + 1, { color: UI.ink, shadow: false, spacing: boss ? 0 : 1 });
-  const bx = x + tagW + 1;
-  const bw = w - tagW - 1;
+  ctx.fillRect(x + 1, y + 1, tagW - 2, h - 3);
+  ctx.fillStyle = tint(tagFill, 0.5);
+  ctx.fillRect(x + 2, y + 1, tagW - 4, 1);
+  ctx.fillStyle = UI.ink;
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 7; c++) if (MINI_HP[r][c] === '#') ctx.fillRect(x + 3 + c, y + 2 + r, 1, 1);
+  const bx = x + tagW - 1, bw = w - tagW + 1;
   if (boss) {
     fillRoundRect(ctx, bx, y, bw, h, 1, UI.ink);
-    ctx.fillStyle = UI.gold;
-    ctx.fillRect(bx + 1, y + 1, bw - 2, h - 2);
+    drawBar(ctx, bx + 1, y + 1, bw - 2, h - 2, frac, hpColor(frac), { border: UI.gold });
     ctx.fillStyle = UI.goldLight;
-    ctx.fillRect(bx + 1, y + 1, bw - 2, 1);
-    drawBar(ctx, bx + 2, y + 2, bw - 4, h - 4, frac, hpColor(frac));
+    ctx.fillRect(bx + 2, y + 1, bw - 4, 1);
+    ctx.fillRect(x + 1, y - 1, 1, 3);
+    ctx.fillRect(x, y, 3, 1);
   } else {
     drawBar(ctx, bx, y + 1, bw, h - 2, frac, hpColor(frac));
   }
@@ -551,8 +566,8 @@ function drawPill(ctx: Ctx, x: number, y: number, w: number, h: number, fill: st
   ctx.fillRect(x + r, y + 1, w - 2 * r, 1);
 }
 
-/** Height of a type badge / effect tag: 13 px, or 10 px small. */
-export function badgeHeight(small = false): number { return small ? 10 : 13; }
+/** Height of a type badge / effect tag: 13 px, or 11 px small. */
+export function badgeHeight(small = false): number { return small ? 11 : 13; }
 
 /** A rounded pill in the type's colour with its emblem and name. Returns its width. */
 export function drawTypeBadge(ctx: Ctx, type: TypeId, x: number, y: number, opts: { small?: boolean } = {}): number {
@@ -568,8 +583,8 @@ export function drawTypeBadge(ctx: Ctx, type: TypeId, x: number, y: number, opts
   const tw = measureText(name);
   const w = 1 + padL + iconBox + gap + tw + padR + 1;
   drawPill(ctx, x, y, w, h, color);
-  drawTypeIcon(ctx, type, x + 1 + padL + (iconBox - 1) / 2, y + (small ? 4 : 6), small ? 2.6 : 3.6, { plain: true });
-  drawText(ctx, name, x + 1 + padL + iconBox + gap, y + (small ? 1 : 3), { color: textOn(color) === UI.text ? UI.text : '#ffffff', shadowColor: dark });
+  drawTypeIcon(ctx, type, x + 1 + padL + (iconBox - 1) / 2, y + (small ? 5 : 6), small ? 2.6 : 3.6, { plain: true });
+  drawText(ctx, name, x + 1 + padL + iconBox + gap, y + (small ? 2 : 3), { color: textOn(color) === UI.text ? UI.text : '#ffffff', shadowColor: dark });
   return w;
 }
 
@@ -601,12 +616,12 @@ export function drawEffectTag(ctx: Ctx, mult: number, x: number, y: number, opts
   const w = measureText(st.text) + (small ? 8 : 10);
   drawPill(ctx, x, y, w, h, st.fill);
   const dark = luma(st.color) < 0.5;
-  drawText(ctx, st.text, x + (small ? 4 : 5), y + (small ? 1 : 3), { color: st.color, shadow: !dark, shadowColor: tint(st.fill, -0.5) });
   if (mult >= 4) {
+    // a gold glint along the top: the best possible news
     ctx.fillStyle = UI.goldLight;
-    ctx.fillRect(x + 2, y + 1, 1, 1);
-    ctx.fillRect(x + w - 3, y + 1, 1, 1);
+    ctx.fillRect(x + 3, y + 1, w - 6, 1);
   }
+  drawText(ctx, st.text, x + (small ? 4 : 5), y + (small ? 2 : 3), { color: st.color, shadow: !dark, shadowColor: tint(st.fill, -0.5) });
   return w;
 }
 
@@ -619,10 +634,10 @@ export function drawStatusBadge(ctx: Ctx, status: StatusId, x: number, y: number
   x = Math.round(x); y = Math.round(y);
   const fill = STATUS_FILL[status] ?? UI.inkSoft;
   const text = STATUS_SHORT[status] ?? String(status).toUpperCase();
-  const w = measureText(text) + 8, h = 10;
+  const w = measureText(text) + 8, h = 11;
   drawPill(ctx, x, y, w, h, fill);
   const color = textOn(fill) === UI.text ? UI.ink : '#ffffff';
-  drawText(ctx, text, x + 4, y + 1, { color, shadow: color !== UI.ink, shadowColor: tint(fill, -0.5) });
+  drawText(ctx, text, x + 4, y + 2, { color, shadow: color !== UI.ink, shadowColor: tint(fill, -0.5) });
   return w;
 }
 
@@ -840,7 +855,7 @@ export function drawMessageBox(ctx: Ctx, x: number, y: number, w: number, h: num
   const lineCount = wrapText(full, innerW, size).length;
   const blockH = lineCount * lineStep(size) - (2 * size + 1);
   const ty = y + Math.max(8, Math.floor((h - 3 - blockH) / 2));
-  const tOpts: DrawTextOptions = { size, color: UI.text, shadowColor: UI.panelDark };
+  const tOpts: DrawTextOptions = { size, color: UI.text, shadowColor: tint(opts.fill ?? UI.panelLight, -0.16) };
   if (typeof text === 'string') drawWrapped(ctx, text, x + padX, ty, innerW, tOpts);
   else drawTypewriter(ctx, text, x + padX, ty, innerW, tOpts);
   const arrow = opts.arrow ?? (typeof text !== 'string' && text.done && text.text.length > 0);

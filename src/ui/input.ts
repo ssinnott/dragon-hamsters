@@ -58,6 +58,8 @@ type QueuedEvent =
   | { k: 'move'; x: number; y: number }
   | { k: 'down'; x: number; y: number }
   | { k: 'up'; x: number; y: number; touch: boolean }
+  /** The browser took the gesture over: the press ends without a release (no click). */
+  | { k: 'cancel' }
   | { k: 'leave' }
   | { k: 'keydown'; key: string; repeat: boolean }
   | { k: 'keyup'; key: string }
@@ -131,7 +133,7 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
   const onPointerCancel = (e: PointerEvent): void => {
     if (!e.isPrimary) return;
     activePointerId = null;
-    queue.push({ k: 'up', x: pointer.x, y: pointer.y, touch: true });
+    queue.push({ k: 'cancel' });
   };
   const onPointerLeave = (e: PointerEvent): void => {
     if (!e.isPrimary || activePointerId !== null) return;   // captured drags keep reporting
@@ -191,6 +193,10 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
         // A finger that lifted is no longer hovering anywhere.
         if (e.touch) pointer.inside = false;
         break;
+      case 'cancel':
+        pointer.down = false;
+        pointer.inside = false;
+        break;
       case 'leave': pointer.inside = false; break;
       case 'keydown':
         if (!heldKeys.has(e.key)) { heldKeys.add(e.key); pressedKeys.add(e.key); }
@@ -199,8 +205,10 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
       case 'keyup': heldKeys.delete(e.key); break;
       case 'wheel': wheel += e.dy; break;
       case 'blur':
+        // Focus left the page mid-press: drop everything without reporting a release (no click).
         heldKeys.clear();
-        if (pointer.down) { pointer.down = false; pointer.released = true; }
+        pointer.down = false;
+        activePointerId = null;
         break;
     }
   }
@@ -219,7 +227,7 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
       while (queue.length) {
         const e = queue[0];
         // One pointer transition per update: a down+up in one frame becomes press, then release.
-        if ((e.k === 'down' || e.k === 'up') && pointerEdges > 0) break;
+        if ((e.k === 'down' || e.k === 'up' || e.k === 'cancel') && pointerEdges > 0) break;
         // A second tap of the same key waits for the next update instead of merging into one press.
         if (e.k === 'keydown' && pressedKeys.has(e.key)) break;
         queue.shift();

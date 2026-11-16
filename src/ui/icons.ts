@@ -25,6 +25,8 @@ interface Pen {
   readonly g: G;
   /** One screen pixel, in the current unit space. */
   readonly px: number;
+  /** The radius of a disc that fills the icon without single-pixel nubs at its extremes. */
+  readonly edge: number;
   fill(color: string): void;
   stroke(color: string, widthPx?: number): void;
   /** Trace a path, stroke `outline` 1 px outside it (if given), then fill it. */
@@ -59,6 +61,11 @@ function mixHex(a: string, b: string, t: number): string {
   return hex([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]);
 }
 
+function luma(c: string): number {
+  const rgb = parseHex(c);
+  return rgb ? (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255 : 0.5;
+}
+
 const ALPHA_ON = 110;
 const cache = new Map<string, HTMLCanvasElement>();
 const CACHE_LIMIT = 800;
@@ -87,6 +94,7 @@ function sprite(key: string, r: number, outline: string | null, paint: (p: Pen) 
   const pen: Pen = {
     g,
     get px() { return 1 / (g.getTransform().a || 1); },
+    get edge() { return 1 - 0.5 * pen.px; },
     fill(color) { use(color); g.fillStyle = color; g.fill(); },
     stroke(color, widthPx = 1) {
       use(color);
@@ -190,11 +198,18 @@ type Emblem = (p: Pen, k: EmblemInk) => void;
 
 const EMBLEMS: Record<TypeId, Emblem> = {
   FLUFF(p, k) {
-    p.blob([circ(-0.5, 0.25, 0.44), circ(0.5, 0.25, 0.44), circ(0, -0.18, 0.58), circ(0, 0.4, 0.46),
-      circ(-0.48, -0.22, 0.34), circ(0.48, -0.22, 0.34)], k.body, k.line);
-    p.part(ell(-0.18, -0.34, 0.24, 0.17), k.hi);
-    // the tuft's little curl
-    p.g.beginPath(); p.g.arc(0.12, 0.12, 0.22, Math.PI * 0.9, Math.PI * 2.2); p.stroke(k.dark, 1);
+    // a cotton-soft puff of fur: three notched lobes over a flat bottom, with a curl
+    const D = Math.PI / 180;
+    p.part((g) => {
+      g.beginPath();
+      g.moveTo(-0.62, 0.62);
+      g.arc(-0.58, 0.28, 0.36, 100 * D, 250 * D, false);
+      g.arc(-0.05, -0.14, 0.5, 190 * D, 340 * D, false);
+      g.arc(0.58, 0.22, 0.38, 250 * D, 80 * D, false);
+      g.closePath();
+    }, k.body, k.line);
+    p.part(ell(-0.2, -0.36, 0.2, 0.12, -0.3), k.hi);
+    p.g.beginPath(); p.g.arc(0.02, 0.2, 0.2, Math.PI * 0.2, Math.PI * 1.6); p.stroke(mixHex(k.body, k.dark, 0.6), 1);
   },
   FIRE(p, k) {
     p.part((g) => {
@@ -245,25 +260,36 @@ const EMBLEMS: Record<TypeId, Emblem> = {
     p.part(polyT([0.2, -0.86, -0.36, 0.06, -0.18, 0.06, 0.32, -0.86]), k.hi);
   },
   EARTH(p, k) {
-    p.part((g) => {
+    const hill: Trace = (g) => {
       g.beginPath();
-      g.moveTo(-1, 0.72);
-      g.bezierCurveTo(-0.85, -0.25, -0.4, -0.72, 0, -0.72);
-      g.bezierCurveTo(0.4, -0.72, 0.85, -0.25, 1, 0.72);
+      g.moveTo(-1, 0.78);
+      g.quadraticCurveTo(-0.7, -0.05, -0.28, -0.42);
+      g.quadraticCurveTo(0, -0.66, 0.3, -0.4);
+      g.quadraticCurveTo(0.72, -0.05, 1, 0.78);
       g.closePath();
-    }, k.body, k.line);
-    // strata
+    };
+    p.part(hill, k.body, k.line);
+    // a darker lower stratum, then the strata line and pebbles
+    p.g.save();
+    hill(p.g); p.g.clip();
+    p.part(rrectT(-1.2, 0.18, 2.4, 1, 0), mixHex(k.body, k.dark, 0.45));
+    p.g.restore();
     p.g.beginPath();
-    p.g.moveTo(-0.72, 0.1); p.g.quadraticCurveTo(-0.3, -0.06, 0, 0.1); p.g.quadraticCurveTo(0.35, 0.26, 0.74, 0.1);
+    p.g.moveTo(-0.82, 0.18); p.g.quadraticCurveTo(-0.4, 0.02, 0, 0.18); p.g.quadraticCurveTo(0.4, 0.34, 0.82, 0.18);
     p.stroke(k.dark, 1);
-    p.part(circ(-0.3, 0.42, 0.13), k.dark);
-    p.part(circ(0.38, 0.46, 0.1), k.dark);
-    p.part(ell(-0.25, -0.38, 0.22, 0.12, -0.3), k.hi);
+    p.part(circ(-0.38, 0.5, 0.12), k.dark);
+    p.part(circ(0.32, 0.55, 0.1), k.dark);
+    p.part(ell(-0.3, -0.22, 0.18, 0.1, -0.5), k.hi);
   },
   ROCK(p, k) {
-    p.part(roundPoly([-0.9, 0.72, -0.98, 0.05, -0.55, -0.62, 0.12, -0.9, 0.78, -0.5, 0.98, 0.2, 0.62, 0.78], 0.18), k.body, k.line);
-    p.part(polyT([-0.68, -0.1, -0.42, -0.5, 0.05, -0.68, -0.25, -0.22]), k.hi);
-    p.g.beginPath(); p.g.moveTo(0.18, -0.82); p.g.lineTo(0.1, -0.25); p.g.lineTo(0.42, 0.05); p.g.lineTo(0.38, 0.45);
+    const shape: Trace = roundPoly([-0.96, 0.6, -0.86, -0.12, -0.42, -0.66, 0.2, -0.8, 0.78, -0.42, 0.98, 0.24, 0.72, 0.74, -0.42, 0.8], 0.26);
+    p.part(shape, k.body, k.line);
+    p.g.save();
+    shape(p.g); p.g.clip();
+    p.part(ell(0.55, 0.62, 0.95, 0.5, -0.5), mixHex(k.body, k.dark, 0.38));
+    p.g.restore();
+    p.part(ell(-0.42, -0.3, 0.26, 0.14, -0.7), k.hi);
+    p.g.beginPath(); p.g.moveTo(0.16, -0.76); p.g.lineTo(0.02, -0.4); p.g.lineTo(0.26, -0.16);
     p.stroke(k.dark, 1);
   },
   WINGED(p, k) {
@@ -295,6 +321,14 @@ const EMBLEMS: Record<TypeId, Emblem> = {
         }
       }
     };
+    const tiny = p.px > 0.2;
+    if (tiny) {
+      for (let i = 0; i < 3; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 3, c = Math.cos(a) * 0.95, s = Math.sin(a) * 0.95;
+        p.line(-c, -s, c, s, k.body, 1.2);
+      }
+      return;
+    }
     if (k.line) for (let i = 0; i < 3; i++) arm(-Math.PI / 2 + i * Math.PI / 3, 3.2, k.line);
     for (let i = 0; i < 3; i++) arm(-Math.PI / 2 + i * Math.PI / 3, 1.6, k.body);
     p.part(circ(0, 0, 0.2), k.hi);
@@ -391,12 +425,19 @@ export function drawTypeIcon(ctx: G, type: TypeId, cx: number, cy: number, r: nu
       emblem(p, { body, dark: c.dark, hi: WHITE, line: null });
       return;
     }
-    p.part(circ(0, 0, 1), c.dark);
-    p.part(circ(0, 0, 1 - 1.2 * p.px), c.color);
-    p.g.beginPath(); p.g.arc(0, 0, 1 - 2.2 * p.px, Math.PI * 1.05, Math.PI * 1.45); p.stroke(c.light, 1);
+    const big = r >= 7;
+    const e = p.edge;
+    if (big) {
+      p.part(circ(0, 0, e), c.dark);
+      p.part(circ(0, 0, e - p.px), c.color);
+      p.g.beginPath(); p.g.arc(0, 0, e - 2 * p.px, Math.PI * 1.08, Math.PI * 1.42); p.stroke(c.light, 1);
+    } else {
+      p.part(circ(0, 0, e), c.color);
+    }
     p.g.save();
-    p.g.scale(0.64, 0.64);
-    emblem(p, { body, dark: c.dark, hi: WHITE, line: c.dark });
+    const k = big ? 0.66 : 0.76;
+    p.g.scale(k, k);
+    emblem(p, { body, dark: c.dark, hi: WHITE, line: r >= 8 ? c.dark : null });
     p.g.restore();
   });
   blit(ctx, spr, cx, cy);
@@ -410,15 +451,21 @@ type ColorPair = { color: string; accent: string };
 
 const FOOD_PAINT: Record<FoodId, (p: Pen, c: ColorPair) => void> = {
   seeds(p, c) {
-    const seed = (x: number, y: number, rot: number): void => {
-      p.part(ell(x, y, 0.36, 0.7, rot), c.accent);
-      p.g.save(); p.g.translate(x, y); p.g.rotate(rot);
-      p.part(ell(-0.14, 0, 0.07, 0.5), c.color);
-      p.part(ell(0.14, 0, 0.07, 0.5), c.color);
+    const seed = (x: number, y: number, rot: number, sc: number): void => {
+      p.g.save(); p.g.translate(x, y); p.g.rotate(rot); p.g.scale(sc, sc);
+      p.part((g) => {
+        g.beginPath();
+        g.moveTo(0, -0.95);
+        g.quadraticCurveTo(0.52, -0.42, 0.44, 0.32);
+        g.arc(0, 0.32, 0.44, 0, Math.PI, false);
+        g.quadraticCurveTo(-0.52, -0.42, 0, -0.95);
+        g.closePath();
+      }, c.accent, sc < 1 ? INK : null);
+      p.line(0, -0.7, 0, 0.66, c.color, 1);
+      if (p.px < 0.14) { p.line(-0.24, -0.18, -0.26, 0.5, c.color, 1); p.line(0.24, -0.18, 0.26, 0.5, c.color, 1); }
       p.g.restore();
     };
-    seed(-0.34, 0.12, -0.45);
-    seed(0.36, -0.05, 0.4);
+    seed(0.04, 0.02, 0.62, 1.08);
   },
   carrot(p, c) {
     p.blob([ell(0.22, -0.62, 0.18, 0.36, 0.5), ell(0.5, -0.5, 0.16, 0.34, 1.0), ell(-0.02, -0.6, 0.15, 0.34, -0.1)], c.accent);
@@ -430,8 +477,9 @@ const FOOD_PAINT: Record<FoodId, (p: Pen, c: ColorPair) => void> = {
   },
   berries(p, c) {
     const dark = mixHex(c.color, INK, 0.45), hi = mixHex(c.color, WHITE, 0.55);
-    for (const [x, y] of [[-0.42, 0.3], [0.42, 0.3], [0, -0.36]] as const) {
-      p.part(circ(x, y, 0.52), c.color, dark);
+    p.part((g) => { g.beginPath(); g.moveTo(0.05, -0.62); g.quadraticCurveTo(0.45, -1.05, 0.88, -0.78); g.quadraticCurveTo(0.5, -0.45, 0.05, -0.62); g.closePath(); }, c.accent);
+    for (const [x, y] of [[-0.42, 0.34], [0.42, 0.34], [0, -0.3]] as const) {
+      p.part(circ(x, y, 0.5), c.color, dark);
       p.part(circ(x - 0.18, y - 0.18, 0.13), hi);
       p.part((g) => pathStar(g, x + 0.08, y - 0.02, 0.16, 0.06, 5, 0), dark);
     }
@@ -486,11 +534,21 @@ export function drawFoodIcon(ctx: G, id: FoodId, cx: number, cy: number, s = 14)
 
 const ITEM_PAINT: Record<ItemId, (p: Pen, c: ColorPair) => void> = {
   seedcake(p, c) {
-    const top = mixHex(c.color, WHITE, 0.35), side = c.color, dark = c.accent;
-    p.part(rrectT(-0.85, -0.12, 1.7, 0.86, 0.2), side);
-    p.part(ell(0, -0.12, 0.85, 0.36), top);
-    p.line(-0.85, 0.32, 0.85, 0.32, dark, 1);
-    for (const [x, y] of [[-0.4, -0.15], [0.05, -0.25], [0.42, -0.08], [-0.05, 0.02]] as const) p.part(ell(x, y, 0.1, 0.06, 0.4), dark);
+    const icing = '#fff3da', icingShade = '#ecd6b0', dark = c.accent;
+    p.part(rrectT(-0.82, -0.3, 1.64, 1.12, 0.22), c.color);
+    p.line(-0.8, 0.5, 0.8, 0.5, mixHex(c.color, dark, 0.5), 1);
+    p.part((g) => {
+      g.beginPath();
+      g.moveTo(-0.84, -0.18);
+      g.quadraticCurveTo(-0.84, -0.62, 0, -0.62);
+      g.quadraticCurveTo(0.84, -0.62, 0.84, -0.18);
+      g.lineTo(0.84, 0.1); g.quadraticCurveTo(0.7, 0.28, 0.56, 0.1);
+      g.lineTo(0.3, 0.02); g.quadraticCurveTo(0.12, 0.42, -0.06, 0.02);
+      g.lineTo(-0.4, 0.04); g.quadraticCurveTo(-0.6, 0.24, -0.84, 0.06);
+      g.closePath();
+    }, icing);
+    p.line(-0.6, -0.15, 0.6, -0.15, icingShade, 1);
+    for (const [x, y, rot] of [[-0.42, -0.36, 0.5], [0.0, -0.44, -0.3], [0.4, -0.32, 0.9]] as const) p.part(ell(x, y, 0.08, 0.15, rot), dark);
   },
   royalcake(p, c) {
     const top = mixHex(c.color, WHITE, 0.4), side = c.color, dark = c.accent;
@@ -517,21 +575,26 @@ const ITEM_PAINT: Record<ItemId, (p: Pen, c: ColorPair) => void> = {
     p.part(capsuleT(0.05, -0.45, 0.32, -0.9, 0.09), c.accent);
   },
   herbtea(p, c) {
-    const cup = '#f6efe2', cupDark = '#c9b9a4';
+    const lightCup = luma(c.accent) > 0.7;
+    const cup = lightCup ? c.accent : '#f6efe2', cupDark = mixHex(cup, INK, 0.25);
+    const leaf = mixHex(c.color, INK, 0.25);
     p.g.beginPath(); p.g.arc(0.58, 0.15, 0.24, -Math.PI * 0.55, Math.PI * 0.55); p.stroke(cup, 2.2);
     p.part((g) => { g.beginPath(); g.moveTo(-0.8, -0.2); g.lineTo(0.68, -0.2); g.quadraticCurveTo(0.6, 0.72, -0.06, 0.72); g.quadraticCurveTo(-0.72, 0.72, -0.8, -0.2); g.closePath(); }, cup);
     p.part(ell(-0.06, -0.2, 0.74, 0.17), c.color);
     p.part(ell(-0.06, 0.82, 0.72, 0.12), cupDark);
-    p.part((g) => { g.beginPath(); g.moveTo(-0.08, -0.3); g.quadraticCurveTo(-0.4, -0.8, 0.05, -1); g.quadraticCurveTo(0.2, -0.6, -0.08, -0.3); g.closePath(); }, c.accent);
+    p.part((g) => { g.beginPath(); g.moveTo(-0.08, -0.32); g.quadraticCurveTo(-0.5, -0.78, 0.0, -1); g.quadraticCurveTo(0.22, -0.6, -0.08, -0.32); g.closePath(); }, leaf);
+    p.line(-0.08, -0.34, -0.02, -0.8, mixHex(leaf, WHITE, 0.4), 1);
     p.line(-0.48, 0.1, -0.48, 0.48, cupDark, 1);
   },
   spicybiscuit(p, c) {
     const top = mixHex(c.color, WHITE, 0.25), dark = mixHex(c.color, INK, 0.35);
-    p.part(circ(0, 0.08, 0.86), c.color);
-    p.part(circ(-0.06, 0.02, 0.7), top);
-    for (const [x, y] of [[-0.35, -0.2], [0.25, -0.3], [0.35, 0.25], [-0.2, 0.35], [0.02, 0.0]] as const) p.part(circ(x, y, 0.11), c.accent);
-    p.line(-0.7, 0.55, -0.48, 0.72, dark, 1);
-    p.part(pathStarT(0.7, -0.68, 0.3, 0.1), '#ffe07a');
+    p.part(circ(-0.08, 0.14, 0.8), c.color);
+    p.part(circ(-0.14, 0.08, 0.64), top);
+    for (const [x, y] of [[-0.42, -0.12], [0.18, -0.2], [0.26, 0.32], [-0.28, 0.42], [-0.06, 0.1]] as const) p.part(circ(x, y, 0.1), c.accent);
+    p.line(-0.72, 0.56, -0.5, 0.74, dark, 1);
+    // a little flame: it's spicy
+    p.part((g) => { g.beginPath(); g.moveTo(0.72, -1); g.quadraticCurveTo(1.0, -0.6, 0.86, -0.38); g.quadraticCurveTo(0.72, -0.24, 0.56, -0.38); g.quadraticCurveTo(0.44, -0.62, 0.72, -1); g.closePath(); }, '#ff8a2a');
+    p.part(ell(0.72, -0.48, 0.08, 0.1), '#ffe07a');
   },
 };
 
@@ -556,16 +619,20 @@ export function drawItemIcon(ctx: G, id: ItemId, cx: number, cy: number, s = 14)
 // Coin, lock
 // ---------------------------------------------------------------------------------------------
 
-/** A gold seed-coin. @param r radius in px, default 5 */
+/** A gold coin with a star stamped on it. @param r radius in px, default 5 */
 export function drawCoinIcon(ctx: G, cx: number, cy: number, r = 5): void {
   blit(ctx, sprite(`coin|${r}`, r, INK, (p) => {
-    p.part(circ(0, 0, 1), '#b8781e');
-    p.part(circ(-0.08 * (r > 4 ? 1 : 0), -0.08 * (r > 4 ? 1 : 0), 0.82), '#f6c63c');
+    const e = p.edge;
+    p.part(circ(0, 0, e), '#c08424');
+    p.part(circ(0, 0, e - p.px), '#f6c63c');
     if (r >= 5) {
-      p.part(ell(0, 0.02, 0.26, 0.42), '#d3962a');
-      p.part(ell(-0.05, -0.08, 0.1, 0.2), '#fff2a8');
+      p.g.beginPath(); p.g.arc(0, 0, e - 1.5 * p.px, Math.PI * 0.05, Math.PI * 0.75); p.stroke('#dc9f2a', 1);
     }
-    p.part(ell(-0.45, -0.42, 0.16, 0.1, -0.7), '#fff6c8');
+    if (r >= 6) {
+      p.part((g) => pathStar(g, 0.06, 0.08, 0.5, 0.22, 5, -Math.PI / 2), '#dc9f2a');
+      p.part((g) => pathStar(g, -0.04, -0.02, 0.5, 0.22, 5, -Math.PI / 2), '#ffe27a');
+    }
+    p.part(ell(-0.42, -0.42, 0.2, 0.12, -0.75), '#fff6c8');
   }), cx, cy);
 }
 
@@ -573,10 +640,8 @@ export function drawCoinIcon(ctx: G, cx: number, cy: number, r = 5): void {
 export function drawLock(ctx: G, cx: number, cy: number, s = 12): void {
   const r = s / 2;
   blit(ctx, sprite(`lock|${r}`, r, INK, (p) => {
-    p.g.beginPath(); p.g.arc(0, -0.2, 0.46, Math.PI, 0); p.g.lineTo(0.46, 0.1); p.g.moveTo(-0.46, 0.1); p.g.lineTo(-0.46, -0.2);
-    p.stroke(INK, 2 + 2.6 * r / 6);
-    p.g.beginPath(); p.g.arc(0, -0.2, 0.46, Math.PI, 0); p.g.lineTo(0.46, 0.1); p.g.moveTo(-0.46, 0.1); p.g.lineTo(-0.46, -0.2);
-    p.stroke('#b9b3c4', 2.6 * r / 6);
+    p.g.beginPath(); p.g.moveTo(-0.46, 0.05); p.g.lineTo(-0.46, -0.3); p.g.arc(0, -0.3, 0.46, Math.PI, 0); p.g.lineTo(0.46, 0.05);
+    p.stroke('#b9b3c4', Math.max(1.5, r * 0.24));
     p.part(rrectT(-0.78, -0.08, 1.56, 1.04, 0.18), '#e2a83a');
     p.part(rrectT(-0.78, -0.08, 1.56, 0.26, 0.12), '#f6d06a');
     p.part(circ(0, 0.32, 0.16), '#5a3a1e');
@@ -604,10 +669,16 @@ const ORG_PAINT: Record<OrgId, (p: Pen) => void> = {
       g.quadraticCurveTo(-0.62, -0.25, 0.75, -0.92);
       g.quadraticCurveTo(0.6, 0.15, -0.72, 0.85);
       g.closePath();
-    }, '#3b3560', INK);
-    p.line(-0.85, 0.98, 0.5, -0.62, '#a49ccf', 1);
-    for (const t of [0.35, 0.55]) p.line(-0.2 + t * 0.5, 0.3 - t * 0.5, 0.12 + t * 0.5, 0.42 - t * 0.5, '#1b1426', 1);
-    p.part(ell(0.25, -0.5, 0.12, 0.2, 0.8), '#6b62a0');
+    }, '#6a62a8', INK);
+    p.part((g) => {
+      g.beginPath();
+      g.moveTo(-0.6, 0.72);
+      g.quadraticCurveTo(-0.5, -0.1, 0.62, -0.78);
+      g.quadraticCurveTo(-0.05, -0.05, -0.6, 0.72);
+      g.closePath();
+    }, '#8f88c8');
+    p.line(-0.85, 0.98, 0.5, -0.62, '#e4defa', 1);
+    p.line(0.05, 0.1, 0.3, 0.25, '#3b3560', 1);
   },
   snakes(p) {
     p.g.beginPath();
@@ -665,9 +736,10 @@ export function drawOrgEmblem(ctx: G, org: OrgId, cx: number, cy: number, r: num
   const ring = def?.emblem && parseHex(def.emblem) ? def.emblem : '#c8a050';
   const field = mixHex(def?.emblemAccent && parseHex(def.emblemAccent) ? def.emblemAccent : '#2a2140', '#2a2140', 0.5);
   blit(ctx, sprite(`o|${org}|${r}|${ring}|${field}`, r, INK, (p) => {
-    p.part(circ(0, 0, 1), ring);
-    p.part(circ(0, 0, 1 - 2 * p.px), mixHex(field, INK, 0.2));
-    p.g.beginPath(); p.g.arc(0, 0, 1 - 3 * p.px, Math.PI * 1.1, Math.PI * 1.45); p.stroke(mixHex(field, WHITE, 0.25), 1);
+    const e = p.edge, rim = r >= 8 ? 2 : 1;
+    p.part(circ(0, 0, e), ring);
+    p.part(circ(0, 0, e - rim * p.px), mixHex(field, INK, 0.2));
+    if (r >= 8) { p.g.beginPath(); p.g.arc(0, 0, e - (rim + 1) * p.px, Math.PI * 1.1, Math.PI * 1.45); p.stroke(mixHex(field, WHITE, 0.25), 1); }
     p.g.save();
     p.g.scale(0.66, 0.66);
     paint(p);
@@ -716,10 +788,11 @@ const ACTIVITY_PAINT: Record<ActivityId, (p: Pen) => void> = {
   },
   play(p) {
     const segs = ['#e84860', '#fffaf0', '#4a90e0', '#fffaf0', '#f6c63c', '#fffaf0'];
-    p.part(circ(0, 0, 0.92), segs[0]);
+    const e = p.edge;
+    p.part(circ(0, 0, e), segs[0]);
     for (let i = 0; i < segs.length; i++) {
       const a0 = -Math.PI / 2 + i / segs.length * Math.PI * 2, a1 = a0 + Math.PI * 2 / segs.length;
-      p.part((g) => { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, 0.92, a0, a1); g.closePath(); }, segs[i]);
+      p.part((g) => { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, e, a0, a1); g.closePath(); }, segs[i]);
     }
     p.part(circ(0, 0, 0.18), '#fffaf0');
     p.part(ell(-0.4, -0.45, 0.16, 0.1, -0.7), '#ffffff');

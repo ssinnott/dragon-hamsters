@@ -16,7 +16,7 @@ const LIST: AbilityDef[] = [
   a('little-paws', 'Little Paws', { kind: 'technician' },
     'Its moves with 60 power or less hit 1.5x as hard.', 'Technician'),
   a('lucky-whiskers', 'Lucky Whiskers', { kind: 'sereneGrace' },
-    'Twitchy whiskers double the odds of its moves\' extra effects.', 'Serene Grace'),
+    "Lucky whiskers double the odds of its moves' extra effects.", 'Serene Grace'),
 
   // ---- FIRE ----
   a('kindle', 'Kindle Heart', { kind: 'pinch', type: 'FIRE', mult: 1.5 },

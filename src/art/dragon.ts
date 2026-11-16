@@ -481,6 +481,16 @@ export function drawDirt(g: CanvasRenderingContext2D, x: number, t: number, ow: 
   }
 }
 
+/** Little stars circling a dazed head at (x, y), local units; `r` is the orbit radius. */
+export function drawDizzyStars(g: CanvasRenderingContext2D, x: number, y: number, r: number, t: number, ow: number): void {
+  for (let i = 0; i < 3; i++) {
+    const a = t * 4 + (i / 3) * TAU;
+    const sx = x + Math.cos(a) * r, sy = y + Math.sin(a) * r * 0.32;
+    g.beginPath(); pathStar(g, sx, sy, 2.1, 0.95, 5, a);
+    ink(g, '#ffe14a', ow * 0.7);
+  }
+}
+
 /** Dizzy spiral eye. */
 export function drawSpiral(g: CanvasRenderingContext2D, x: number, y: number, r: number, t: number, w: number): void {
   g.beginPath();
@@ -1194,6 +1204,7 @@ function drawHead(g: CanvasRenderingContext2D, D: DC): void {
   if (ex.has('chefHat')) drawChefHat(g, D);
   if (ex.has('halo')) drawHalo(g, D);
   if (st.sweat && D.fx) drawSweat(g, -0.75 * hr, -0.6 * hr, 1.8, D.ow);
+  if (st.eyes === 'dizzy' && D.fx && st.p < 0.75) drawDizzyStars(g, 0, -hr * 1.05, hr * 0.8, D.t, D.ow);
   if (ex.has('frostBreath') && D.fx && st.pose !== 'sleep' && st.pose !== 'faint') drawFrostBreath(g, D);
   if (st.zzz && D.fx) drawNoseBubble(g, D);
   g.restore();
