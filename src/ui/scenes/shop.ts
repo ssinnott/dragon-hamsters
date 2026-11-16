@@ -184,7 +184,7 @@ export function createShopScene(): Scene {
     // coins fly off the counter, the price floats up from the coin chip
     const rowY = LIST.y + list.selected * 22 - list.scroll + 11;
     fx.burst(LIST.x + 14, rowY, UI.gold, 6 + qty * 2);
-    fx.floatText(coinX() + 24, P.y + 20, `-${cost}`, '#ff8a7a');
+    fx.floatText(LIST.x + LIST.w - 22, rowY - 4, `-${cost}`, '#ff8a7a');
     fx.floatText(LIST.x + 304, rowY - 4, `+${qty}`, '#8ef07a');
   }
 
@@ -206,7 +206,7 @@ export function createShopScene(): Scene {
     }
     drawEntryIcon(ctx, e.id, r.x + 13, r.y + 11, 14);
     drawText(ctx, shopName(e.id), r.x + 26, r.y + 8, { color: UI.text, shadow: false });
-    drawText(ctx, effectLine(e.id), r.x + 124, r.y + 8, { color: UI.textDim, shadow: false });
+    drawText(ctx, effectLine(e.id), r.x + 128, r.y + 8, { color: UI.textDim, shadow: false });
     const have = owned(app.state, e.id);
     drawText(ctx, 'X' + have, r.x + 300, r.y + 8, { color: have > 0 ? UI.text : UI.textDim, shadow: false });
     const afford = app.state.coins >= e.price;
@@ -248,7 +248,6 @@ export function createShopScene(): Scene {
     }
     ctx.fillStyle = 'rgba(27,20,38,0.25)'; ctx.fillRect(b.x, b.y + 22, b.w, 2);
     // the shopkeeper
-    poseTime += 1 / 60;
     let pose: Pose = poseName, poseT = 0;
     if (poseName === 'happy' && poseTime > 1.1) pose = poseName = 'idle';
     if (poseName === 'hurt') { poseT = Math.min(1, poseTime / 0.6); if (poseTime > 0.8) poseName = 'idle'; }
@@ -314,7 +313,7 @@ export function createShopScene(): Scene {
 
   function drawHeader(ctx: Ctx): void {
     drawText(ctx, 'ITEM', LIST.x + 26, LIST.y - 11, { color: UI.textDim, shadow: false });
-    drawText(ctx, 'EFFECT', LIST.x + 124, LIST.y - 11, { color: UI.textDim, shadow: false });
+    drawText(ctx, 'EFFECT', LIST.x + 128, LIST.y - 11, { color: UI.textDim, shadow: false });
     drawText(ctx, 'HAVE', LIST.x + 296, LIST.y - 11, { color: UI.textDim, shadow: false });
     drawText(ctx, 'PRICE', LIST.x + LIST.w - 6, LIST.y - 11, { color: UI.textDim, shadow: false, align: 'right' });
     // coins chip, with a little jolt when spent or refused
@@ -342,6 +341,7 @@ export function createShopScene(): Scene {
     update(dt: number, input: Input) {
       fx.update(dt);
       say.update(dt);
+      poseTime += dt;
       coinPulse = Math.max(0, coinPulse - dt);
       shake = Math.max(0, shake - dt);
       for (const [k, v] of glow) { if (v - dt <= 0) glow.delete(k); else glow.set(k, v - dt); }
@@ -360,6 +360,8 @@ export function createShopScene(): Scene {
       }
       list.update(input);
       group.update(input);
+      // Enter buys one, so the focus ring belongs on BUY X1 (hidden while it is disabled)
+      group.focus = 0;
     },
     draw(ctx: Ctx) {
       drawPanel(ctx, P.x, P.y, P.w, P.h, { title: 'PANTRY SHOP' });

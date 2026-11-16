@@ -299,7 +299,7 @@ export function createBagScene(): Scene {
       drawText(ctx, 'USE IT ON WHO?', x, y, { size: 2, color: UI.accent, shadowColor: tint(UI.panelLight, -0.2) });
       y += 22;
     } else {
-      drawText(ctx, 'PRESS USE TO PICK A DRAGON.', x, y, { color: UI.textDim, shadow: false });
+      drawText(ctx, n > 0 ? 'PRESS USE TO PICK A DRAGON.' : 'NONE LEFT. THE SHOP SELLS MORE.', x, y, { color: UI.textDim, shadow: false });
       y += 14;
     }
     // the last thing that happened
@@ -329,6 +329,8 @@ export function createBagScene(): Scene {
       if (mode === 'items') items.update(input);
       else dragons.update(input);
       group.update(input);
+      // Enter uses the item, so the focus ring belongs on USE
+      group.focus = 0;
     },
     draw(ctx: Ctx) {
       drawPanel(ctx, P.x, P.y, P.w, P.h, { title: mode === 'items' ? 'BAG' : 'BAG: PICK A DRAGON' });
@@ -337,6 +339,7 @@ export function createBagScene(): Scene {
         drawText(ctx, 'HAVE', LIST.x + LIST.w - 6, LIST.y - 13, { align: 'right', color: UI.textDim, shadow: false });
         drawInset(ctx, LIST.x - 4, LIST.y - 3, LIST.w + 8, 26 * 10 + 6);
         items.draw(ctx);
+        drawText(ctx, 'UP/DOWN: PICK   ENTER: USE   ESC: CLOSE', LIST.x + LIST.w / 2, LIST.y + 26 * 10 + 12, { align: 'center', color: UI.textDim, shadow: false });
       } else {
         drawText(ctx, 'DRAGON', LIST.x + 30, LIST.y - 13, { color: UI.textDim, shadow: false });
         drawText(ctx, 'HP', LIST.x + 116, LIST.y - 13, { color: UI.textDim, shadow: false });

@@ -14,6 +14,7 @@ import type { GameState } from '../game/types.ts';
 import { createBurrowScene } from '../ui/scenes/burrow.ts';
 import { createShopScene } from '../ui/scenes/shop.ts';
 import { createBagScene } from '../ui/scenes/bag.ts';
+import { createConfirmScene, createDialogScene } from '../ui/scenes/dialog.ts';
 
 const params = new URLSearchParams(location.search);
 const which = params.get('scene') ?? 'burrow';
@@ -56,6 +57,11 @@ bootHarness(() => createBurrowScene(), {
   nav: {
     shop: () => app.scenes.push(createShopScene()),
     bag: () => app.scenes.push(createBagScene()),
+    // the real modal boxes (&stub=1 keeps the logging placeholders)
+    ...(params.get('stub') ? {} : {
+      dialog: (lines: string[], onDone?: () => void, speaker?: 'chief' | 'none') => app.scenes.push(createDialogScene(lines, onDone, speaker)),
+      confirm: (text: string, onYes: () => void, onNo?: () => void) => app.scenes.push(createConfirmScene(text, onYes, onNo)),
+    }),
   },
 });
 

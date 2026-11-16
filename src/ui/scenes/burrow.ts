@@ -599,7 +599,10 @@ export function createBurrowScene(): Scene {
       facing: Math.random() < 0.5 ? 1 : -1, phase: Math.random() * 10, wiggle: 0, nest: -1, h: 36,
       btn: null as unknown as Hotspot,
     };
-    w.btn = new Hotspot({ label: d.id, rect: { x: p.x - 14, y: p.y - 36, w: 28, h: 36 }, onClick: () => openCard(w.id) }, 'dragon', d.id);
+    w.btn = new Hotspot({
+      label: d.id, rect: { x: p.x - 14, y: p.y - 36, w: 28, h: 36 }, onClick: () => openCard(w.id),
+      enabled: () => mode === 'hub' && !(vig && vig.id === w.id),
+    }, 'dragon', d.id);
     // Already-tired dragons start out asleep in the nest rather than wandering there.
     if (d.needs.energy < MISSION_ENERGY && !isFainted(d)) {
       w.nest = freeNestSpot();
@@ -695,6 +698,8 @@ export function createBurrowScene(): Scene {
       return { pose: P[vig.activity], poseT: 0 };
     }
     if (w.wiggle > 0) return { pose: 'happy', poseT: 0 };
+    // a dragon under the cursor stops to look at you
+    if (w.state === 'walk' && w.btn.hovered && mode === 'hub') return { pose: 'idle', poseT: 0 };
     switch (w.state) {
       case 'walk': case 'toNest': return { pose: 'walk', poseT: 0 };
       case 'hop': return { pose: 'happy', poseT: 0 };
@@ -712,7 +717,6 @@ export function createBurrowScene(): Scene {
     const hw = Math.max(13, Math.round(w.h * (lying ? 0.6 : 0.42)));
     const r = w.btn.spec.rect;
     r.x = Math.round(w.x - hw); r.y = Math.round(w.y - h); r.w = hw * 2; r.h = h + 2;
-    w.btn.spec.enabled = () => mode === 'hub' && !(vig && vig.id === w.id);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -723,7 +727,7 @@ export function createBurrowScene(): Scene {
 
   function canFeedAny(d: OwnedDragon): { ok: boolean; reason: string } {
     const stocked = FOOD_IDS.filter((f) => (app.state.food[f] ?? 0) > 0);
-    if (!stocked.length) return { ok: false, reason: 'THE PANTRY IS EMPTY' };
+    if (!stocked.length) return { ok: false, reason: 'PANTRY EMPTY: VISIT THE SHOP' };
     let reason = '';
     for (const f of stocked) {
       const c = canDoActivity(app.state, d.id, 'feed', f);
@@ -1011,7 +1015,11 @@ export function createBurrowScene(): Scene {
     panel.msgT = Math.max(0, panel.msgT - 1 / 60);
     if (panel.mode === 'dragons') panel.dlist.update(input);
     else panel.flist.update(input);
-    if (panel) panel.group.update(input);
+    if (panel) {
+      panel.group.update(input);
+      // Enter picks the selected row, so the focus ring belongs on GO
+      if (panel) panel.group.focus = 0;
+    }
   }
 
   function miniDragon(ctx: Ctx, d: OwnedDragon, x: number, y: number, maxH: number): void {
@@ -1682,19 +1690,24 @@ export function createBurrowScene(): Scene {
     }
     // the first case nags with a soft pulse until it is cleared
     const nag = nagging();
+    const missions = hudButtons[0];
     if (nag) {
-      const b = hudButtons[0].spec.rect;
-      const pulse = 0.5 + 0.5 * Math.sin(app.time * 5);
+      // the button breathes (quantised so the colour cache stays small) and glows
+      const pulse = Math.round((0.5 + 0.5 * Math.sin(app.time * 4)) * 6) / 6;
+      missions.spec.color = tint(UI.accent, 0.35 * pulse);
+      const b = missions.spec.rect;
       ctx.save();
-      ctx.globalAlpha = 0.25 + 0.45 * pulse;
-      fillRoundRect(ctx, b.x - 3, b.y - 3, b.w + 6, b.h + 6, 5, UI.gold);
+      ctx.globalAlpha = 0.2 + 0.4 * pulse;
+      fillRoundRect(ctx, b.x - 4, b.y - 3, b.w + 8, b.h + 7, 5, '#ffb070');
       ctx.restore();
+    } else {
+      missions.spec.color = UI.accent;
     }
     hub.draw(ctx);
     if (nag) {
-      const b = hudButtons[0].spec.rect;
-      const hop = Math.round(Math.abs(Math.sin(app.time * 4)) * -3);
-      const bx = b.x - 4, by = b.y + 12 + hop;
+      const b = missions.spec.rect;
+      const hop = Math.round(Math.abs(Math.sin(app.time * 4)) * -2);
+      const bx = b.x - 5, by = b.y - 1 + hop;
       fillRoundRect(ctx, bx, by, 10, 11, 3, UI.ink);
       fillRoundRect(ctx, bx + 1, by + 1, 8, 9, 2, UI.bad);
       drawText(ctx, '!', bx + 3, by + 2, { color: '#ffffff', shadow: false });
