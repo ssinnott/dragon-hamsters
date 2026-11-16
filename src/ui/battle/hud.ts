@@ -20,8 +20,8 @@ type Ctx = CanvasRenderingContext2D;
 // ---------------------------------------------------------------------------------------------
 
 export const LAYOUT = {
-  enemyGround: { x: 470, y: 150 },
-  enemyPlatform: { x: 470, y: 152, w: 150 },
+  enemyGround: { x: 474, y: 150 },
+  enemyPlatform: { x: 474, y: 152, w: 150 },
   playerGround: { x: 160, y: 236 },
   playerPlatform: { x: 160, y: 240, w: 190 },
   enemyBox: { x: 6, y: 6, w: 212, h: 50 },
@@ -32,12 +32,14 @@ export const LAYOUT = {
   band: 260,
 } as const;
 
-/** Tallest the art may be on each side (px at battle scale, to the ear tips). */
-const ENEMY_MAX_H = 100;
+/** Tallest the art may be on each side (px at battle scale, to the ear tips): big bosses are capped
+ * so their hats stay clear of the MATCHUP strip, but still tower over their minions. */
+const ENEMY_MAX_H = 98;
+const BOSS_MAX_H = 112;
 const PLAYER_MAX_H = 112;
 
 export function battleScale(v: MonView): number {
-  const max = v.side === 'enemy' ? ENEMY_MAX_H : PLAYER_MAX_H;
+  const max = v.side === 'enemy' ? (v.isBoss ? BOSS_MAX_H : ENEMY_MAX_H) : PLAYER_MAX_H;
   return Math.min(2, max / v.h1);
 }
 
@@ -410,7 +412,7 @@ export function drawOutroBanner(ctx: Ctx, text: string, color: string, u: number
 // ---------------------------------------------------------------------------------------------
 
 function dimOn(face: string, text: string): string {
-  return text === UI.text ? tint(face, -0.55) : tint(face, 0.55);
+  return text === UI.text ? tint(face, -0.62) : tint(face, 0.68);
 }
 
 export function smallBadgeWidth(t: TypeId): number {
@@ -475,8 +477,10 @@ export function drawMoveInfo(ctx: Ctx, r: Rect, slot: MoveSlot | null, noPp: boo
   }
   const catFill = mv.category === 'physical' ? '#e0703a' : mv.category === 'special' ? '#4f7fe0' : '#8d7f92';
   let px = x + drawPill(ctx, mv.category.toUpperCase(), x, r.y + 18, catFill) + 6;
-  drawText(ctx, powerText(mv), px, r.y + 20, { color: UI.text, shadow: false });
-  px += measureText(powerText(mv)) + 8;
+  if (mv.category !== 'status') {
+    drawText(ctx, powerText(mv), px, r.y + 20, { color: UI.text, shadow: false });
+    px += measureText(powerText(mv)) + 8;
+  }
   const sure = mv.target === 'self' || mv.effects.some((e) => e.kind === 'sureHit');
   drawText(ctx, sure ? 'ACC -' : `ACC ${mv.accuracy}%`, px, r.y + 20, { color: UI.text, shadow: false });
   const lines = wrapText(mv.description, w).slice(0, 3);

@@ -20,12 +20,12 @@ import {
 import { drawItemIcon, drawTypeIcon } from '../icons.ts';
 import { drawText } from '../../lib/engine/text.ts';
 import { ITEM_IDS, type FxKind, type ItemId, type Stats, type StatusId, type TypeId } from '../../data/schema.ts';
-import { getAbility, getItem, getLocation, getMission, getMove, getType, getVillain } from '../../data/index.ts';
+import { getAbility, getItem, getLocation, getMission, getMove, getType } from '../../data/index.ts';
 import type { BattleEvent, BattleState, PlayerAction, Side } from '../../battle/types.ts';
 import { activeMon, createBattle, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
 import { bestTypeMultiplier, effectivenessLabel, matchupGrade, moveEffectiveness } from '../../battle/matchup.ts';
 import { xpForLevel } from '../../battle/stats.ts';
-import { currentNode, encounterSetup, finishBattle, type MissionRun } from '../../game/missions.ts';
+import { encounterSetup, finishBattle, type MissionRun } from '../../game/missions.ts';
 import { drawBattleBackdrop, drawPlatform } from '../../art/backdrops.ts';
 import { createFx } from '../../art/fx.ts';
 import { drawDizzyStars, type Pose } from '../../art/dragon.ts';
@@ -138,7 +138,6 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   let outro: { text: string; color: string; age: number } | null = null;
   /** The fx the last move played and on whom, so the follow-up event does not play it twice. */
   let lastMoveFx: { at: string; kind: FxKind } | null = null;
-  let leadTaunted = false;
   const bossSeen = new Set<string>();
 
   function newSlot(side: Side): Slot {
@@ -296,11 +295,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         if (bossEntrance) bossSeen.add(v.uid);
         sfx(bossEntrance ? 'boss' : 'swap');
         updateMatchup();
-        // The villain's taunt: the lead's when it first steps up, and the boss's grand entrance.
-        if (e.side === 'enemy' && v.kind === 'villain' && (!leadTaunted || bossEntrance)) {
-          leadTaunted = true;
-          const taunt = getVillain(battle.enemy.team[v.index].defId).taunt;
-          if (taunt) queue.unshift({ t: 'text', text: `${v.name}: "${taunt.toUpperCase()}"` });
+        // The boss's grand entrance gets a banner (the mission screen already played its taunt).
+        if (bossEntrance && e.side === 'enemy') {
+          banners = banners.filter((x) => x.side !== 'enemy');
+          banners.push({ side: 'enemy', text: `BOSS BATTLE: ${v.name}!`, age: 0, dur: 2.2 });
         }
         return mkStep(ENTER_DUR + 0.04);
       }
@@ -1124,9 +1122,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       for (const m of [...battle.player.team, ...battle.enemy.team]) views.set(m.uid, makeView(m));
       playerTeam = battle.player.team.map((m) => view(m.uid));
       enemyTeam = battle.enemy.team.map((m) => view(m.uid));
-      const node = currentNode(run);
-      const intro = node && (node.kind === 'battle' || node.kind === 'boss') ? node.encounter.intro : '';
-      if (intro) queue.push({ t: 'text', text: intro.toUpperCase() });
+      // (the mission screen shows the encounter's intro and the villain's taunt before the battle)
       queue.push(...startBattle(battle));
       const s = app.state.settings;
       if (s) { setSound(s.sound); setMusic(s.music); }

@@ -13,13 +13,15 @@
 //     Sabotage = battle, branch, rest, boss. Infiltrate = 2 battles, boss, no rest. Defend = 4 waves
 //     of 1-2 enemies, rest after wave 2, boss. A boss encounter is [lieutenant, boss], with a minion
 //     in front in a few late cases.
-//   - Sabotage branch: the boss node stays outside the branch (tools/contenttest.ts requires every
-//     mission to end with its one boss node), and the branch can only splice nodes in before it, so
-//     a route cannot change the boss node's `supercharge`. The routes are therefore "rush on" (a
-//     story beat) or "cut the power" (one extra battle: more XP, training and villain coins).
+//   - Sabotage branch: option 1 rushes on (a story beat) and carries the route `supercharge`
+//     { atk: +1, spa: +1 }, which the device gives the boss at the start of the boss battle; option 2
+//     cuts the power with one extra battle and leaves the boss normal. The boss node itself stays
+//     outside the branch, so every mission ends with exactly one boss node.
 //   - Levels: `level` is the design band for the org and case. Minions fight at the band -1..+1,
 //     the lieutenant at +1 and the boss at +3. The first two cases use single-enemy battles (the
-//     player has two level-5 starters); after that battles field 1-2 enemies.
+//     player has two level-5 starters); after that battles field 1-2 enemies. The very first case's
+//     minions all sit at band -1: the boss encounter decides that mission, and in simulations
+//     tougher minions only wore a FIRE + LEAF pair down before it got there.
 //   - Rewards: 60 + 12 * level coins (src/game/missions.ts adds +50% for infiltrate), 2 foods or
 //     items (3 for retrieve, its bonus, and for showdowns), and a dragon for every case:
 //       * cheese-1 hatches the stolen dinosaur egg: Triceratot, chance 1.
@@ -32,7 +34,7 @@
 //         appear in the last two showdowns.
 import type {
   EncounterSpec, FoodId, ItemId, LocationDef, LocationId, MissionDef, MissionNode, MissionTypeDef,
-  MissionTypeId, OrgId, SpeciesId, VillainId,
+  MissionTypeId, OrgId, SpeciesId, StageChanges, VillainId,
 } from './schema.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -56,7 +58,7 @@ export const MISSION_TYPES: Record<MissionTypeId, MissionTypeDef> = {
     id: 'sabotage',
     name: 'Sabotage',
     description: 'The villains have built a terrible gadget. Get to it and switch it off for good.',
-    twist: 'Halfway in, pick a route: rush on to the boss, or fight one extra battle to cut the power for more XP and coins.',
+    twist: 'Rush in and the gadget powers up the boss (+1 ATTACK and SP. ATK), or fight one extra battle to cut the power first.',
   },
   infiltrate: {
     id: 'infiltrate',
@@ -142,12 +144,14 @@ const FULL_HEAL = 1;
 /** Chance to recruit from a themed pool; showdowns are a little more generous. */
 const POOL_CHANCE = 0.35;
 const SHOWDOWN_CHANCE = 0.4;
+/** What a sabotage gadget gives the boss when the squad rushes in without cutting the power. */
+const SUPERCHARGE: StageChanges = { atk: 1, spa: 1 };
 
 type Enemy = EncounterSpec['enemies'][number];
 type Offset = -1 | 0 | 1;
 type Reward = { id: ItemId | FoodId; qty: number };
 
-/** One route of a sabotage branch. */
+/** One route of a sabotage branch (the builder adds the rush route's supercharge). */
 interface Route { label: string; description: string; nodes: MissionNode[] }
 
 /** Node builders bound to one mission's org and level band. */
@@ -159,7 +163,7 @@ interface Kit {
   boss(label: string, intro: string, ...minions: Enemy[]): MissionNode;
   rest(label: string, text: string, heal?: number): MissionNode;
   story(label: string, text: string): MissionNode;
-  /** A sabotage crossroads: rush on (a story beat) or cut the power (one more battle). */
+  /** A sabotage crossroads: rush on (the boss gets SUPERCHARGE) or cut the power (one more battle). */
   branch(label: string, text: string, rush: Route, cut: Route): MissionNode;
 }
 
@@ -174,7 +178,9 @@ function kit(org: OrgId, level: number): Kit {
     }),
     rest: (label, text, heal = REST_HEAL) => ({ kind: 'rest', label, text, heal }),
     story: (label, text) => ({ kind: 'story', label, text }),
-    branch: (label, text, rush, cut) => ({ kind: 'branch', label, text, options: [rush, cut] }),
+    branch: (label, text, rush, cut) => ({
+      kind: 'branch', label, text, options: [{ ...rush, supercharge: { ...SUPERCHARGE } }, cut],
+    }),
   };
 }
 
@@ -241,12 +247,12 @@ const CASES: CaseFile[] = [
       k.battle('Fossil hall',
         'A Crumb Snatcher is licking the glass of the trilobite case. It spins round, cheeks stuffed with crackers.',
         k.m('crumb-snatcher', -1)),
-      k.battle('Gem gallery',
-        'The floor bulges, cracks and pops. A Tunnel Rat in a hard hat pokes its head up between two very surprised sapphires.',
-        k.m('tunnel-rat')),
       k.battle('Museum cafe',
         'The museum cafe smells of hot cheese. The Fondue Flinger is greasing a frying pan the size of a paddling pool.',
-        k.m('fondue-flinger')),
+        k.m('fondue-flinger', -1)),
+      k.battle('Gem gallery',
+        'The floor bulges, cracks and pops. A Tunnel Rat in a hard hat pokes its head up between two very surprised sapphires.',
+        k.m('tunnel-rat', -1)),
       k.rest('Gift shop',
         'You hide behind a rack of dinosaur plushies and share a bag of sunflower seeds. Everyone feels ready for anything.', FULL_HEAL),
       k.boss('Dinosaur hall',
@@ -305,12 +311,13 @@ const CASES: CaseFile[] = [
         'The Melt-o-Matic is humming on the lakeshore. Its power cable runs to a fuse box, and two of the crew are guarding it.',
         {
           label: 'Rush the lake',
-          description: 'Dash past the guards, straight to the Cheese Ray and the boss. Quicker, but less XP.',
-          nodes: [k.story('Duck dash', 'You sneak past the fuse box behind a family of ducks. The ducks do not seem to mind.')],
+          description: 'Dash straight to the boss. No extra battle, but the ray powers him up: +1 ATTACK and SP. ATK.',
+          nodes: [k.story('Duck dash',
+            'You sneak past the fuse box behind a family of ducks. Behind you, the Melt-o-Matic hums louder, pumping cheesy power into the boss!')],
         },
         {
           label: 'Cut the power',
-          description: 'Fight the fuse box guards and pull the plug. One more battle for more XP and coins.',
+          description: 'Fight the fuse box guards and pull the plug first. One more battle, but the boss stays normal.',
           nodes: [k.battle('Fuse box',
             'The Fondue Flinger is guarding the fuse box. The Doormouse is guarding it too, by sleeping on top of it.',
             k.m('fondue-flinger'), k.m('doormouse', 1))],
@@ -521,13 +528,13 @@ const CASES: CaseFile[] = [
         'The Moon Magnet is humming louder and louder. Its power cable runs down to a fuse room, guarded by two of the flock.',
         {
           label: 'Rush the roof',
-          description: 'No time to lose! Race up the fire escape to the Godfeather. Quicker, but less XP.',
+          description: 'No extra battle, but the magnet charges up the Godfeather: +1 ATTACK and SP. ATK.',
           nodes: [k.story('Fire escape',
-            'You race up the fire escape three steps at a time. The moon looks very, very close now, and rather worried.')],
+            'You race up the fire escape three steps at a time. The moon looks very close now, and silver sparks are crackling around the Godfeather.')],
         },
         {
           label: 'Cut the power',
-          description: 'Fight the fuse room guards and pull the plug. One more battle for more XP and coins.',
+          description: 'Fight the fuse room guards and pull the plug first. One more battle, but the Godfeather stays normal.',
           nodes: [k.battle('Fuse room',
             'In the fuse room, a Two-Tone Magpie is guarding the big switch. A Stool Pigeon is guarding the Two-Tone Magpie.',
             k.m('two-tone-magpie'), k.m('stool-pigeon', 1))],
@@ -562,13 +569,13 @@ const CASES: CaseFile[] = [
         'Behind the stadium, the Hypno-Spiral is already turning. A thick cable runs from it to a generator in the reptile house.',
         {
           label: 'Rush the stadium',
-          description: 'Shut your eyes and run straight to the Baron. Quicker, but less XP.',
+          description: 'Shut your eyes and run. No extra battle, but the spiral powers up the Baron: +1 ATTACK and SP. ATK.',
           nodes: [k.story('Eyes shut!',
-            'You run through the stadium with your eyes squeezed shut, following the smell of fish to the stage. It works, mostly.')],
+            'You run through the stadium with your eyes squeezed shut, following the smell of fish to the stage. Ahead, the spiral glows brighter and brighter around the Baron.')],
         },
         {
           label: 'Cut the power',
-          description: 'Fight the reptile house guards and pull the plug. One more battle for more XP and coins.',
+          description: 'Fight the reptile house guards and pull the plug first. One more battle, but the Baron stays normal.',
           nodes: [k.battle('Reptile house',
             'A Pendulum Python is guarding the generator, swinging its watch at a Swamp Smuggler, who is already fast asleep. Then the python spots you.',
             k.m('pendulum-python', 1), k.m('swamp-smuggler'))],
@@ -752,13 +759,13 @@ const CASES: CaseFile[] = [
         'The sunlamp is warming up and the whole tower feels cosy. A huge cable runs down to a generator on floor 40, guarded by the Cartel.',
         {
           label: 'Rush the roof',
-          description: 'Race straight up to the Don before you get sleepy. Quicker, but less XP.',
+          description: 'Race up before you get sleepy. No extra battle, but the sunlamp warms up the Don: +1 ATTACK and SP. ATK.',
           nodes: [k.story('Yawning stairs',
-            'You race up the stairs, yawning all the way. Three window cleaners are already asleep on their mops.')],
+            'You race up the stairs, yawning all the way. Three window cleaners are already asleep on their mops, and up on the roof the Don is basking in the glow.')],
         },
         {
           label: 'Cut the power',
-          description: 'Fight the generator guards and pull the plug. One more battle for more XP and coins.',
+          description: 'Fight the generator guards and pull the plug first. One more battle, but the Don stays normal.',
           nodes: [k.battle('Floor 40',
             'On floor 40, a Chimney Cat is guarding the generator, and an Alley Scrapper is trying to arm-wrestle it.',
             k.m('chimney-cat', 1), k.m('alley-scrapper'))],
@@ -972,13 +979,13 @@ const CASES: CaseFile[] = [
         'The assembly line is clanking faster and faster. A huge power cable runs to the factory fuse box, guarded by the lab crew.',
         {
           label: 'Rush the control room',
-          description: 'Dodge the conveyor belts and race straight to the doctor. Quicker, but less XP.',
+          description: 'No extra battle, but the factory power surges into the doctor: +1 ATTACK and SP. ATK.',
           nodes: [k.story('Conveyor dash',
-            'You ride a conveyor belt past a hundred half-built robots. One of them waves. You wave back. It seems only polite.')],
+            'You ride a conveyor belt past a hundred half-built robots. One of them waves, and you wave back. Up ahead, the control room is buzzing with power.')],
         },
         {
           label: 'Cut the power',
-          description: 'Fight the fuse box guards and pull the plug. One more battle for more XP and coins.',
+          description: 'Fight the fuse box guards and pull the plug first. One more battle, but the doctor stays normal.',
           nodes: [k.battle('Fuse box',
             'A Cryo Ferret and a Soaker Bot are guarding the fuse box. Ice and water: this could get slippery.',
             k.m('cryo-ferret'), k.m('soaker-bot', 1))],
