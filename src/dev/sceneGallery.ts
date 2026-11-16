@@ -241,7 +241,7 @@ function fxScene(): GScene {
           pending.push({ at: clock + 0.55, run: () => fx.floatText(to.x, to.y - 20, '-' + dmg, index % 3 ? '#ffffff' : '#ffd24a') });
         }
         index++;
-        next = clock + 1.15;
+        next += 1.15;
       }
       for (let i = pending.length - 1; i >= 0; i--) if (clock >= pending[i].at) { pending[i].run(); pending.splice(i, 1); }
       fx.update(dt);

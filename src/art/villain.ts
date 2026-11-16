@@ -10,9 +10,8 @@
 // skull, face), head prop, near arm and held item, particles.
 
 import type { Animal, VillainVisual } from '../data/schema.ts';
-import { mix, shade, rgba } from '../lib/art/palettes.ts';
-import { pathStar, pathTaperedCapsule, pathRoundedPoly } from '../lib/art/shapes.ts';
-import { clamp } from '../lib/engine/math.ts';
+import { hexToRgb, mix, shade } from '../lib/art/palettes.ts';
+import { pathTaperedCapsule, pathRoundedPoly } from '../lib/art/shapes.ts';
 import {
   INK, poseState, hash01, drawCreatureFrame, enterLocal, localToGround, outlinePx,
   addEll, addCirc, ink, strokeLine, addTaperQuad, addLeaf, dark, light,
@@ -163,29 +162,43 @@ interface VPal {
 
 const palCache = new WeakMap<VillainVisual, VPal>();
 
+/** Highlight tone that still reads on near-black fur and cloth. */
+function hiTone(hex: string, k: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  const lum = (r * 0.3 + g * 0.59 + b * 0.11) / 255;
+  return lum < 0.28 ? mix(hex, '#9a9ad0', 0.2 + (0.28 - lum) * 0.9) : light(hex, k);
+}
+/** Base tone for very dark colours: lifted a touch so the ink outline and shadow still separate from it. */
+function liftDark(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  const lum = (r * 0.3 + g * 0.59 + b * 0.11) / 255;
+  return lum < 0.17 ? mix(hex, '#6a6a90', (0.17 - lum) * 1.6) : hex;
+}
+
 function vpal(v: VillainVisual): VPal {
   let P = palCache.get(v);
   if (P) return P;
   const a = v.animal;
   const sleeves = v.outfit === 'suit' || v.outfit === 'trenchcoat' || v.outfit === 'labcoat' || v.outfit === 'tracksuit';
   const coat = mix(v.outfitColor, '#f6f6fa', 0.8);
-  const sleeve = v.outfit === 'labcoat' ? coat : sleeves ? v.outfitColor : v.body;
-  const leg = v.outfit === 'tracksuit' ? v.outfitColor : v.body;
+  const sleeve = v.outfit === 'labcoat' ? coat : sleeves ? liftDark(v.outfitColor) : liftDark(v.body);
+  const leg = v.outfit === 'tracksuit' ? liftDark(v.outfitColor) : liftDark(v.body);
   const hand = a === 'mouse' || a === 'rat' ? mix(PINK, v.body, 0.25)
     : a === 'cat' || a === 'ferret' || a === 'weasel' ? v.belly
-      : a === 'robot' ? shade(v.body, 0.85) : v.body;
+      : a === 'robot' ? shade(v.body, 0.85) : liftDark(v.body);
   const foot = a === 'mouse' || a === 'rat' ? mix(PINK, v.body, 0.25)
     : a === 'pigeon' ? '#e8848c' : a === 'crow' || a === 'magpie' ? '#3e3a48'
-      : a === 'cat' || a === 'ferret' || a === 'weasel' ? v.belly : v.body;
+      : a === 'cat' || a === 'ferret' || a === 'weasel' ? v.belly : liftDark(v.body);
   const beak = a === 'pigeon' ? '#4a4250' : a === 'magpie' ? '#26222e' : '#3e3a4a';
-  const hat = v.outfit === 'none' ? '#3a3448' : shade(v.outfitColor, 0.82);
+  const hat = v.outfit === 'none' ? '#3a3448' : liftDark(shade(v.outfitColor, 0.82));
+  const body = liftDark(v.body), out = liftDark(v.outfitColor);
   P = {
-    body: v.body, bodySh: dark(v.body, 0.76), bodyHi: light(v.body, 0.3), bodyFar: dark(v.body, 0.72),
+    body, bodySh: dark(body, 0.76), bodyHi: hiTone(body, 0.3), bodyFar: dark(body, 0.72),
     belly: v.belly, bellySh: dark(v.belly, 0.85),
     accent: v.accent, accentSh: dark(v.accent, 0.74), accentHi: light(v.accent, 0.4),
     eye: v.eye,
-    out: v.outfitColor, outSh: dark(v.outfitColor, 0.74), outHi: light(v.outfitColor, 0.28), outFar: dark(v.outfitColor, 0.7),
-    hat, hatSh: dark(hat, 0.72), hatHi: light(hat, 0.3),
+    out, outSh: dark(out, 0.74), outHi: hiTone(out, 0.28), outFar: dark(out, 0.7),
+    hat, hatSh: dark(hat, 0.72), hatHi: hiTone(hat, 0.3),
     sleeve, sleeveFar: dark(sleeve, 0.72),
     leg, legFar: dark(leg, 0.72),
     hand, handFar: dark(hand, 0.75),
@@ -222,6 +235,7 @@ export function drawVillain(ctx: CanvasRenderingContext2D, v: VillainVisual, x: 
   const phase = hash01([v.animal, v.body, v.outfit, v.prop, v.size]);
   const st = poseState(opts.pose ?? 'idle', t, opts.poseT ?? 0, phase);
   if (A.plan === 'snake' && (st.pose === 'walk' || st.pose === 'run')) { st.oy *= 0.3; st.rot *= 0.5; }
+  if (st.pose === 'happy') st.paws = 'rest';
   const boss = v.size >= 1.3;
   const S = scale * v.size;
   const fr: CreatureFrame = {
@@ -667,21 +681,21 @@ function armTarget(D: VC, near: boolean, sx: number, sy: number): [number, numbe
   const tx = A.tx, ty = A.ty, rx = D.trx, ry = D.try_, L = A.armL;
   switch (st.paws) {
     case 'rest': {
-      const sp = D.boss ? 9 : 7, rub = Math.sin(t * sp) * 0.75;
-      return near ? [tx + rx * 0.78 + rub * 0.4, ty - ry * 0.02 + rub] : [tx + rx * 0.98 - rub * 0.4, ty - ry * 0.12 - rub];
+      const sp = st.pose === 'happy' ? 16 : D.boss ? 9 : 7, rub = Math.sin(t * sp) * 0.75;
+      return near ? [tx + rx * 0.84 + rub * 0.4, ty + ry * 0.46 + rub] : [tx + rx * 1.04 - rub * 0.4, ty + ry * 0.38 - rub];
     }
     case 'walk': { const s = Math.sin(st.step) * 3 * st.stepAmp * (near ? 1 : -1); return [sx + 1.5 + s, sy + L * 0.92]; }
     case 'attack': {
       const k = st.p < 0.22 ? -0.5 : st.p < 0.56 ? 1 : 1 - (st.p - 0.56) / 0.44;
       return near ? [sx + 2 + L * 1.05 * k, sy + 2 - k * 1.5] : [sx - 2.5, sy + L * 0.72];
     }
-    case 'up': { const b = Math.sin(t * 15 + (near ? 0 : 1)) * 0.9; return near ? [sx + 3, sy - L * 0.85 + b] : [sx - 2.5, sy - L * 0.8 + b]; }
+    case 'up': { const b = Math.sin(t * 15 + (near ? 0 : 1)) * 0.9; return near ? [sx + 4.5, sy - L * 0.4 + b] : [sx - 4.5, sy - L * 0.45 + b]; }
     case 'limp': return near ? [sx - 1, sy + L] : [sx - 2.5, sy + L * 0.95];
     case 'fold': return near ? [tx + rx * 0.1, ty - ry * 0.32] : [tx + rx * 0.85, ty - ry * 0.42];
     case 'eat': return near ? [D.hx + A.hr * 0.9, D.hy + A.hr * 0.95 + st.chew * 0.5] : [tx + rx * 0.85, ty - ry * 0.15];
     case 'dig': {
       const s = Math.sin(t * 20) * (near ? 1 : -1);
-      return [tx + rx + 2.5 + s * 1.5, -3.5 - Math.max(0, s) * 3];
+      return [sx + L * 0.75 + s * 1.5, sy + L * 0.8 - Math.max(0, s) * 2.5];
     }
   }
 }
@@ -689,7 +703,10 @@ function armTarget(D: VC, near: boolean, sx: number, sy: number): [number, numbe
 function drawArm(g: CanvasRenderingContext2D, D: VC, near: boolean): void {
   const { v, A, P, st } = D;
   const sx = A.shX + (near ? 0 : -3.2), sy = A.shY + (near ? 0 : 0.7);
-  const [hx, hy] = armTarget(D, near, sx, sy);
+  let [hx, hy] = armTarget(D, near, sx, sy);
+  // arms stretch a little, never like taffy
+  const reach = Math.hypot(hx - sx, hy - sy), maxReach = A.armL * 1.2;
+  if (reach > maxReach) { hx = sx + (hx - sx) * maxReach / reach; hy = sy + (hy - sy) * maxReach / reach; }
   if (!near && v.outfit === 'armor') drawPauldron(g, D, false);
   if (A.plan === 'bird') {
     // wing-arm: a feathered blade from the shoulder to the "hand" with three finger feathers
@@ -728,8 +745,11 @@ function drawArm(g: CanvasRenderingContext2D, D: VC, near: boolean): void {
     }
   } else {
     const dx = hx - sx, dy = hy - sy, len = Math.hypot(dx, dy) || 1;
-    const bow = st.paws === 'fold' ? -1.2 : 1.6;
-    const cx = sx + dx * 0.5 + (dy / len) * -bow * -1, cy = sy + dy * 0.5 - (dx / len) * bow * -1;
+    let cx: number, cy: number;
+    if (st.paws === 'fold') { cx = sx - 1; cy = hy + 2.5; }
+    else if (st.paws === 'attack') { cx = sx + dx * 0.5; cy = sy + dy * 0.5 + 1; }
+    else if (dy > 1) { cx = sx + dx * 0.12 - 0.6; cy = sy + dy * 0.85; }
+    else { cx = sx + dx * 0.7; cy = sy + 2.5; }
     g.beginPath(); addTaperQuad(g, sx, sy, cx, cy, hx, hy, A.armR * 2.3, A.armR * 1.8, 10);
     ink(g, near ? P.sleeve : P.sleeveFar, D.ow);
     if (v.outfit === 'tracksuit') {
@@ -778,28 +798,35 @@ function drawPauldron(g: CanvasRenderingContext2D, D: VC, near: boolean): void {
 
 function drawCapeBack(g: CanvasRenderingContext2D, D: VC): void {
   const { A, P, st, t } = D;
-  const run = st.pose === 'run' || st.pose === 'walk' ? 1 : 0;
-  const sw = Math.sin(t * 2.4 + D.phase * 5) * 1.2 + run * (2 + Math.sin(t * 9) * 1.2);
-  const nx = A.nx, ny = A.ny;
-  const back = A.tx - D.trx * 1.45 - sw - run * 3, bottom = -0.8 - run * 3;
-  const front = A.tx + D.trx * 0.35;
+  const move = st.pose === 'run' ? 1 : st.pose === 'walk' ? 0.5 : 0;
+  const sw = Math.sin(t * 2.4 + D.phase * 5) * 1.1 + move * (2.5 + Math.sin(t * 9) * 1.2);
+  const sx = A.tx - D.trx * 0.5, sy = Math.max(A.ny - 0.5, D.hy + A.hr * 0.55);
+  const fx = A.tx + D.trx * 0.45;
+  const hem = -0.8 - move * 2.5;
+  const back = A.tx - D.trx * 1.8 - sw - move * 3;
+  const midY = sy + (hem - sy) * 0.45;
   const lining = mix(P.accent, '#b8283a', 0.55);
   g.beginPath();
-  g.moveTo(nx - 4.5, ny + 0.5); g.lineTo(nx + 1.5, ny + 0.5);
-  g.quadraticCurveTo(front + 1, (ny + bottom) / 2, front, bottom + 0.5);
+  g.moveTo(fx, sy + 1); g.lineTo(sx, sy);
+  g.quadraticCurveTo(back + 1.5, midY, back, hem - move * 1.5);
   const n = 4;
   for (let i = 1; i <= n; i++) {
-    const x = front + (back - front) * (i / n), xm = front + (back - front) * ((i - 0.5) / n);
-    g.quadraticCurveTo(xm, bottom - 1.6 + (i % 2) * 0.5, x, bottom + (i === n ? -run * 2 : 0.3));
+    const x = back + (fx - back) * (i / n), xm = back + (fx - back) * ((i - 0.5) / n);
+    g.quadraticCurveTo(xm, hem + 1.3, x, hem + (i === n ? 0 : -0.4));
   }
-  g.quadraticCurveTo(back + 2 + sw * 0.3, (ny + bottom) / 2, nx - 4.5, ny + 0.5);
   g.closePath();
-  ink(g, P.outSh, D.ow);
+  ink(g, P.out, D.ow);
+  // the lining shows where the hem flares out behind
   g.beginPath();
-  g.moveTo(nx - 2, ny + 1);
-  g.quadraticCurveTo(back + 3.5 + sw * 0.3, (ny + bottom) / 2, back + 1.5, bottom - 0.6);
-  g.lineTo(front - 3, bottom - 0.6); g.quadraticCurveTo(front - 2, (ny + bottom) / 2, nx - 2, ny + 1); g.closePath();
+  g.moveTo(sx + 0.4, sy + 0.8);
+  g.quadraticCurveTo(back + 3.2, midY + 1, back + 2.6 + (fx - back) * 0.18, hem + 0.1);
+  g.quadraticCurveTo(back + (fx - back) * 0.1, hem + 1.1, back + 0.3, hem - move * 1.5 - 0.2);
+  g.quadraticCurveTo(back + 1.6, midY, sx, sy);
+  g.closePath();
   g.fillStyle = lining; g.fill();
+  g.beginPath();
+  g.moveTo(sx + 2, sy + 2); g.quadraticCurveTo(back + 6, midY + 2, back + (fx - back) * 0.45, hem + 0.2);
+  strokeLine(g, P.outSh, D.ow * 1.1);
 }
 
 function coatPath(g: CanvasRenderingContext2D, D: VC, k: number, dy: number): void {
@@ -815,7 +842,7 @@ function coatPath(g: CanvasRenderingContext2D, D: VC, k: number, dy: number): vo
 function drawOutfit(g: CanvasRenderingContext2D, D: VC): void {
   const { v, A, P } = D;
   const tx = A.tx, ty = A.ty, rx = D.trx, ry = D.try_;
-  const vx = tx + rx * 0.42, ny = A.ny;
+  const vx = tx + rx * 0.62, ny = Math.max(A.ny, D.hy + A.hr * 0.72);
   const ow = D.ow;
   switch (v.outfit) {
     case 'none':
@@ -825,13 +852,16 @@ function drawOutfit(g: CanvasRenderingContext2D, D: VC): void {
     case 'suit': {
       const path: BlobPath = (gg, k, dy) => { gg.beginPath(); addEll(gg, tx, ty + 0.4 + dy * ry, rx * 1.05 * k, ry * 1.02 * k); };
       celBlob(g, D, path, P.out, P.outSh, P.outHi, tx - rx * 0.4, ty - ry * 0.7, rx * 0.3, ry * 0.12, () => {
-        g.beginPath(); g.moveTo(vx - 2.6, ny - 1); g.lineTo(vx + 3, ny - 1); g.lineTo(vx + 0.6, ty + ry * 0.22); g.closePath();
+        const vb = ty + ry * 0.2;
+        g.beginPath(); g.moveTo(vx - 3.2, ny - 1.5); g.lineTo(vx + 4, ny - 1.5); g.lineTo(vx + 0.8, vb); g.closePath();
         g.fillStyle = '#f8f6f0'; g.fill();
-        g.beginPath(); g.moveTo(vx - 0.3, ny + 0.8); g.lineTo(vx + 1.3, ny + 0.8); g.lineTo(vx + 1.1, ty + ry * 0.08); g.lineTo(vx + 0.45, ty + ry * 0.2); g.lineTo(vx - 0.2, ty + ry * 0.06); g.closePath();
+        g.beginPath(); g.moveTo(vx - 0.1, ny - 0.4); g.lineTo(vx + 1.7, ny - 0.4); g.lineTo(vx + 1.5, vb - 2.4); g.lineTo(vx + 0.8, vb - 0.6); g.lineTo(vx + 0.1, vb - 2.4); g.closePath();
         g.fillStyle = mix(P.accent, '#c8303a', 0.45); g.fill();
-        g.beginPath(); g.moveTo(vx - 2.6, ny - 1); g.lineTo(vx - 0.4, ty + ry * 0.05); g.moveTo(vx + 3, ny - 1); g.lineTo(vx + 1.5, ty + ry * 0.05);
-        strokeLine(g, P.outSh, ow * 1.2);
-        g.beginPath(); addCirc(g, vx + 0.7, ty + ry * 0.38, 0.6); addCirc(g, vx + 0.7, ty + ry * 0.62, 0.6); g.fillStyle = P.outSh; g.fill();
+        g.beginPath(); g.moveTo(vx - 0.1, ny - 0.4); g.lineTo(vx + 1.7, ny - 0.4); g.lineTo(vx + 1.3, ny + 1); g.lineTo(vx + 0.3, ny + 1); g.closePath();
+        g.fillStyle = mix(P.accent, '#8a1a2a', 0.5); g.fill();
+        g.beginPath(); g.moveTo(vx - 3.2, ny - 1.5); g.lineTo(vx - 0.2, vb - 1); g.moveTo(vx + 4, ny - 1.5); g.lineTo(vx + 2, vb - 1);
+        strokeLine(g, P.outSh, ow * 1.4);
+        g.beginPath(); addCirc(g, vx + 0.9, ty + ry * 0.4, 0.65); addCirc(g, vx + 0.9, ty + ry * 0.65, 0.65); g.fillStyle = P.outSh; g.fill();
         g.beginPath(); g.moveTo(tx - rx * 0.25, ty - ry * 0.32); g.lineTo(tx - rx * 0.05, ty - ry * 0.52); g.lineTo(tx + rx * 0.1, ty - ry * 0.32); g.closePath();
         g.fillStyle = mix(P.accent, '#ffffff', 0.3); g.fill();
       });
@@ -935,17 +965,20 @@ function drawNeckwear(g: CanvasRenderingContext2D, D: VC): void {
     return;
   }
   if (v.outfit === 'cape') {
+    // a tall dramatic collar fanning up behind the head
     const lining = mix(P.accent, '#b8283a', 0.55);
+    const cy = Math.max(ny, D.hy + A.hr * 0.75);
     g.beginPath();
-    g.moveTo(nx - 4.2, ny + 1.4); g.lineTo(nx - 7.2, ny - 6.5); g.quadraticCurveTo(nx - 3, ny - 4.6, nx - 0.5, ny - 1.5); g.lineTo(nx + 1.5, ny + 1.4); g.closePath();
+    g.moveTo(nx - 3.5, cy + 1.5); g.lineTo(nx - 9.5, cy - 9.5); g.quadraticCurveTo(nx - 5, cy - 8, nx - 2.5, cy - 7.5);
+    g.lineTo(nx + 0.5, cy + 1.5); g.closePath();
     ink(g, P.out, ow);
-    g.beginPath(); g.moveTo(nx - 3.6, ny + 0.6); g.lineTo(nx - 6, ny - 5); g.quadraticCurveTo(nx - 3, ny - 3.8, nx - 1.2, ny - 1.2); g.closePath();
+    g.beginPath(); g.moveTo(nx - 3.2, cy + 0.2); g.lineTo(nx - 8, cy - 8); g.quadraticCurveTo(nx - 5, cy - 7, nx - 3, cy - 6.4); g.lineTo(nx - 0.6, cy + 0.2); g.closePath();
     g.fillStyle = lining; g.fill();
-    g.beginPath(); addCirc(g, nx + 2, ny + 1.2, 1.3); ink(g, '#ffd23a', ow * 0.8);
+    g.beginPath(); g.moveTo(nx + 2.2, cy + 1.6); g.lineTo(nx + 6, cy - 3.2); g.lineTo(nx + 5, cy + 2.6); g.closePath();
+    ink(g, P.out, ow);
+    g.beginPath(); addCirc(g, nx + 2.6, cy + 1.6, 1.3); ink(g, '#ffd23a', ow * 0.8);
     return;
   }
-  if (v.outfit === 'labcoat' || v.outfit === 'trenchcoat') return;
-  void A;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1014,7 +1047,7 @@ function drawEarsBack(g: CanvasRenderingContext2D, D: VC): void {
 }
 
 function drawVHead(g: CanvasRenderingContext2D, D: VC): void {
-  const { v, A, P, st } = D;
+  const { v, A, P } = D;
   const r = A.hr, ow = D.ow;
   g.save();
   g.translate(D.hx, D.hy);
@@ -1072,7 +1105,6 @@ function drawVHead(g: CanvasRenderingContext2D, D: VC): void {
   if (v.prop === 'monocle' || v.prop === 'sunglasses' || v.prop === 'eyepatch' || v.prop === 'goggles') drawFaceProp(g, D);
   g.restore();
   drawProp(g, D);
-  void st;
 }
 
 function drawFerretMask(g: CanvasRenderingContext2D, D: VC): void {
@@ -1393,12 +1425,13 @@ function drawFaceProp(g: CanvasRenderingContext2D, D: VC): void {
       g.beginPath(); g.moveTo(-r * 0.95, -r * 0.35); g.lineTo(e1x - e1r, e1y - e1r * 0.4); strokeLine(g, INK, 1.2 + ow * 2);
       g.beginPath();
       pathRoundedPoly(g, [e2x - e2r * 1.0, e2y - e2r * 0.8, e2x + e2r * 1.25, e2y - e2r * 0.9, e2x + e2r * 1.1, e2y + e2r * 0.8, e2x - e2r * 0.9, e2y + e2r * 0.85], 1.2);
-      ink(g, '#1e1a26', ow * 0.8);
+      ink(g, '#262a3e', ow * 0.8);
       g.beginPath();
       pathRoundedPoly(g, [e1x - e1r * 1.3, e1y - e1r * 0.85, e1x + e1r * 1.3, e1y - e1r * 0.85, e1x + e1r * 1.2, e1y + e1r * 0.9, e1x - e1r * 1.15, e1y + e1r * 0.95], 1.4);
-      ink(g, '#1e1a26', ow * 0.8);
+      ink(g, '#262a3e', ow * 0.8);
       g.beginPath(); g.moveTo(e1x + e1r * 1.3, e1y - e1r * 0.5); g.lineTo(e2x - e2r * 1.0, e2y - e2r * 0.45); strokeLine(g, '#1e1a26', 1.2);
-      g.beginPath(); g.moveTo(e1x - e1r * 0.7, e1y - e1r * 0.45); g.lineTo(e1x - e1r * 0.1, e1y - e1r * 0.45); strokeLine(g, 'rgba(255,255,255,0.8)', 0.8);
+      g.beginPath(); g.moveTo(e1x - e1r * 0.8, e1y - e1r * 0.4); g.lineTo(e1x + e1r * 0.2, e1y - e1r * 0.4); strokeLine(g, '#ffffff', 0.9);
+      g.beginPath(); g.moveTo(e1x - e1r * 0.5, e1y + e1r * 0.15); g.lineTo(e1x + e1r * 0.5, e1y - e1r * 0.15); strokeLine(g, 'rgba(160,200,255,0.55)', 0.8);
       g.beginPath(); g.moveTo(e2x - e2r * 0.4, e2y - e2r * 0.45); g.lineTo(e2x + e2r * 0.1, e2y - e2r * 0.45); strokeLine(g, 'rgba(255,255,255,0.6)', 0.7);
       return;
     }
@@ -1507,11 +1540,13 @@ function drawProp(g: CanvasRenderingContext2D, D: VC): void {
       g.beginPath(); g.rect(-r * 1.25, Y * 0.2 - 1.2, r * 2.5, 2.4); ink(g, dark(metal, 0.8), ow);
       g.beginPath(); g.moveTo(-r * 0.2, Y * 0.2 - r * 1.1); g.lineTo(-r * 0.15, Y * 0.2 - 1); strokeLine(g, dark(metal, 0.7), ow * 1.2);
       const on = (Math.sin(t * 3) + 1) / 2;
-      g.beginPath(); addCirc(g, r * 0.78, Y * 0.2 - r * 0.62, 1.8 * K); ink(g, '#ffe680', ow);
-      g.save(); g.globalAlpha *= 0.25 + on * 0.25;
-      g.beginPath(); g.moveTo(r * 0.85, Y * 0.2 - r * 0.62); g.lineTo(r * 2.8, Y * 0.2 - r * 1.2); g.lineTo(r * 2.8, Y * 0.2 + r * 0.1); g.closePath();
-      g.fillStyle = '#fff6b0'; g.fill();
-      g.restore();
+      if (D.fx) {
+        g.save(); g.globalAlpha *= 0.25 + on * 0.2;
+        g.beginPath(); addCirc(g, r * 0.8, Y * 0.2 - r * 0.62, 3.2 * K); g.fillStyle = '#fff3a0'; g.fill();
+        g.restore();
+      }
+      g.beginPath(); addCirc(g, r * 0.8, Y * 0.2 - r * 0.62, 1.8 * K); ink(g, '#ffe680', ow);
+      g.beginPath(); addCirc(g, r * 0.8 - 0.5 * K, Y * 0.2 - r * 0.62 - 0.5 * K, 0.6 * K); g.fillStyle = '#ffffff'; g.fill();
       break;
     }
     case 'headphones': {
@@ -1543,7 +1578,6 @@ function drawProp(g: CanvasRenderingContext2D, D: VC): void {
     default: break;
   }
   g.restore();
-  void rgba; void clamp; void pathStar;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1559,7 +1593,7 @@ export const SAMPLE_VILLAINS: VillainVisual[] = [
   vv('mouse', '#a89c94', '#ebe0d8', '#f0c040', '#2a1a1a', 'bandana', '#d0383a', 'none', 0.85),
   vv('mouse', '#9a8a80', '#e4d6cc', '#f0c040', '#1e1414', 'suit', '#3a3048', 'cheeseHat', 1.5),
   vv('rat', '#6e625e', '#b8aca4', '#e0b040', '#401010', 'trenchcoat', '#8a6a40', 'fedora', 1.15),
-  vv('crow', '#2a2a3a', '#46465c', '#5a8ad8', '#f0d040', 'suit', '#1e1e28', 'sunglasses', 1.0),
+  vv('crow', '#2a2a3a', '#46465c', '#5a8ad8', '#f0d040', 'suit', '#45405e', 'sunglasses', 1.0),
   vv('magpie', '#22243a', '#f4f4f8', '#3a7ad8', '#1a1a24', 'cape', '#5a2a6a', 'beret', 1.0),
   vv('pigeon', '#8a92a8', '#b0b8cc', '#4ac0a0', '#c83a2a', 'tracksuit', '#3a5ad0', 'headphones', 0.9),
   vv('crow', '#1e1e2c', '#3a3a4e', '#e8c040', '#ff5a3a', 'cape', '#2a1a3a', 'tophat', 1.45),

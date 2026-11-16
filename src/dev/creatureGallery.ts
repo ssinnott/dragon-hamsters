@@ -1,6 +1,8 @@
 // Creature gallery (dev/creatures.html): every sample dragon and villain at battle and burrow scale,
 // a row of every pose for one of each, a mock battle exchange, and the flash / silhouette / fade modes.
-// URL options: ?t=1.25 freezes the clock (screenshots), ?zoom=3 sets the CSS pixel scale.
+// URL options: ?t=1.25 freezes the clock (screenshots), ?zoom=3 sets the CSS pixel scale,
+// ?focus=dragon:3 or ?focus=villain:1 shows one sample close up in every pose at scale 3;
+// add &pose=faint for a filmstrip of that pose at poseT 0, 0.125 .. 1.
 
 import { drawDragon, dragonHeight, SAMPLE_DRAGONS, POSES } from '../art/dragon.ts';
 import type { Pose } from '../art/dragon.ts';
@@ -32,14 +34,44 @@ function oneShot(t: number, offset = 0): number {
   return Math.min(1, u / 1.2);
 }
 
-function villainLabel(v: VillainVisual): [string, string] {
-  return [`${v.animal}${v.size >= 1.3 ? ' BOSS' : ''}`, `${v.outfit === 'none' ? '' : v.outfit} ${v.prop === 'none' ? '' : v.prop}`.trim()];
+function villainLabel(v: VillainVisual): [string, string, string] {
+  return [`${v.animal}${v.size >= 1.3 ? ' BOSS' : ''}`, v.outfit === 'none' ? '-' : v.outfit, v.prop === 'none' ? '-' : v.prop];
 }
 
 const POSE_DRAGON = SAMPLE_DRAGONS[0];
 const POSE_VILLAIN = SAMPLE_VILLAINS[2];
 
-const sections: Section[] = [
+const focus = params.get('focus');
+
+function focusSections(): Section[] {
+  const [kind, idxText] = (focus ?? '').split(':');
+  const idx = Math.max(0, Number(idxText) || 0);
+  const dragon = kind === 'dragon' ? SAMPLE_DRAGONS[idx % SAMPLE_DRAGONS.length] : null;
+  const villain = kind === 'villain' ? SAMPLE_VILLAINS[idx % SAMPLE_VILLAINS.length] : null;
+  const size = dragon ? dragon.size : villain ? villain.size : 1;
+  const scale = Math.max(2, Math.min(4, 3.2 / size));
+  const rowH = Math.ceil(46 * size * scale) + 30;
+  const strip = params.get('pose') as Pose | null;
+  const frames: { pose: Pose; poseT: number | null; name: string }[] = strip
+    ? Array.from({ length: 9 }, (_, i) => ({ pose: strip, poseT: i / 8, name: `${strip} ${(i / 8).toFixed(2)}` }))
+    : POSES.map((pose) => ({ pose, poseT: null, name: pose }));
+  const perRow = 3, cellW = W / perRow;
+  const rows = Math.ceil(frames.length / perRow);
+  return [{
+    title: `CLOSE-UP: ${kind} ${idx} AT SCALE ${scale.toFixed(1)}`, h: rows * rowH, bg: '#efe4d0',
+    draw(y, t) {
+      frames.forEach((f, i) => {
+        const cx = cellW * (i % perRow) + cellW / 2, gy = y + Math.floor(i / perRow) * rowH + rowH - 18;
+        const o = { scale, t, pose: f.pose, poseT: f.poseT ?? oneShot(t, i * 0.13), facing: (i % 2 ? -1 : 1) as 1 | -1 };
+        if (dragon) drawDragon(ctx, dragon, cx, gy, o);
+        if (villain) drawVillain(ctx, villain, cx, gy, o);
+        label(f.name, cx, gy + 6);
+      });
+    },
+  }];
+}
+
+const sections: Section[] = focus ? focusSections() : ([
   {
     title: 'DRAGONS AT SCALE 1 (BURROW)', h: 3 * 86 + 4, bg: '#efe4d0',
     draw(y, t) {
@@ -76,15 +108,16 @@ const sections: Section[] = [
     },
   },
   {
-    title: 'VILLAINS AT SCALE 1', h: 2 * 100 + 4, bg: '#3a2f4f',
+    title: 'VILLAINS AT SCALE 1', h: 2 * 106 + 4, bg: '#3a2f4f',
     draw(y, t) {
       SAMPLE_VILLAINS.forEach((v, i) => {
         const col = i % 9, row = Math.floor(i / 9);
-        const cx = 36 + col * 71, gy = y + row * 100 + 78;
+        const cx = 36 + col * 71, gy = y + row * 106 + 76;
         drawVillain(ctx, v, cx, gy, { t: t + i * 0.41, facing: -1 });
-        const [a, b] = villainLabel(v);
+        const [a, b, c] = villainLabel(v);
         label(a, cx, gy + 5, '#d8ccf0');
         label(b, cx, gy + 13, '#a898c8');
+        label(c, cx, gy + 21, '#a898c8');
       });
     },
   },
@@ -110,7 +143,7 @@ const sections: Section[] = [
       });
     },
   },
-];
+]);
 
 function totalHeight(): number {
   return 18 + sections.reduce((s, sec) => s + sec.h + 14, 0);

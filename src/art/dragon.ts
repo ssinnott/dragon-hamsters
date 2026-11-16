@@ -64,9 +64,10 @@ export interface PoseState {
   /** Root offset; +x is toward the facing direction. */
   ox: number;
   oy: number;
-  /** Root rotation in radians about (pivotX, 0); positive leans forward. */
+  /** Root rotation in radians about (pivotX, pivotY); positive leans forward. */
   rot: number;
   pivotX: number;
+  pivotY: number;
   /** Squash and stretch about the ground point. */
   sx: number;
   sy: number;
@@ -110,7 +111,7 @@ function blinkClosed(t: number, phase: number): boolean {
 export function poseState(pose: Pose, t: number, poseT: number, phase: number): PoseState {
   const p = clamp(poseT, 0, 1);
   const s: PoseState = {
-    pose, t, p, ox: 0, oy: 0, rot: 0, pivotX: 0, sx: 1, sy: 1, headDx: 0, headDy: 0, tilt: 0,
+    pose, t, p, ox: 0, oy: 0, rot: 0, pivotX: 0, pivotY: 0, sx: 1, sy: 1, headDx: 0, headDy: 0, tilt: 0,
     eyes: blinkClosed(t, phase) ? 'closed' : 'open', mouth: 'smile', wing: 0, tail: 0, step: 0, stepAmp: 0,
     paws: 'rest', puff: 0, chew: 0, fade: 1, lift: 0, zzz: false, dirt: false, sweat: false, hearts: false, seed: false,
   };
@@ -170,8 +171,9 @@ export function poseState(pose: Pose, t: number, poseT: number, phase: number): 
       const wob = p < 0.2 ? Math.sin(p * 45) * 0.08 * (p / 0.2) : 0;
       const k = ease.inQuad(clamp((p - 0.15) / 0.45, 0, 1));
       const bounce = p > 0.6 ? Math.sin((p - 0.6) * 28) * 0.07 * (1 - (p - 0.6) / 0.4) : 0;
-      s.rot = wob - 1.42 * k + bounce; s.pivotX = -9;
-      s.oy = 5 * ease.inQuad(clamp((p - 0.5) / 0.5, 0, 1));
+      // flop over backwards about the middle of the body, settle, sink and fade
+      s.rot = wob - 1.38 * k + bounce; s.pivotX = -1.5; s.pivotY = -13;
+      s.oy = 2.5 * k + 4 * ease.inQuad(clamp((p - 0.55) / 0.45, 0, 1));
       s.fade = 1 - clamp((p - 0.65) / 0.35, 0, 1);
       s.eyes = 'dizzy'; s.mouth = 'o'; s.paws = 'limp'; s.wing = 0.45 * k; s.tail = 0.4 * k;
       s.headDy = 0.6 * k;
@@ -320,7 +322,7 @@ export function enterLocal(g: CanvasRenderingContext2D, fr: CreatureFrame): void
   const st = fr.st, S = fr.S;
   g.scale(fr.facing, 1);
   g.translate(st.ox * S, st.oy * S);
-  if (st.rot !== 0) { g.translate(st.pivotX * S, 0); g.rotate(st.rot); g.translate(-st.pivotX * S, 0); }
+  if (st.rot !== 0) { g.translate(st.pivotX * S, st.pivotY * S); g.rotate(st.rot); g.translate(-st.pivotX * S, -st.pivotY * S); }
   g.scale(S * st.sx, S * st.sy);
 }
 
@@ -329,9 +331,9 @@ export function localToGround(fr: CreatureFrame, lx: number, ly: number, out: { 
   const st = fr.st, S = fr.S;
   let x = lx * st.sx, y = ly * st.sy;
   if (st.rot !== 0) {
-    const c = Math.cos(st.rot), s = Math.sin(st.rot), px = st.pivotX;
-    const dx = x - px;
-    x = px + dx * c - y * s; y = dx * s + y * c;
+    const c = Math.cos(st.rot), s = Math.sin(st.rot), px = st.pivotX, py = st.pivotY;
+    const dx = x - px, dy = y - py;
+    x = px + dx * c - dy * s; y = py + dx * s + dy * c;
   }
   out.x = (x + st.ox) * S * fr.facing;
   out.y = (y + st.oy) * S;
@@ -536,7 +538,7 @@ function dpal(v: DragonVisual): DPal {
   if (P) return P;
   const farK = 0.74;
   P = {
-    body: v.body, bodySh: dark(v.body, 0.78), bodyHi: light(v.body, 0.32), bodyFar: dark(v.body, farK),
+    body: v.body, bodySh: dark(v.body, 0.78), bodyHi: light(v.body, 0.22), bodyFar: dark(v.body, farK),
     belly: v.belly, bellySh: dark(v.belly, 0.86),
     accent: v.accent, accentSh: dark(v.accent, 0.74), accentHi: light(v.accent, 0.4), accentFar: dark(v.accent, farK),
     wing: v.wing, wingSh: dark(v.wing, 0.78), wingHi: light(v.wing, 0.4), wingFar: dark(v.wing, farK), wingFarSh: dark(v.wing, farK * 0.8),
@@ -880,16 +882,16 @@ function drawPaws(g: CanvasRenderingContext2D, D: DC): void {
     case 'fold': { ax += 0.5; ay += 0.6; bx2 = ax + 3; by2 = ay + 0.2; break; }
     case 'rest': break;
   }
-  if (st.seed) {
-    // A sunflower seed held in both paws.
-    const sx = (ax + bx2) / 2 + 0.6, sy = (ay + by2) / 2 - 1.9;
-    g.beginPath(); addEll(g, sx, sy, 2.1, 1.3, -0.5);
-    ink(g, '#3a3036', D.ow * 0.8);
-    g.beginPath(); g.moveTo(sx - 1.4, sy + 0.5); g.lineTo(sx + 1.2, sy - 1);
-    strokeLine(g, '#f2ead8', D.ow * 0.8);
-  }
   g.beginPath(); addEll(g, bx2, by2, 2.2, 1.9, 0.3);
   ink(g, P.pawSh, D.ow);
+  if (st.seed) {
+    // A striped sunflower seed held up in both paws.
+    const sx = (ax + bx2) / 2 + 0.4, sy = Math.min(ay, by2) - 1.2;
+    g.beginPath(); addEll(g, sx, sy, 1.5, 2.3, 0.35);
+    ink(g, '#3a3036', D.ow * 0.8);
+    g.beginPath(); g.moveTo(sx - 0.5, sy - 1.6); g.lineTo(sx + 0.4, sy + 1.6);
+    strokeLine(g, '#f2ead8', D.ow * 0.8);
+  }
   g.beginPath(); addEll(g, ax, ay, 2.4, 2.0, 0.3);
   ink(g, P.paw, D.ow);
 }

@@ -230,7 +230,7 @@ export function createFx(): Fx {
       const a = rng.range(0, TAU), v = rng.range(0.4, 1) * speed;
       spawn({
         x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * 0.3, ay: 420, drag: 1.2, delay,
-        max: rng.range(0.35, 0.6), size: rng.range(2, 3.5), color, shape: 'square', rot: a, vr: rng.range(-12, 12),
+        max: rng.range(0.35, 0.6), size: rng.range(2.5, 4.5), color, shape: 'square', rot: a, vr: rng.range(-12, 12),
       });
     }
   }
@@ -303,19 +303,19 @@ export function createFx(): Fx {
   function fireball(c: Ctx, x: number, y: number, age: number, k: Tint): void {
     const f = 1 + Math.sin(age * 45) * 0.12;
     c.globalCompositeOperation = 'lighter';
-    const g = c.createRadialGradient(x, y, 0, x, y, 13 * f);
+    const g = c.createRadialGradient(x, y, 0, x, y, 20 * f);
     g.addColorStop(0, rgba('#fff4c0', 0.9)); g.addColorStop(0.4, rgba(k.c, 0.7)); g.addColorStop(1, rgba(k.c, 0));
-    c.fillStyle = g; c.beginPath(); c.arc(x, y, 13 * f, 0, TAU); c.fill();
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, 20 * f, 0, TAU); c.fill();
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = k.c; c.beginPath(); c.arc(x, y, 6.5 * f, 0, TAU); c.fill();
-    c.fillStyle = '#ffe58a'; c.beginPath(); c.arc(x, y, 4 * f, 0, TAU); c.fill();
-    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(x - 1, y - 1, 1.8, 0, TAU); c.fill();
+    c.fillStyle = k.c; c.beginPath(); c.arc(x, y, 9.5 * f, 0, TAU); c.fill();
+    c.fillStyle = '#ffe58a'; c.beginPath(); c.arc(x, y, 6 * f, 0, TAU); c.fill();
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(x - 1.5, y - 1.5, 2.6, 0, TAU); c.fill();
   }
 
   function drop(c: Ctx, x: number, y: number, ang: number, r: number, fill: string): void {
     c.save(); c.translate(x, y); c.rotate(ang);
     c.beginPath(); c.moveTo(r * 2.2, 0); c.quadraticCurveTo(r * 0.4, -r * 1.2, -r, 0); c.quadraticCurveTo(r * 0.4, r * 1.2, r * 2.2, 0);
-    c.fillStyle = fill; c.fill();
+    c.fillStyle = fill; c.fill(); c.strokeStyle = rgba(INK, 0.45); c.lineWidth = 1; c.stroke();
     c.fillStyle = rgba('#ffffff', 0.8); c.beginPath(); c.arc(0, -r * 0.35, r * 0.35, 0, TAU); c.fill();
     c.restore();
   }
@@ -360,26 +360,27 @@ export function createFx(): Fx {
   }
 
   function jaw(c: Ctx, x: number, y: number, dir: 1 | -1, k: Tint): void {
-    const w = 30;
+    const w = 36;
+    const gum = mix(k.c, '#e0607a', 0.6);
     c.beginPath();
     c.moveTo(x - w - 4, y - dir * 2);
     c.quadraticCurveTo(x, y + dir * 8, x + w + 4, y - dir * 2);
     c.lineTo(x + w + 4, y - dir * 10);
     c.quadraticCurveTo(x, y - dir * 2, x - w - 4, y - dir * 10);
     c.closePath();
-    c.fillStyle = k.dark; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = gum; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
     for (let i = 0; i < 6; i++) {
       const tx = x - w + 6 + i * ((w * 2 - 12) / 5);
       const curve = (1 - Math.pow((tx - x) / w, 2)) * 4;
       const base = y + dir * curve - dir * 3;
-      const len = i === 0 || i === 5 ? 14 : 10;
-      polyPath(c, [tx - 4.5, base, tx + 4.5, base, tx, base + dir * len]);
+      const len = i === 0 || i === 5 ? 18 : 13;
+      polyPath(c, [tx - 5.5, base, tx + 5.5, base, tx, base + dir * len]);
       c.fillStyle = '#ffffff'; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
     }
   }
 
   function pie(c: Ctx, x: number, y: number, rot: number, k: Tint): void {
-    c.save(); c.translate(x, y); c.rotate(rot);
+    c.save(); c.translate(x, y); c.rotate(rot); c.scale(1.5, 1.5);
     c.beginPath(); c.ellipse(0, 1, 12, 7, 0, 0, TAU); c.fillStyle = '#d89a50'; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
     c.beginPath(); c.ellipse(0, -1, 9.5, 4.5, 0, 0, TAU); c.fillStyle = k.c; c.fill();
     c.strokeStyle = '#b87a38'; c.lineWidth = 1;
@@ -422,13 +423,13 @@ export function createFx(): Fx {
 
     slash: (_a, b, k) => {
       for (let i = 0; i < 3; i++) {
-        const ox = (i - 1) * 13;
+        const ox = (i - 1) * 16;
         add({
           delay: i * 0.07, dur: 0.26, layer: 1,
           draw: (c, u) => {
             const head = Math.min(1, u / 0.4), tail = u < 0.4 ? 0 : (u - 0.4) / 0.6;
             c.globalAlpha = fade(u, 0.7);
-            sweep(c, b.x + ox - 22, b.y - 30, b.x + ox + 20, b.y + 28, 8, 4, tail, outQuad(head), rgba(k.c, 0.95), '#ffffff');
+            sweep(c, b.x + ox - 28, b.y - 36, b.x + ox + 26, b.y + 34, 10, 6, tail, outQuad(head), rgba(k.c, 0.95), '#ffffff');
           },
         });
       }
@@ -440,7 +441,7 @@ export function createFx(): Fx {
         dur: 0.5, layer: 1,
         draw: (c, u) => {
           const close = u < 0.34 ? inQuad(u / 0.34) : 1;
-          const gap = 40 - 30 * close;
+          const gap = 46 - 34 * close;
           const shiver = u > 0.34 && u < 0.5 ? Math.sin(u * 120) * 1.5 : 0;
           c.globalAlpha = fade(u, 0.72);
           jaw(c, b.x + shiver, b.y - gap, 1, k);
@@ -466,7 +467,7 @@ export function createFx(): Fx {
             c.moveTo(x - ux * 14 + px, y - uy * 14 + py); c.lineTo(x - ux * (30 + Math.abs(off)) + px, y - uy * (30 + Math.abs(off)) + py);
           }
           c.stroke();
-          fist(c, x, y, Math.atan2(uy, ux), 0.75 + 0.45 * e, k);
+          fist(c, x, y, Math.atan2(uy, ux), 1.1 + 0.55 * e, k);
         },
       });
       later(0.13, () => {
@@ -505,11 +506,12 @@ export function createFx(): Fx {
     },
 
     splash: (a, b, k) => {
-      const N = 12;
+      const N = 16;
       for (let i = 0; i < N; i++) {
+        const r = i % 3 ? 4.2 : 5.2;
         projectile(a, b, {
-          delay: i * 0.022, dur: 0.32, arc: 34, jitter: 9,
-          head: (c, x, y, ang) => drop(c, x, y, ang, 3.2, k.light),
+          delay: i * 0.018, dur: 0.32, arc: 34, jitter: 10,
+          head: (c, x, y, ang) => drop(c, x, y, ang, r, i % 2 ? k.light : k.c),
           hit: (x, y) => {
             for (let n = 0; n < 2; n++) {
               spawn({ x, y, vx: rng.range(-80, 80), vy: rng.range(-150, -70), ay: 480, max: rng.range(0.3, 0.45), size: 2.4, color: k.light, shape: 'drop' });
@@ -517,14 +519,14 @@ export function createFx(): Fx {
           },
         });
       }
-      later(N * 0.022 + 0.3, () => {
+      later(N * 0.018 + 0.3, () => {
         shake(2);
         ring(b.x, b.y + 8, 6, 44, k.light, 0.4, 2, 0, 0.4);
         ring(b.x, b.y + 8, 4, 30, '#ffffff', 0.35, 1.5, 0.08, 0.4);
         flash(b.x, b.y, 28, k.light, 0.2);
         for (let n = 0; n < 10; n++) {
           const a2 = -Math.PI / 2 + rng.range(-1, 1);
-          spawn({ x: b.x, y: b.y, vx: Math.cos(a2) * rng.range(80, 170), vy: Math.sin(a2) * rng.range(120, 220), ay: 520, max: 0.5, size: 2.6, color: k.light, shape: 'drop' });
+          spawn({ x: b.x, y: b.y, vx: Math.cos(a2) * rng.range(80, 170), vy: Math.sin(a2) * rng.range(120, 220), ay: 520, max: 0.5, size: 3.4, color: k.light, shape: 'drop' });
         }
       });
     },
@@ -534,9 +536,9 @@ export function createFx(): Fx {
         const spin = rng.range(10, 16) * (i % 2 ? 1 : -1);
         projectile(a, b, {
           delay: i * 0.055, dur: 0.42, arc: rng.range(-10, 30), wobble: rng.range(10, 24) * (i % 2 ? 1 : -1), wobbleFreq: 1.5, jitter: 10,
-          head: (c, x, y, _ang, _u, age) => leafShape(c, x, y, age * spin + i, 6, k),
+          head: (c, x, y, _ang, _u, age) => leafShape(c, x, y, age * spin + i, 9, k),
           hit: (x, y) => {
-            for (let n = 0; n < 2; n++) spawn({ x, y, vx: rng.range(-90, 90), vy: rng.range(-80, 10), ay: 160, drag: 1.5, max: 0.5, size: 4, color: k.c, shape: 'leaf', rot: rng.range(0, TAU), vr: rng.range(-10, 10) });
+            for (let n = 0; n < 2; n++) spawn({ x, y, vx: rng.range(-90, 90), vy: rng.range(-80, 10), ay: 160, drag: 1.5, max: 0.5, size: 6, color: k.c, shape: 'leaf', rot: rng.range(0, TAU), vr: rng.range(-10, 10) });
             sparks(x, y, k.light, 2, 120);
           },
         });
@@ -607,7 +609,7 @@ export function createFx(): Fx {
       for (let i = 0; i < 5; i++) {
         projectile(a, b, {
           delay: i * 0.05, dur: 0.24, jitter: 12,
-          head: (c, x, y, ang) => shard(c, x, y, ang, 9, k),
+          head: (c, x, y, ang) => shard(c, x, y, ang, 13, k),
           trail: (x, y) => spawn({ x, y, vx: rng.range(-10, 10), vy: rng.range(-10, 10), max: 0.25, size: 1.5, color: '#ffffff', glow: true }),
           trailEvery: 0.025,
           hit: (x, y) => { sparks(x, y, '#ffffff', 3, 150); },
@@ -619,7 +621,7 @@ export function createFx(): Fx {
         ring(b.x, b.y, 8, 42, '#ffffff', 0.35, 2);
         for (let i = 0; i < 8; i++) {
           const ang = (i / 8) * TAU + rng.range(-0.2, 0.2), v = rng.range(110, 190);
-          spawn({ x: b.x, y: b.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, drag: 4, max: 0.45, size: 6, grow: 0.5, color: k.light, shape: 'shard', rot: ang });
+          spawn({ x: b.x, y: b.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, drag: 4, max: 0.45, size: 8, grow: 0.5, color: k.light, shape: 'shard', rot: ang });
         }
         for (let i = 0; i < 8; i++) {
           spawn({ x: b.x + rng.range(-30, 30), y: b.y + rng.range(-30, 10), vx: rng.range(-10, 10), vy: rng.range(10, 35), max: rng.range(0.5, 0.75), size: 2.5, color: '#ffffff', shape: 'star', glow: true, vr: rng.range(-3, 3) });
@@ -632,7 +634,7 @@ export function createFx(): Fx {
         const last = i === 2;
         projectile(a, b, {
           delay: i * 0.1, dur: 0.4, arc: 46, jitter: 10,
-          head: (c, x, y, ang, _u, age) => blob(c, x, y, ang, age, 6, k),
+          head: (c, x, y, ang, _u, age) => blob(c, x, y, ang, age, 9, k),
           trail: (x, y) => spawn({ x, y, vy: rng.range(0, 20), ay: 320, max: 0.32, size: 2, color: k.c }),
           trailEvery: 0.05,
           hit: (x, y) => {
@@ -641,7 +643,7 @@ export function createFx(): Fx {
               draw: (c, u) => {
                 c.globalAlpha = fade(u, 0.5) * 0.9;
                 c.fillStyle = k.c;
-                c.beginPath(); c.ellipse(x, y, 14 + 4 * outQuad(Math.min(1, u * 3)), 9, 0, 0, TAU); c.fill();
+                c.beginPath(); c.ellipse(x, y, 18 + 6 * outQuad(Math.min(1, u * 3)), 12, 0, 0, TAU); c.fill();
                 for (const dx of [-8, 2, 9]) { c.fillRect(x + dx - 1.5, y, 3, 6 + u * 14 + dx * 0.4); c.beginPath(); c.arc(x + dx, y + 6 + u * 14 + dx * 0.4, 2, 0, TAU); c.fill(); }
                 c.fillStyle = rgba(k.light, 0.8); c.beginPath(); c.arc(x - 4, y - 3, 3, 0, TAU); c.fill();
               },
@@ -658,15 +660,15 @@ export function createFx(): Fx {
       projectile(a, b, {
         delay: 0.05, dur: 0.42, arc: 10,
         head: (c, x, y, _ang, _u, age) => {
-          const g = c.createRadialGradient(x, y, 2, x, y, 18);
-          g.addColorStop(0, rgba(k.c, 0.6)); g.addColorStop(1, rgba(k.c, 0));
-          c.fillStyle = g; c.beginPath(); c.arc(x, y, 18, 0, TAU); c.fill();
-          c.fillStyle = core; c.beginPath(); c.arc(x, y, 9, 0, TAU); c.fill();
-          c.strokeStyle = k.light; c.lineWidth = 1.5;
-          for (let s = 0; s < 2; s++) { const r0 = age * 12 + s * Math.PI; c.beginPath(); c.arc(x, y, 11 + s * 2, r0, r0 + 1.6); c.stroke(); }
-          c.fillStyle = rgba(k.light, 0.9); c.beginPath(); c.arc(x - 3, y - 3, 2, 0, TAU); c.fill();
+          const g = c.createRadialGradient(x, y, 2, x, y, 26);
+          g.addColorStop(0, rgba(k.c, 0.7)); g.addColorStop(1, rgba(k.c, 0));
+          c.fillStyle = g; c.beginPath(); c.arc(x, y, 26, 0, TAU); c.fill();
+          c.fillStyle = core; c.beginPath(); c.arc(x, y, 12, 0, TAU); c.fill();
+          c.strokeStyle = k.light; c.lineWidth = 2;
+          for (let s = 0; s < 2; s++) { const r0 = age * 12 + s * Math.PI; c.beginPath(); c.arc(x, y, 15 + s * 3, r0, r0 + 1.6); c.stroke(); }
+          c.fillStyle = rgba(k.light, 0.9); c.beginPath(); c.arc(x - 4, y - 4, 2.6, 0, TAU); c.fill();
         },
-        trail: (x, y) => spawn({ x: x + rng.range(-4, 4), y: y + rng.range(-4, 4), vx: rng.range(-15, 15), vy: rng.range(-15, 15), max: 0.4, size: 5, grow: 2, alpha: 0.5, color: core, shape: 'smoke' }),
+        trail: (x, y) => spawn({ x: x + rng.range(-5, 5), y: y + rng.range(-5, 5), vx: rng.range(-15, 15), vy: rng.range(-15, 15), max: 0.4, size: 7, grow: 1.8, alpha: 0.5, color: core, shape: 'smoke' }),
         trailEvery: 0.02,
         hit: (x, y) => {
           shake(3);
@@ -706,7 +708,7 @@ export function createFx(): Fx {
 
     sparkle: (a, b, k) => {
       for (let i = 0; i < 10; i++) {
-        const sz = rng.range(3.5, 5.5);
+        const sz = rng.range(5, 8);
         projectile(a, b, {
           delay: i * 0.03, dur: 0.36, wobble: rng.range(-16, 16), wobbleFreq: 2, jitter: 10,
           head: (c, x, y, _ang, _u, age) => twinkle(c, x, y, sz + Math.sin(age * 30) * 1.5, i % 2 ? k.light : '#ffffff'),
@@ -747,8 +749,9 @@ export function createFx(): Fx {
           delay: i * 0.07, dur: 0.3, jitter: 10, arc: 6,
           head: (c, x, y, _ang, _u, age) => {
             c.save(); c.translate(x, y); c.rotate(age * spin);
-            gearPath(c, 7.5, 8); c.fillStyle = steel; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
-            c.beginPath(); c.arc(0, 0, 2.4, 0, TAU); c.fillStyle = shade(steel, 0.5); c.fill();
+            gearPath(c, 11, 8); c.fillStyle = steel; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+            c.fillStyle = rgba('#ffffff', 0.5); c.fillRect(-6, -7, 5, 2);
+            c.beginPath(); c.arc(0, 0, 3.4, 0, TAU); c.fillStyle = shade(steel, 0.5); c.fill();
             c.restore();
           },
           hit: (x, y) => {
@@ -769,10 +772,10 @@ export function createFx(): Fx {
           draw: (c, u) => {
             const e = inOutQuad(u);
             const x = lerp(a.x, b.x, e), y = lerp(a.y, b.y, e);
-            const r = 6 + 16 * e;
+            const r = 9 + 22 * e;
             c.globalCompositeOperation = 'lighter';
-            c.globalAlpha = 0.9 * (1 - u * 0.5);
-            c.strokeStyle = i % 2 ? k.c : k.light; c.lineWidth = 2.5;
+            c.globalAlpha = 0.95 * (1 - u * 0.5);
+            c.strokeStyle = i % 2 ? k.c : k.light; c.lineWidth = 3.5;
             c.beginPath(); c.ellipse(x, y, r, r * 0.8, 0, 0, TAU); c.stroke();
           },
         });
@@ -784,9 +787,9 @@ export function createFx(): Fx {
           add({
             delay: j * 0.06, dur: 0.3,
             draw: (c, u, age) => {
-              const r = 10 + 32 * outQuad(u);
+              const r = 12 + 38 * outQuad(u);
               c.globalAlpha = 1 - u;
-              c.strokeStyle = j % 2 ? k.light : k.c; c.lineWidth = 2;
+              c.strokeStyle = j % 2 ? k.light : k.c; c.lineWidth = 3;
               c.beginPath();
               for (let s = 0; s <= 40; s++) {
                 const th = (s / 40) * TAU;
@@ -805,7 +808,7 @@ export function createFx(): Fx {
       const fill = mix('#9a8a7a', k.c, 0.35);
       for (let i = 0; i < 4; i++) {
         const ox = rng.range(-26, 26);
-        const r = 8 + (i % 2) * 3;
+        const r = 12 + (i % 2) * 4;
         const pts: number[] = [];
         for (let s = 0; s < 7; s++) { const an = (s / 7) * TAU; const rr = r * rng.range(0.72, 1); pts.push(Math.cos(an) * rr, Math.sin(an) * rr); }
         const spin = rng.range(-6, 6);
@@ -814,7 +817,7 @@ export function createFx(): Fx {
           head: (c, x, y, _ang, _u, age) => rockShape(c, x, y, age * spin, pts, fill),
           hit: (x, y) => {
             shake(3);
-            for (let n = 0; n < 4; n++) spawn({ x, y: y + 4, vx: rng.range(-60, 60), vy: rng.range(-50, -15), drag: 2, max: 0.45, size: 5, grow: 2.2, alpha: 0.6, color: mix(fill, '#e8dcc8', 0.4), shape: 'smoke' });
+            for (let n = 0; n < 5; n++) spawn({ x, y: y + 4, vx: rng.range(-70, 70), vy: rng.range(-50, -15), drag: 2, max: 0.45, size: 7, grow: 2.2, alpha: 0.65, color: mix(fill, '#e8dcc8', 0.4), shape: 'smoke' });
             debris(x, y, fill, 4, 130);
             flash(x, y, 18, k.light, 0.15);
           },
@@ -829,10 +832,12 @@ export function createFx(): Fx {
           head: (c, x, y, ang) => {
             c.save(); c.translate(x, y); c.rotate(ang);
             c.lineCap = 'round';
-            c.strokeStyle = rgba(k.light, 0.9); c.lineWidth = 2.5;
-            c.beginPath(); c.arc(-4, 0, 10, -1.1, 1.1); c.stroke();
-            c.strokeStyle = rgba(k.light, 0.5); c.lineWidth = 1.5;
-            c.beginPath(); c.moveTo(-8, -5); c.lineTo(-26, -5); c.moveTo(-10, 4); c.lineTo(-22, 4); c.stroke();
+            c.strokeStyle = rgba('#ffffff', 0.55); c.lineWidth = 6;
+            c.beginPath(); c.arc(-6, 0, 15, -1.1, 1.1); c.stroke();
+            c.strokeStyle = k.light; c.lineWidth = 3;
+            c.beginPath(); c.arc(-6, 0, 15, -1.1, 1.1); c.stroke();
+            c.strokeStyle = rgba(k.light, 0.6); c.lineWidth = 2;
+            c.beginPath(); c.moveTo(-10, -8); c.lineTo(-36, -8); c.moveTo(-14, 6); c.lineTo(-30, 6); c.stroke();
             c.restore();
           },
         });
@@ -845,9 +850,9 @@ export function createFx(): Fx {
             c.globalAlpha = fade(u, 0.55);
             c.strokeStyle = k.light; c.lineCap = 'round';
             for (let j = 0; j < 3; j++) {
-              const r = 10 + j * 9 + u * 10;
+              const r = 14 + j * 11 + u * 12;
               const a0 = age * 14 + j * 2.1;
-              c.lineWidth = 2.5 - j * 0.5;
+              c.lineWidth = 3.5 - j * 0.7;
               c.beginPath(); c.ellipse(b.x, b.y - j * 4, r, r * 0.45, 0, a0, a0 + 2.4); c.stroke();
             }
           },
@@ -969,7 +974,7 @@ export function createFx(): Fx {
       });
       ring(a.x, a.y + 34, 10, 40, k.light, 0.5, 2, 0, 0.3);
       for (let i = 0; i < 6; i++) {
-        spawn({ x: a.x + rng.range(-28, 28), y: a.y + rng.range(10, 34), vy: rng.range(-110, -80), delay: i * 0.07, max: 0.5, size: 7, color: k.light, shape: 'arrowUp' });
+        spawn({ x: a.x + rng.range(-30, 30), y: a.y + rng.range(6, 30), vy: rng.range(-110, -80), delay: i * 0.06, max: 0.5, size: 9, color: k.light, shape: 'arrowUp' });
       }
       for (let i = 0; i < 6; i++) {
         spawn({ x: a.x + rng.range(-30, 30), y: a.y + rng.range(-20, 30), vy: rng.range(-60, -30), delay: rng.range(0, 0.3), max: 0.4, size: 2.5, color: '#ffffff', shape: 'star', glow: true });
@@ -977,7 +982,7 @@ export function createFx(): Fx {
     },
 
     debuff: (a, _b, k) => {
-      const gloom = mix(k.c, '#3a4a8a', 0.35);
+      const gloom = mix(k.light, '#8a9aff', 0.35);
       add({
         dur: 0.7,
         draw: (c, u) => {
@@ -991,7 +996,7 @@ export function createFx(): Fx {
         },
       });
       for (let i = 0; i < 6; i++) {
-        spawn({ x: a.x + rng.range(-28, 28), y: a.y - 40 + rng.range(-8, 8), vy: rng.range(80, 110), delay: i * 0.07, max: 0.5, size: 7, color: gloom, shape: 'arrowDown' });
+        spawn({ x: a.x + rng.range(-30, 30), y: a.y - 40 + rng.range(-8, 8), vy: rng.range(80, 110), delay: i * 0.06, max: 0.5, size: 9, color: gloom, shape: 'arrowDown' });
       }
     },
 
@@ -1008,7 +1013,7 @@ export function createFx(): Fx {
         },
       });
       for (let i = 0; i < 9; i++) {
-        spawn({ x: a.x + rng.range(-30, 30), y: a.y + rng.range(0, 30), vx: rng.range(-10, 10), vy: rng.range(-90, -55), delay: i * 0.05, max: 0.5, size: 4.5, color: k.light, shape: 'plus' });
+        spawn({ x: a.x + rng.range(-32, 32), y: a.y + rng.range(0, 30), vx: rng.range(-10, 10), vy: rng.range(-90, -55), delay: i * 0.05, max: 0.55, size: 6.5, color: k.light, shape: 'plus' });
       }
       stars(a.x, a.y, '#ffffff', 5, 40, 0.15, 24);
     },
@@ -1059,9 +1064,12 @@ export function createFx(): Fx {
           draw: (c, u) => {
             const e = outQuad(u);
             const x = lerp(a.x, b.x, e * 0.92), y = lerp(a.y, b.y, e * 0.92);
-            const r = 8 + 14 * e;
+            const r = 12 + 22 * e;
             c.globalAlpha = 1 - u * 0.7;
-            c.strokeStyle = i % 2 ? k.c : k.light; c.lineWidth = 3; c.lineCap = 'round';
+            c.lineCap = 'round';
+            c.strokeStyle = rgba('#ffffff', 0.5); c.lineWidth = 7;
+            c.beginPath(); c.arc(x - Math.cos(ang) * r, y - Math.sin(ang) * r, r, ang - 0.9, ang + 0.9); c.stroke();
+            c.strokeStyle = i % 2 ? k.c : k.light; c.lineWidth = 4;
             c.beginPath(); c.arc(x - Math.cos(ang) * r, y - Math.sin(ang) * r, r, ang - 0.9, ang + 0.9); c.stroke();
           },
         });
@@ -1070,7 +1078,7 @@ export function createFx(): Fx {
         spawn({
           x: a.x + rng.range(-8, 8), y: a.y + rng.range(-10, 10),
           vx: Math.cos(ang) * rng.range(180, 240) + rng.range(-20, 20), vy: Math.sin(ang) * rng.range(180, 240) - 30,
-          delay: i * 0.1, max: 0.55, size: 6, color: k.light, shape: 'note', vr: rng.range(-2, 2),
+          delay: i * 0.1, max: 0.55, size: 8, color: k.light, shape: 'note', vr: rng.range(-2, 2),
         });
       }
       later(0.46, () => {
@@ -1167,6 +1175,11 @@ export function createFx(): Fx {
       case 'arrowDown': {
         c.save(); c.translate(q.x, q.y);
         const pts = arrowPts(s, q.shape === 'arrowUp');
+        c.globalCompositeOperation = 'lighter';
+        c.fillStyle = rgba(col, 0.35);
+        c.beginPath(); c.arc(0, 0, s * 1.5, 0, TAU); c.fill();
+        c.globalCompositeOperation = 'source-over';
+        c.fillStyle = col;
         polyPath(c, pts);
         c.strokeStyle = INK; c.lineWidth = 2.5; c.lineJoin = 'round'; c.stroke();
         c.fillStyle = col; c.fill();
