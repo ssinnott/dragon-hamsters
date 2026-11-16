@@ -394,9 +394,9 @@ export function drawOutroBanner(ctx: Ctx, text: string, color: string, u: number
   drawText(ctx, text, 320, y + 10, { size: 2, color: '#ffffff', align: 'center', shadowColor: tint(color, -0.6) });
   // twinkles around the banner
   for (let i = 0; i < 6; i++) {
-    const a = t * 1.7 + i * 1.05;
-    const sx = Math.round(320 + Math.cos(a) * (w / 2 + 10));
-    const sy = Math.round(y + h / 2 + Math.sin(a * 1.3) * (h / 2 + 6));
+    const a = t * 0.9 + i * 1.05;
+    const sx = Math.round(320 + Math.cos(a) * (w / 2) * 1.42);
+    const sy = Math.round(y + h / 2 + Math.sin(a) * ((h / 2) * 1.42 + 4));
     const on = Math.floor(t * 6 + i) % 3 !== 0;
     if (!on) continue;
     ctx.fillStyle = UI.goldLight;

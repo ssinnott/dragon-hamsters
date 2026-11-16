@@ -105,7 +105,9 @@ function mockCampaign(): void {
         objective: objectives[type],
         briefing: `Agent, we have a situation. ${ORGS[org].name} has been spotted near the ${LOCATIONS[places[org][i]].name}. ` +
           'Our sources say they are up to something cheesy, and not in the fun way. ' +
-          'Get in, sort it out, and be home in time for supper. Nibbles out!',
+          'Get in, sort it out, and be home in time for supper. Nibbles out!' +
+          (i === 4 ? ' Oh, and one more thing: the boss has been seen wearing a brand new hat. A very, very big one. ' +
+            'Whatever he is planning, he wants to look fabulous doing it. Do not let the hat distract you, agent!' : ''),
         level: L, nodes,
         rewards: {
           coins: 60 + L * 12,
@@ -194,6 +196,30 @@ function makeScene() {
   return createBoardScene!();
 }
 
-bootHarness(() => makeScene(), { setup });
+// ?real=1 wires navigation to the real scenes (dialog, confirm, type chart, battle, evolution and
+// these four), so a whole case can be played end to end; ?auto=1 lets the battle play itself.
+let nav: Parameters<typeof bootHarness>[1] extends infer O ? O extends { nav?: infer N } ? N : never : never = {};
+if (q.get('real') === '1') {
+  const [dlg, tc, bat, evo, brd, brf, mr, res] = await Promise.all([
+    import('../ui/scenes/dialog.ts'), import('../ui/scenes/typechart.ts'), import('../ui/scenes/battle.ts'),
+    import('../ui/scenes/evolution.ts'), import('../ui/scenes/board.ts'), import('../ui/scenes/briefing.ts'),
+    import('../ui/scenes/missionRun.ts'), import('../ui/scenes/results.ts'),
+  ]);
+  nav = {
+    dialog: (lines, onDone, speaker) => app.scenes.push(dlg.createDialogScene(lines, onDone, speaker)),
+    confirm: (text, onYes, onNo) => app.scenes.push(dlg.createConfirmScene(text, onYes, onNo)),
+    typeChart: (focus) => app.scenes.push(tc.createTypeChartScene(focus)),
+    battle: (run, onEnd) => app.scenes.push(bat.createBattleScene(run, onEnd)),
+    evolve: (id, onDone) => app.scenes.push(evo.createEvolutionScene(id, onDone)),
+    board: () => app.scenes.push(brd.createBoardScene()),
+    briefing: (id) => app.scenes.push(brf.createBriefingScene(id)),
+    run: (run) => app.scenes.reset(mr.createMissionRunScene(run)),
+    results: (run, rewards) => app.scenes.replace(res.createResultsScene(run, rewards)),
+  };
+  if (q.get('auto') === '1') app.debug.autoplay = true;
+}
+
+bootHarness(() => makeScene(), { setup, nav });
+if (q.get('auto') === '1') app.debug.autoplay = true;
 extra.mission = getMission(missionId).title;
 (window as unknown as { __missions: unknown }).__missions = extra;

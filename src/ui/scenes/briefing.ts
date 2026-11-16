@@ -234,16 +234,32 @@ export function createBriefingScene(missionId: MissionId): Scene {
   const twistLines = wrapText(mtype.twist, LW - 58);
   const typeH = Math.max(40, 22 + Math.min(3, twistLines.length) * 10);
   const typeY = 68;
-  const briefY = typeY + typeH + 6;
+  const briefY = typeY + typeH + 11;
   const INTEL_Y = 234;
   const briefH = INTEL_Y - 12 - briefY;
   const textX = LX + 8 + CHIEF_PORTRAIT_SIZE + 8;
   const textW = LX + LW - 10 - textX;
-  const linesPerPage = Math.max(3, Math.floor((briefH - 14) / 10));
-  const allLines = wrapText(def.briefing, textW);
+  const linesPerPage = Math.max(3, Math.floor((briefH - 12) / 10));
+  // pages break between sentences when they can (a sentence too long for one page splits by line)
   const pages: string[] = [];
-  for (let i = 0; i < allLines.length; i += linesPerPage) pages.push(allLines.slice(i, i + linesPerPage).join('\n'));
-  if (!pages.length) pages.push('');
+  {
+    const fits = (t: string): boolean => wrapText(t, textW).length <= linesPerPage;
+    const sentences = def.briefing.match(/[^.!?]+[.!?]+["']?\s*|[^.!?]+$/g) ?? [def.briefing];
+    let cur = '';
+    for (const raw of sentences) {
+      const sent = raw.trim();
+      if (!sent) continue;
+      const cand = cur ? `${cur} ${sent}` : sent;
+      if (fits(cand)) { cur = cand; continue; }
+      if (cur) pages.push(cur);
+      if (fits(sent)) { cur = sent; continue; }
+      const lines = wrapText(sent, textW);
+      for (let i = 0; i < lines.length; i += linesPerPage) pages.push(lines.slice(i, i + linesPerPage).join('\n'));
+      cur = '';
+    }
+    if (cur) pages.push(cur);
+    if (!pages.length) pages.push('');
+  }
   let page = 0;
   tw.set(pages[0]);
 
@@ -262,7 +278,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
   const group = new ButtonGroup();
   const canGo = (): { ok: boolean; reason?: string } => canLaunch(app.state, missionId, squad);
   const moreBtn = group.add({
-    label: pages.length > 1 ? '▶ MORE' : '▶ AGAIN', rect: { x: LX + LW - 64, y: briefY + briefH - 22, w: 56, h: 16 }, hotkey: 'm',
+    label: pages.length > 1 ? 'MORE ▶' : 'AGAIN', rect: { x: LX + 8, y: briefY + 74, w: CHIEF_PORTRAIT_SIZE, h: 14 }, hotkey: 'm',
     color: UI.panelLight,
     onClick: () => {
       sfx('click');
@@ -395,7 +411,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
       const p = input.pointer;
 
       // a click on the briefing text finishes the line
-      if (p.pressed && hit({ x: textX - 4, y: briefY, w: textW + 8, h: briefH - 24 }, p.x, p.y) && !tw.done) tw.skip();
+      if (p.pressed && hit({ x: textX - 4, y: briefY, w: textW + 8, h: briefH }, p.x, p.y) && !tw.done) tw.skip();
 
       // squad pads: click one to send that dragon home
       if (p.released) {
@@ -442,13 +458,23 @@ export function createBriefingScene(missionId: MissionId): Scene {
     },
     draw(ctx) {
       drawBackdrop(ctx);
+      // the case file slides in from the left, the squad sheet from the right
+      const k = 1 - Math.pow(1 - Math.min(1, time / 0.28), 3);
+      const slide = Math.round((1 - k) * 48);
+      ctx.save();
+      ctx.translate(-slide, 0);
       drawCaseHeader(ctx);
       drawTypePanel(ctx);
       drawBriefing(ctx);
       drawIntel(ctx);
+      for (const b of leftButtons) b.draw(ctx, zone === 'buttons' && group.focused === b);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(slide, 0);
       drawSquadPanel(ctx);
       drawRewards(ctx);
-      for (const b of group.buttons) b.draw(ctx, zone === 'buttons' && group.focused === b);
+      for (const b of bottomButtons) b.draw(ctx, zone === 'buttons' && group.focused === b);
+      ctx.restore();
       if (launchBtn.isEnabled) {
         // a little shine sweeping across LAUNCH when it is ready
         const r = launchBtn.spec.rect;
@@ -515,15 +541,10 @@ export function createBriefingScene(missionId: MissionId): Scene {
 
   function drawBriefing(ctx: Ctx): void {
     const x = LX, y = briefY, w = LW, h = briefH;
-    drawPanel(ctx, x, y, w, h, { fill: UI.panelLight });
-    drawChiefPortrait(ctx, x + 8, y + 8, time, !tw.done);
-    drawPixelText(ctx, 'CHIEF', x + 8 + CHIEF_PORTRAIT_SIZE / 2, y + 8 + CHIEF_PORTRAIT_SIZE + 5, UI.textDim, { align: 'center' });
-    drawPixelText(ctx, 'NIBBLES', x + 8 + CHIEF_PORTRAIT_SIZE / 2, y + 8 + CHIEF_PORTRAIT_SIZE + 15, UI.textDim, { align: 'center' });
+    drawPanel(ctx, x, y, w, h, { fill: UI.panelLight, title: 'CHIEF NIBBLES' });
+    drawChiefPortrait(ctx, x + 8, y + 7, time, !tw.done);
     drawTypewriter(ctx, tw, textX, y + 9, textW, { color: UI.text, shadow: false });
-    if (pages.length > 1) {
-      drawPixelText(ctx, `${page + 1}/${pages.length}`, moreBtn.spec.rect.x - 6, moreBtn.spec.rect.y + 5, UI.textDim, { align: 'right' });
-    }
-    moreBtn.spec.label = !tw.done ? '▶ SKIP' : pages.length > 1 && page < pages.length - 1 ? '▶ MORE' : '▶ AGAIN';
+    moreBtn.spec.label = !tw.done ? 'SKIP' : pages.length > 1 && page < pages.length - 1 ? 'MORE ▶' : 'AGAIN';
   }
 
   function drawIntel(ctx: Ctx): void {
@@ -707,25 +728,9 @@ export function createBriefingScene(missionId: MissionId): Scene {
   function drawRewards(ctx: Ctx): void {
     const r = REWARDS;
     drawPanel(ctx, r.x, r.y, r.w, r.h, { title: firstClear ? 'REWARDS' : 'REWARDS (REPLAY)' });
-    let x = r.x + 10;
     const cy = r.y + 14;
-    // coins (infiltrate pays +50%, replays pay half)
-    let pay = def.rewards.coins;
-    if (def.type === 'infiltrate') pay *= 1.5;
-    if (!firstClear) pay *= 0.5;
-    pay = Math.floor(pay);
-    drawCoinIcon(ctx, x + 5, cy, 5);
-    x += 13;
-    x += drawText(ctx, String(pay), x, cy - 3, { color: UI.text, shadow: false }) + 8;
-    // items and food
-    for (const it of def.rewards.items) {
-      if (x > r.x + r.w - 96) break;
-      if (isFood(it.id)) drawFoodIcon(ctx, it.id, x + 6, cy, 13);
-      else drawItemIcon(ctx, it.id, x + 6, cy, 13);
-      x += 14;
-      x += drawText(ctx, `X${it.qty}`, x, cy - 3, { color: UI.textDim, shadow: false }) + 7;
-    }
-    // a mystery dragon, if the pool still has species you don't own
+    // a mystery dragon (right-aligned), if the pool still has species you don't own
+    let rightEdge = r.x + r.w - 10;
     const dr = def.rewards.dragon;
     if (dr && dr.species.length) {
       const have = new Set<string>([...app.state.dex.owned, ...app.state.dragons.map((d) => d.speciesId)]);
@@ -733,9 +738,8 @@ export function createBriefingScene(missionId: MissionId): Scene {
       if (left.length) {
         const chance = Math.min(1, dr.chance * (firstClear ? 1 : 0.5));
         const txt = `DRAGON: ? ${Math.round(chance * 100)}%`;
-        const tw2 = measureText(txt);
-        const dx = r.x + r.w - 10 - tw2;
-        // a wobbling silhouette next to it
+        const dx = r.x + r.w - 10 - measureText(txt);
+        // a silhouette of one of the dragons it could be
         let v: ReturnType<typeof getSpecies>['visual'] | null = null;
         try { v = getSpecies(left[Math.floor(time / 1.5) % left.length]).visual; } catch { v = null; }
         if (v) {
@@ -746,7 +750,26 @@ export function createBriefingScene(missionId: MissionId): Scene {
           ctx.restore();
         }
         drawText(ctx, txt, dx, cy - 3, { color: '#7a3aa0', shadow: false });
+        rightEdge = dx - 28;
       }
+    }
+    // coins (infiltrate pays +50%, replays pay half)
+    let x = r.x + 10;
+    let pay = def.rewards.coins;
+    if (def.type === 'infiltrate') pay *= 1.5;
+    if (!firstClear) pay *= 0.5;
+    pay = Math.floor(pay);
+    drawCoinIcon(ctx, x + 5, cy, 5);
+    x += 13;
+    x += drawText(ctx, String(pay), x, cy - 3, { color: UI.text, shadow: false }) + 8;
+    // items and food, as many as fit
+    for (const it of def.rewards.items) {
+      const label = `X${it.qty}`;
+      if (x + 14 + measureText(label) > rightEdge) break;
+      if (isFood(it.id)) drawFoodIcon(ctx, it.id, x + 6, cy, 13);
+      else drawItemIcon(ctx, it.id, x + 6, cy, 13);
+      x += 14;
+      x += drawText(ctx, label, x, cy - 3, { color: UI.textDim, shadow: false }) + 7;
     }
   }
 }

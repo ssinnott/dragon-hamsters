@@ -9,6 +9,9 @@
 //   ?fast=0|1           settings.fastText (default 1, like a new save)
 //   ?auto=1             app.debug.autoplay: the scene plays itself
 //   ?status=1           the lead starts BURNED and the second dragon fainted (bag / swap reasons)
+//   ?status=snooze      the lead starts with that status (burn, goop, zap, snooze, frozen)
+//   ?test=ferrets       Dr. Ferretstein's showdown (long names, dual types, a big boss)
+//   ?species=a,b,c&lvl=N  the squad is fresh dragons of these species at level N
 // A stand-in "mission run" scene sits under the battle: it pushes the battle on enter, shows the
 // outcome when the battle pops itself, and Enter starts a fresh battle.
 import { bootHarness } from './harness.ts';
@@ -17,7 +20,8 @@ import type { Scene } from '../ui/scene.ts';
 import { UI, drawPanel, ButtonGroup } from '../ui/widgets.ts';
 import { drawText } from '../lib/engine/text.ts';
 import { startMission, type MissionRun } from '../game/missions.ts';
-import { dragonStats } from '../game/dragons.ts';
+import { addDragon, createDragon, dragonStats } from '../game/dragons.ts';
+import type { StatusId } from '../data/schema.ts';
 import { xpForLevel } from '../battle/stats.ts';
 import { autoAction, createBattleScene } from '../ui/scenes/battle.ts';
 import type { BattleState } from '../battle/types.ts';
@@ -37,6 +41,15 @@ function customNodes(): MissionNode[] | null {
       },
     }];
   }
+  if (test === 'ferrets') {
+    return [{
+      kind: 'boss', label: 'Test lab',
+      encounter: {
+        intro: 'Dr. Ferretstein flips the big red switch. Every robot in the lab wakes up at once!',
+        enemies: [{ villain: 'clankbot', level: 33 }, { villain: 'icegor', level: 34 }, { villain: 'dr-ferretstein', level: 36 }],
+      },
+    }];
+  }
   if (test === 'solo') {
     return [{
       kind: 'battle', label: 'Test scuffle',
@@ -47,10 +60,17 @@ function customNodes(): MissionNode[] | null {
 }
 
 let outcomes: string[] = [];
+let squadMade = false;
 
 function makeRun(): MissionRun {
   const s = app.state;
   for (const d of s.dragons) { d.needs.energy = 100; d.needs.fullness = 100; d.hp = dragonStats(d).hp; d.status = null; }
+  const species = (q.get('species') ?? '').split(',').filter(Boolean);
+  if (species.length && !squadMade) {
+    squadMade = true;
+    const lvl = Number(q.get('lvl') ?? 20);
+    s.squad = species.map((sp) => { const d = createDragon(s, sp, lvl); addDragon(s, d); return d.id; });
+  }
   const squad = s.squad.slice(0, 3);
   const run = startMission(s, missionId, squad);
   const nodes = customNodes();
@@ -61,7 +81,9 @@ function makeRun(): MissionRun {
   }
   const lead = s.dragons.find((d) => d.id === squad[0]);
   if (lead && q.get('xp') === '1') lead.xp = xpForLevel(lead.level + 1) - 6;
-  if (q.get('status') === '1') {
+  const st = q.get('status');
+  if (lead && st && st !== '1') lead.status = st as StatusId;
+  if (st === '1') {
     if (lead) lead.status = 'burn';
     const second = s.dragons.find((d) => d.id === squad[1]);
     if (second) second.hp = 0;
@@ -111,7 +133,7 @@ if (hooks?.api) {
     const ui = app.debug.battleUi as Record<string, () => unknown> | undefined;
     if (!ui || app.scenes.top()?.name !== 'battle') return null;
     const out: Record<string, unknown> = {};
-    for (const [k, f] of Object.entries(ui)) out[k] = f();
+    for (const [k, f] of Object.entries(ui)) if (k !== 'inject') out[k] = f();
     return out;
   };
   hooks.api.autoplay = (on: boolean) => { app.debug.autoplay = on; };

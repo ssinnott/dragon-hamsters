@@ -440,8 +440,9 @@ export function createBoardScene(): Scene {
     } else {
       const def = getOrg(o);
       drawOrgEmblem(ctx, o, ex, ey, 19);
-      drawText(ctx, def.name, d.x + 64, d.y + 9, { size: 2, color: UI.text, shadowColor: '#e0c487' });
-      const motto = wrapText(`"${def.motto}"`, 300)[0] ?? '';
+      const big = measureText(def.name, 2) <= 320;
+      drawText(ctx, def.name, d.x + 64, d.y + (big ? 9 : 12), { size: big ? 2 : 1, color: UI.text, shadowColor: '#e0c487' });
+      const motto = wrapText(`"${def.motto}"`, 318)[0] ?? '';
       drawText(ctx, motto, d.x + 64, d.y + 29, { color: UI.textDim, shadow: false });
       drawText(ctx, 'CREW TYPES:', d.x + 64, d.y + 47, { color: UI.text, shadow: false });
       drawTypeBadges(ctx, def.themeTypes, d.x + 64 + measureText('CREW TYPES:') + 5, d.y + 44, { small: true });

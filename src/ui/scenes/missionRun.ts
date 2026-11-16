@@ -105,7 +105,7 @@ const NODE_FILL: Record<NodeKind, string> = {
 // Layout
 // ---------------------------------------------------------------------------------------------
 
-const TRAIL_X0 = 56, TRAIL_X1 = 584;
+const TRAIL_X0 = 74, TRAIL_X1 = 584;
 const UP_Y = 104, DOWN_Y = 152;
 const ACTION: Rect = { x: 112, y: 214, w: 416, h: 46 };
 const SQUAD_Y = 270;
@@ -176,18 +176,30 @@ export function createMissionRunScene(run: MissionRun): Scene {
     const n = run.nodes.length;
     if (n === 0) return { x: TRAIL_X0, y: UP_Y };
     if (s <= 0) {
+      // along the lead-in curve from the left edge, then straight on off-screen
       const p0 = nodePos(0);
-      const step = n > 1 ? nodePos(1).x - p0.x : 80;
-      return { x: p0.x + s * step, y: p0.y + 24 * Math.max(-1, s) * -1 };
+      const step = Math.max(40, spacing());
+      const L = leadIn();
+      const span = Math.max(0.01, (p0.x - L.x) / step);
+      if (s >= -span) return bez(L, ctrl(L, p0), p0, 1 + s / span);
+      return { x: L.x + (s + span) * step, y: L.y };
     }
     const i = Math.min(n - 1, Math.floor(s));
     if (i >= n - 1) return nodePos(n - 1);
     const a = nodePos(i), b = nodePos(i + 1);
-    const u = s - i;
-    const c = ctrl(a, b);
-    const x = (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * c.x + u * u * b.x;
-    const y = (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * c.y + u * u * b.y;
-    return { x, y };
+    return bez(a, ctrl(a, b), b, s - i);
+  }
+
+  function bez(a: Pt, c: Pt, b: Pt, u: number): Pt {
+    return {
+      x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * c.x + u * u * b.x,
+      y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * c.y + u * u * b.y,
+    };
+  }
+
+  function leadIn(): Pt {
+    const p0 = nodePos(0);
+    return { x: 4, y: p0.y + 30 };
   }
 
   function ctrl(a: Pt, b: Pt): Pt {
@@ -316,8 +328,8 @@ export function createMissionRunScene(run: MissionRun): Scene {
     const at = layoutFrom[run.index] ?? layout[run.index];
     for (let i = run.index; i < run.nodes.length; i++) if (!layoutFrom[i] || i > run.index) layoutFrom[i] = { ...at };
     layoutT = 0;
-    phase = 'idle';
-    focusOn(goBtn);
+    // settle in front of the first stop of the chosen route (it may be a story beat)
+    startWalk(standAt(run.index), 0.45);
   }
 
   function askRetreat(): void {
@@ -327,7 +339,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
       app.save();
       phase = 'leaving';
       app.nav.burrow();
-    });
+    }, () => { focusOn(goBtn); });
   }
 
   function finish(): void {
@@ -402,6 +414,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
       // back from a dialog, the battle, the confirm box or an evolution: the battle music stops,
       // and the HP bars pick up whatever happened while we were away
       music('mission');
+      if (phase === 'idle') focusOn(goBtn);
     },
     update(dt, input) {
       time += dt;
@@ -467,12 +480,12 @@ export function createMissionRunScene(run: MissionRun): Scene {
 
   function drawHeader(ctx: Ctx): void {
     const title = `CASE ${def.index}: ${def.title.toUpperCase()}`;
-    const size = measureText(title, 2) <= 440 ? 2 : 1;
-    const w = Math.max(measureText(title, size), measureText(def.objective.toUpperCase()) + 14) + 44;
+    const size = measureText(title, 2) <= 400 ? 2 : 1;
+    const w = Math.min(420, Math.max(measureText(title, size), measureText(def.objective.toUpperCase()) + 14) + 44);
     drawPanel(ctx, 8, 8, w, 38);
     drawOrgEmblem(ctx, def.org, 24, 27, 10);
-    drawText(ctx, title, 40, size === 2 ? 13 : 15, { size, color: UI.text, shadowColor: UI.panelDark });
-    drawText(ctx, def.objective.toUpperCase(), 40, 33, { color: UI.textDim, shadow: false });
+    drawText(ctx, size === 2 ? title : wrapText(title, w - 50)[0] ?? '', 40, size === 2 ? 13 : 15, { size, color: UI.text, shadowColor: UI.panelDark });
+    drawText(ctx, wrapText(def.objective.toUpperCase(), w - 50)[0] ?? '', 40, 33, { color: UI.textDim, shadow: false });
     // stop counter
     const total = run.nodes.length + (hasOpenBranch() ? 1 : 0);
     const shown = Math.min(run.index + 1, run.nodes.length);
@@ -489,8 +502,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
     // path segments
     for (let i = 0; i + 1 < n; i++) drawSegment(ctx, nodePos(i), nodePos(i + 1), i + 1 <= run.index);
     // the lead-in from the left edge
-    const p0 = nodePos(0);
-    drawSegment(ctx, { x: 4, y: p0.y + 30 }, p0, true);
+    drawSegment(ctx, leadIn(), nodePos(0), true);
     // an unchosen branch trails off into the unknown
     if (hasOpenBranch() && n) {
       const last = nodePos(n - 1);

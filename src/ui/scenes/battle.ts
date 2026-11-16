@@ -23,7 +23,7 @@ import { ITEM_IDS, type FxKind, type ItemId, type Stats, type StatusId, type Typ
 import { getAbility, getItem, getLocation, getMission, getMove, getType, getVillain } from '../../data/index.ts';
 import type { BattleEvent, BattleState, PlayerAction, Side } from '../../battle/types.ts';
 import { activeMon, createBattle, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
-import { bestTypeMultiplier, effectivenessLabel, matchupGrade } from '../../battle/matchup.ts';
+import { bestTypeMultiplier, effectivenessLabel, matchupGrade, moveEffectiveness } from '../../battle/matchup.ts';
 import { xpForLevel } from '../../battle/stats.ts';
 import { currentNode, encounterSetup, finishBattle, type MissionRun } from '../../game/missions.ts';
 import { drawBattleBackdrop, drawPlatform } from '../../art/backdrops.ts';
@@ -48,7 +48,7 @@ interface Slot {
   side: Side;
   uid: string | null;
   /** 'enter' pop-in, 'leave' shrink-back, 'faint' flop, 'gone' nothing drawn. */
-  anim: 'idle' | 'enter' | 'leave' | 'faint' | 'gone';
+  anim: 'idle' | 'enter' | 'leave' | 'faint' | 'flee' | 'gone';
   animT: number;
   animDur: number;
   landed: boolean;
@@ -268,8 +268,12 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
           }
         }
         const next = queue[0];
-        const long = !next || next.t === 'text' || next.t === 'levelUp' || next.t === 'end';
-        const hold = (long ? 0.55 + 0.02 * e.text.length : 0.18) * pace();
+        const long = !next || next.t === 'text' || next.t === 'levelUp' || next.t === 'end'
+          || (next.t === 'xp' && !onField(next.uid));
+        // A line followed by an animation stays up while it plays; a line followed by another line
+        // (or by the menu) holds long enough to read, longer lines a little longer.
+        const len = e.text.length;
+        const hold = (!long ? 0.16 : len <= 26 ? 0.42 : 0.3 + 0.026 * len) * pace();
         return mkStep(hold, () => tw.done, { text: true, skippable: true });
       }
 
@@ -557,8 +561,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         } else {
           outro = { text: 'SCURRIED TO SAFETY!', color: '#4f9be0', age: 0 };
           sfx('swap');
+          const sl = slots.player;
+          if (sl.uid && sl.anim === 'idle') { sl.anim = 'flee'; sl.animT = 0; sl.animDur = 1.1; sl.pose = null; }
         }
-        return mkStep(2.3 * (0.6 + 0.4 * pace()), null, { skippable: true, minAge: 0.7, onDone: finish });
+        return mkStep(1.8 * (0.7 + 0.3 * pace()), null, { skippable: true, minAge: 0.6, onDone: finish });
       }
     }
   }
@@ -707,11 +713,11 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       }
       case 'retreat': {
         group.add({
-          label: 'YES, RUN!', sub: 'END THE MISSION', rect: { x: 342, y: 266, w: 144, h: 88 }, color: UI.bad, hotkey: 'y',
+          label: 'YES, RUN!', sub: 'END THE MISSION', size: 2, rect: { x: 342, y: 266, w: 144, h: 88 }, color: UI.bad, hotkey: 'y',
           onClick: () => { sfx('select'); act({ kind: 'retreat' }); },
         });
         group.add({
-          label: 'NO WAY!', sub: 'KEEP FIGHTING', rect: { x: 492, y: 266, w: 144, h: 88 }, color: UI.good, hotkey: 'Escape',
+          label: 'NO WAY!', sub: 'KEEP FIGHTING', size: 2, rect: { x: 492, y: 266, w: 144, h: 88 }, color: UI.good, hotkey: 'Escape',
           onClick: () => back(),
         });
         group.focus = 1;
@@ -846,7 +852,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       sl.poseT += dt;
       if (sl.poseT >= sl.poseDur) sl.pose = null;
     }
-    if (sl.anim === 'enter' || sl.anim === 'leave' || sl.anim === 'faint') {
+    if (sl.anim === 'enter' || sl.anim === 'leave' || sl.anim === 'faint' || sl.anim === 'flee') {
       sl.animT += dt;
       if (sl.anim === 'enter' && !sl.landed && sl.animT >= sl.animDur * 0.72) {
         sl.landed = true;
@@ -955,6 +961,11 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     } else if (sl.anim === 'faint') {
       pose = 'faint';
       poseT = u;
+    } else if (sl.anim === 'flee') {
+      // turn tail and scamper off the side of the screen
+      const k = Math.max(0, u - 0.15) / 0.85;
+      x = g.x - f * 300 * inQuad(k);
+      y = g.y - Math.abs(Math.sin(u * 18)) * 3;
     }
     if (sl.anim !== 'faint') {
       if (sl.pose) { pose = sl.pose; poseT = clamp01(sl.poseT / Math.max(0.01, sl.poseDur)); }
@@ -962,9 +973,16 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       else if (v.status === 'snooze') pose = 'sleep';
     }
     if (sl.dodge > 0) x -= f * Math.sin((1 - sl.dodge / DODGE_DUR) * Math.PI) * 16;
-    drawMon(ctx, v, x, y, { scale, facing: f, t: time, pose, poseT, alpha, flash: sl.flash });
+    const fleeing = sl.anim === 'flee';
+    if (fleeing) pose = 'run';
+    drawMon(ctx, v, x, y, { scale, facing: fleeing ? (f === 1 ? -1 : 1) : f, t: time, pose, poseT, alpha, flash: sl.flash });
     if (v.confused && sl.anim === 'idle' && pose !== 'faint') {
-      drawDizzyStars(ctx, x, Math.round(y - v.h1 * scale - 2), 11, time, 1.4);
+      ctx.save();
+      const h = v.h1 * scale;
+      ctx.translate(Math.round(x + f * h * 0.14), Math.round(y - h * 0.94));
+      ctx.scale(2, 2);
+      drawDizzyStars(ctx, 0, 0, 9, time, 1);
+      ctx.restore();
     }
   }
 
@@ -994,7 +1012,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     }
     switch (menu) {
       case 'main':
-        drawMessageBox(ctx, MSG_LEFT.x, MSG_LEFT.y, MSG_LEFT.w, MSG_LEFT.h, `WHAT WILL ${myName()} DO?`, { arrow: false });
+        drawPrompt(ctx);
         break;
       case 'fight': {
         const me = activeMon(battle, 'player');
@@ -1019,10 +1037,32 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         break;
       case 'retreat':
         drawMessageBox(ctx, MSG_LEFT.x, MSG_LEFT.y, MSG_LEFT.w, MSG_LEFT.h,
-          'RUN BACK TO THE BURROW? THE MISSION ENDS HERE, BUT EVERYONE KEEPS THE XP THEY EARNED.', { arrow: false, size: 1 });
+          'RETREAT TO THE BURROW? THE MISSION ENDS, BUT EVERYONE KEEPS THEIR XP.', { arrow: false });
         break;
     }
     group.draw(ctx);
+  }
+
+  /** The main menu's message: the question, plus a rock-paper-scissors tip for the current matchup. */
+  function drawPrompt(ctx: Ctx): void {
+    const r = MSG_LEFT;
+    drawMessageBox(ctx, r.x, r.y, r.w, r.h, '', { arrow: false });
+    const q = `WHAT WILL ${myName()} DO?`;
+    const qh = drawWrapped(ctx, q, r.x + 12, r.y + 12, r.w - 28, { size: 2, color: UI.text, shadowColor: tint(UI.panelLight, -0.16) });
+    const tip = tipText();
+    if (tip) drawWrapped(ctx, tip, r.x + 12, Math.max(r.y + 14 + qh, r.y + r.h - 31), r.w - 28, { color: UI.textDim, shadow: false });
+  }
+
+  function tipText(): string {
+    if (!matchup) return '';
+    const v = verdictOf(matchup);
+    const canSwap = legal(battle).switches.some(Boolean);
+    if (v === 'bad') return canSwap ? 'TIP: THEIR TYPE BEATS YOURS. A SWAP COULD HELP!' : 'TIP: THEIR TYPE BEATS YOURS. HIT HARD AND FAST!';
+    if (v === 'good') return 'TIP: YOUR TYPE BEATS THEIRS. GO GET THEM!';
+    const me = activeMon(battle, 'player');
+    const foe = activeView('enemy');
+    const superMove = !!foe && me.moves.some((m) => m.pp > 0 && moveEffectiveness(m.id, foe.types) > 1 && getMove(m.id).power > 0);
+    return superMove ? 'TIP: A MOVE WITH A SUPER TAG HITS TWICE AS HARD!' : 'TIP: [?] TYPES SHOWS WHO BEATS WHO.';
   }
 
   function drawItemInfo(ctx: Ctx): void {
@@ -1078,6 +1118,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         outro: () => (outro ? outro.age : -1),
         banners: () => banners.length,
         time: () => time,
+        /** Dev only: play extra events (the views resync to the engine at the next menu). */
+        inject: (evs: BattleEvent[]) => { closeMenu(); queue.push(...evs); },
       };
       for (const m of [...battle.player.team, ...battle.enemy.team]) views.set(m.uid, makeView(m));
       playerTeam = battle.player.team.map((m) => view(m.uid));

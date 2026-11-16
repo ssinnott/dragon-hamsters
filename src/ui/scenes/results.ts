@@ -47,6 +47,11 @@ const CONFETTI_COLORS = ['#ef7d4f', '#f6c63c', '#5cbf4f', '#4f9be0', '#e86aa0', 
 
 const easeOut = (u: number): number => 1 - (1 - u) * (1 - u) * (1 - u);
 
+/** The new-recruit card. */
+const REVEAL_W = 400;
+const REVEAL_X = Math.round((VIEW_W - REVEAL_W) / 2);
+const REVEAL_Y = 40;
+
 /** Typical encouragement lines from the Chief (one is picked per defeat). */
 const PEP_TALKS = [
   "Chin up, agent! Even the best agents get their whiskers singed sometimes.",
@@ -213,7 +218,16 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     update(dt, input) {
       time += dt;
       fx.update(dt);
-      if (stage === 'reveal') revealT += dt;
+      if (stage === 'reveal') {
+        const before = revealT;
+        revealT += dt;
+        if (before < 0.25 && revealT >= 0.25) {
+          // the new dragon pops onto its stage
+          fx.burst(REVEAL_X + 82, REVEAL_Y + 80, UI.gold, 24);
+          fx.burst(REVEAL_X + 82, REVEAL_Y + 80, '#ffffff', 12);
+          sfx('fluff', { pitch: 1.3, volume: 0.8 });
+        }
+      }
       if (!won && time > 1.8 && time - dt <= 1.8) music('burrow');
       if (!won && time > 0.7) {
         if (!tw.text) tw.set(chiefText);
@@ -249,7 +263,11 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       if (input.pointer.pressed && stage !== 'reveal' && !hit(contBtn.spec.rect, input.pointer.x, input.pointer.y) && animating()) {
         skipped = true; tw.skip();
       }
-      if (stage === 'reveal' && input.pointer.pressed && revealT < 1.2) revealT = 1.2;
+      if (stage === 'reveal' && input.pointer.pressed && !hit(contBtn.spec.rect, input.pointer.x, input.pointer.y)) {
+        // a tap on the card finishes its entrance, the next one heads home
+        if (revealT < 1.2) revealT = 1.2;
+        else { sfx('select'); leave(); return; }
+      }
       group.update(input);
     },
     draw(ctx) {
@@ -408,7 +426,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   }
 
   function drawSuccess(ctx: Ctx): void {
-    const lines = wrapText(def.success, 590).slice(0, 2);
+    const lines = wrapText(def.success, 590).slice(0, 3);
     const h = 12 + lines.length * 10;
     const y = 44;
     drawPanel(ctx, 8, y, VIEW_W - 16, h, { fill: UI.panelLight });
@@ -501,7 +519,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       drawBar(ctx, tx, r.y + 15, 210, 7, frac, UI.info);
       drawText(ctx, `+${Math.round(s.gained * easeOut(u))} XP`, tx + 218, r.y + 15, { color: UI.textDim, shadow: false });
       if (since >= 0 && since < 2.5 || (levelled && u >= 1)) drawLevelUpTag(ctx, tx + 300, r.y + 8, since);
-      if (s.evolve && u >= 1) drawGlowTag(ctx, r.x + r.w - 98, r.y + 8);
+      if (s.evolve && u >= 1 && pendingEvolution(d)) drawGlowTag(ctx, r.x + r.w - 98, r.y + 8);
       return;
     }
     drawText(ctx, name, tx, r.y + 6, { color: UI.text, shadow: false });
@@ -515,12 +533,12 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       const names = s.learned.map((m) => { try { return getMove(m).name.toUpperCase(); } catch { return m; } });
       const line = `NEW MOVE${names.length > 1 ? 'S' : ''}: ${names.join(', ')}!`;
       wrapText(line, r.w - (tx - r.x) - 8).slice(0, 2).forEach((l, k) => drawText(ctx, l, tx, r.y + 32 + k * 10, { color: '#7a3aa0', shadow: false }));
-    } else if (u >= 1 && s.evolve) {
+    } else if (u >= 1 && s.evolve && pendingEvolution(d)) {
       drawText(ctx, `${name} IS STARTING TO GLOW!`, tx, r.y + 32, { color: '#b8781e', shadow: false });
     } else if (u >= 1 && fainted) {
       drawText(ctx, 'NEEDS A GOOD NAP.', tx, r.y + 32, { color: UI.textDim, shadow: false });
     }
-    if (s.evolve && u >= 1) drawGlowTag(ctx, r.x + r.w - 98, r.y + r.h - 16);
+    if (s.evolve && u >= 1 && pendingEvolution(d)) drawGlowTag(ctx, r.x + r.w - 98, r.y + r.h - 16);
   }
 
   function drawLevelUpTag(ctx: Ctx, x: number, y: number, since: number): void {
@@ -569,9 +587,9 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     const u = Math.min(1, revealT / 0.35);
     ctx.fillStyle = `rgba(27, 20, 38, ${0.65 * u})`;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    const w = 400, h = 252;
-    const x = Math.round((VIEW_W - w) / 2);
-    const y = Math.round(40 + (1 - easeOut(u)) * 40);
+    const w = REVEAL_W, h = 252;
+    const x = REVEAL_X;
+    const y = Math.round(REVEAL_Y + (1 - easeOut(u)) * 40);
     // light rays behind the card
     ctx.save();
     ctx.globalAlpha = 0.5 * u;
@@ -599,10 +617,6 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     ctx.beginPath(); ctx.ellipse(x + 82, y + 118, 40, 6, 0, 0, Math.PI * 2); ctx.fill();
     if (revealT > 0.25) drawDragon(ctx, v, x + 82, y + 118 - hop + enter, { scale: sc, facing: 1, t: revealT, pose: hopU < 1 ? 'happy' : 'idle', poseT: hopU });
     ctx.restore();
-    if (revealT > 0.25 && revealT - 1 / 60 <= 0.25 + 1e-6) {
-      fx.burst(x + 82, y + 80, UI.gold, 24);
-      fx.burst(x + 82, y + 80, '#ffffff', 12);
-    }
     // name, category, types
     const tx = x + 164, tw2 = w - 176;
     const name = dragonName(d).toUpperCase();
