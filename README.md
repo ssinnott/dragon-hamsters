@@ -9,11 +9,17 @@ Strict TypeScript on the shared [game-engine](https://github.com/ssinnott/game-e
 into `src/lib/` with `git subtree`. There are no runtime dependencies, and nothing is compiled to
 disk while you develop.
 
+**Play it:** https://ssinnott.github.io/dragon-hamsters/
+
 ```sh
 npm install
 npm run dev        # http://localhost:8080
 npm run build      # dist/index.html, one self-contained file
 ```
+
+Every push to `main` runs the full set of checks below in GitHub Actions and, if they all pass,
+publishes `dist/index.html` to GitHub Pages (`.github/workflows/pages.yml`; the repository's Pages
+source must be set to "GitHub Actions").
 
 Mouse, touch or keyboard: arrows to move, Enter or Space to choose, Escape to go back.
 
