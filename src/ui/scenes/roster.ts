@@ -209,7 +209,7 @@ export function createRosterScene(dragonId?: string): Scene {
   const start = dragonId ? dragons().findIndex((d) => d.id === dragonId) : 0;
   list.selected = Math.max(0, start);
   list.ensureVisible(list.selected);
-  list.scroll = Math.max(0, Math.min(list.selected * ROW_H, dragons().length * ROW_H - LIST.h));
+  list.scroll = Math.max(0, list.selected * ROW_H + ROW_H - LIST.h);   // where ensureVisible aims: no slide on open
 
   const current = (): OwnedDragon | null => dragons()[list.selected] ?? null;
 

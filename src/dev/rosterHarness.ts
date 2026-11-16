@@ -1,6 +1,9 @@
 // Dev harness for the roster, Dragondex, type chart and evolution screens (dev/roster.html).
-// URL: ?scene=roster|dex|types|evo  (&focus=1 opens the chart on FIRE vs LEAF+WATER;
-// &id=d2 opens the roster on a dragon; &empty=1 gives the Dex a nearly empty save).
+// URL: ?scene=roster|dex|types|evo, plus: &focus=1 opens the chart on FIRE vs LEAF+WATER;
+// &id=d2 opens the roster on (or evolves) that dragon; &empty=1 leaves one dragon and a nearly empty
+// Dex; &none=1 an empty burrow; &big=1 a level-45 dragon; &cleared=1 clears the first mission;
+// &tut=1 shows Chief Nibbles' first-visit tutorials. window.__nav is app.nav, for opening other
+// screens from a headless test (e.g. __nav.typeChart({ attack: ['FIRE'] })).
 // The test save gets one starter that is ready to evolve, a few seen-but-unowned species, a hungry
 // and a fainted dragon, so every state of these screens shows up.
 import { bootHarness } from './harness.ts';

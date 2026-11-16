@@ -122,7 +122,7 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
     const gained = to.types.filter((ty) => !oldTypes.includes(ty));
     if (gained.length) lines.push(`${newName} is now ${to.types.map((ty) => getType(ty).name).join(' and ')} type!`);
     if (upcoming.length) {
-      lines.push(`Keep training: ${upcoming.map((u) => `${getMove(u.move).name} at LV ${u.level}`).join(', and ')}!`);
+      lines.push(`Keep training! Coming up: ${upcoming.map((u) => `${getMove(u.move).name} at LV ${u.level}`).join(' and ')}!`);
     }
     lineIdx = 0;
     tw.set(lines[0]);
