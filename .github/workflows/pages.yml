@@ -1,0 +1,86 @@
+# Build Dragon Hamsters and publish it to GitHub Pages.
+#
+# Every push to main runs the full gate (typecheck, the three Node test suites, the headless smoke
+# test, the end-to-end playtest, and a file:// boot of the single-file build) and only deploys if
+# all of it passes. The site is dist/index.html: one self-contained page, so it works at
+# https://<owner>.github.io/dragon-hamsters/ with no base-path configuration.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits for the one in flight instead of cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22.18+ runs the .ts tools directly (type stripping is on by default).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Content, battle and game tests
+        run: npm test
+
+      # The headless checks use Playwright's Chromium. It is not a project dependency (the dev
+      # container ships its own), so CI installs the same version without touching package.json.
+      - name: Install headless Chromium
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: End-to-end playtest
+        run: npm run playtest
+
+      - name: Build and boot dist/index.html from file://
+        run: npm run distcheck
+
+      - name: Keep the playtest screenshots when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
