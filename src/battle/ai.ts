@@ -300,14 +300,18 @@ export function chooseEnemyAction(state: BattleState): EnemyAction {
   return { kind: 'move', slot: weightedPick(state, opts).slot };
 }
 
-/** Who comes in after a faint (or an enemy pivot): best matchup vs the player's active; bosses stay last. */
-export function chooseEnemyReplacement(state: BattleState): number {
+/**
+ * Who comes in after a faint (or an enemy pivot): best matchup vs the player's active; bosses stay
+ * last. `foeLeaving`: the player's active is about to be replaced (it pivoted, or it is down too),
+ * so its matchup does not count and send order decides, as after a double knockout.
+ */
+export function chooseEnemyReplacement(state: BattleState, foeLeaving = false): number {
   const foe = playerActive(state);
   let best = -1;
   let bestKey = -Infinity;
   state.enemy.team.forEach((m, i) => {
     if (i === state.enemy.active || m.hp <= 0) return;
-    const score = foe && foe.hp > 0 ? monMatchup(m, foe) : 0;
+    const score = foe && foe.hp > 0 && !foeLeaving ? monMatchup(m, foe) : 0;
     // Bosses are held back for the finale; then the matchup; then send order.
     const key = (m.isBoss ? 0 : 1000) + score * 10 - i * 0.01;
     if (key > bestKey) {

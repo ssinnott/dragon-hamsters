@@ -343,7 +343,9 @@ export type TailStyle = 'stub' | 'spike' | 'flame' | 'fin' | 'leaf' | 'club' | '
 export type PatternStyle = 'none' | 'spots' | 'stripes' | 'scales' | 'speckles' | 'swirl' | 'patches';
 export type DragonExtra =
   | 'chefHat' | 'goggles' | 'drips' | 'aura' | 'mask' | 'scarf' | 'crown' | 'tuft' | 'bubbles'
-  | 'sparkles' | 'bowtie' | 'apron' | 'halo' | 'shell' | 'whiskersLong' | 'monocle' | 'flowers' | 'frostBreath';
+  | 'sparkles' | 'bowtie' | 'apron' | 'halo' | 'shell' | 'whiskersLong' | 'monocle' | 'flowers' | 'frostBreath'
+  /** An upturned glass fishbowl worn as a helmet over the whole head. */
+  | 'fishbowl';
 
 /** How the procedural renderer draws a species. Colours are hex strings. */
 export interface DragonVisual {
@@ -457,8 +459,13 @@ export interface VillainDef {
   coins: number;
   /** Shown on the battle intro, e.g. 'Hand over the cheese and nobody gets nibbled.' */
   taunt: string;
-  /** Shown when it faints. */
+  /** Shown when it faints. A boss's line is an escape line: it gets away in missions 1-4. */
   defeat: string;
+  /**
+   * Bosses: shown instead of `defeat` when it faints in its org's showdown (mission 5), where it
+   * is caught at last (the battle gets MonInit.caught).
+   */
+  caught?: string;
   description: string;
   visual: VillainVisual;
 }

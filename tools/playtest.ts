@@ -4,7 +4,7 @@
 //
 // The route:
 //   title -> NEW GAME -> Chief Nibbles' intro -> pick two starters -> the Burrow and its tutorial
-//   -> each of the five activities once (the Snack Bar with a food) -> shop: buy a Seed Cake
+//   -> each of the five activities once (the Snack Bar with a food, the nap last) -> shop: buy a Seed Cake
 //   -> bag: use a Seed Cake -> roster (every tab, swap two moves) -> Dragondex -> type chart
 //   -> mission board -> briefing for case 1 -> AUTO-PICK -> LAUNCH -> every stop of the trail
 //   (dialogs, the rest stop, battles: the first turn by FIGHT -> a move, then autoplay) -> results
@@ -574,9 +574,11 @@ async function playthrough(port: number): Promise<void> {
   await shot('burrow');
   const before = await page.evaluate(() => (window as any).__game.api.state().stats.activities);
   await activity('feed', true);
-  for (const a of ['wheel', 'dig', 'nap', 'play'] as ActivityId[]) await activity(a, false);
+  // the nap comes last: the Cozy Nest only offers a nap to a dragon with something to mend (a
+  // fresh starter at full HP and energy is listed as NOTHING TO FIX)
+  for (const a of ['wheel', 'dig', 'play', 'nap'] as ActivityId[]) await activity(a, false);
   const after = await page.evaluate(() => (window as any).__game.api.state().stats.activities);
-  note(`activities done: ${after - before} (feed, wheel, dig, nap, play)`);
+  note(`activities done: ${after - before} (feed, wheel, dig, play, nap)`);
 
   // shop: buy a Seed Cake (the sixth shelf row)
   await key('s', 6);

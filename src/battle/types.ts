@@ -66,6 +66,8 @@ export interface BattleMon {
   stages: Record<StageStat, number>;
   volatile: Volatile;
   isBoss: boolean;
+  /** A boss caught for good (its org's showdown): when it faints it says its VillainDef.caught line instead of `defeat`. */
+  caught?: boolean;
   /** 0-100, dragons only (villains 50). >= 80: 10% to endure a KO at 1 HP and +1 crit stage. <= 20: 15% to loaf instead of acting. */
   happiness: number;
   /** Whether it has been sent out at least once this battle (XP goes to participants). */
@@ -97,9 +99,10 @@ export interface BattleState {
   /** Enemy swaps used this battle (smart AI swaps at most 2 times). */
   enemySwaps: number;
   /**
-   * After a double knockout the enemy's replacement is sent out while the player still has to
-   * pick one: its entry ability (e.g. ATTACK down on the foe) waits here (its uid) and fires right
-   * after the player's replacement comes in (submitSwitch). Absent / null when nothing waits.
+   * After a double knockout, or a foe knocked out while the player's dragon tags out after a
+   * pivot, the enemy's replacement is sent out while the player still has to pick one: its entry
+   * ability (e.g. ATTACK down on the foe) waits here (its uid) and fires right after the player's
+   * replacement comes in (submitSwitch). Absent / null when nothing waits.
    */
   pendingEntry?: string | null;
   /** Every event so far. */
@@ -167,6 +170,8 @@ export interface MonInit {
   personality?: string;
   happiness?: number;
   isBoss?: boolean;
+  /** The org's showdown boss, caught when it faints: it says its VillainDef.caught line instead of `defeat`. */
+  caught?: boolean;
   /** Stages applied at battle start (boss supercharge). */
   startStages?: StageChanges;
 }

@@ -99,6 +99,7 @@ export function buildMon(init: MonInit, side: Side, index: number): BattleMon {
     stages,
     volatile: freshVolatile(),
     isBoss: init.isBoss ?? def.isBossRole,
+    ...(init.caught ? { caught: true } : {}),
     happiness: Math.max(0, Math.min(100, init.happiness ?? (init.kind === 'dragon' ? 70 : 50))),
     participated: false,
   };

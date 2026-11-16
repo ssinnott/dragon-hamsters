@@ -8,7 +8,7 @@
 // calls onEnd; the outcome is handled on the next update once this scene is on top again (so it
 // works whichever order pop/resume and onEnd arrive in).
 import { drawText, measureText } from '../../lib/engine/text.ts';
-import { getLocation, getMission, getSpecies, getVillain } from '../../data/index.ts';
+import { getLocation, getMission, getSpecies, getVillain, tauntingVillains } from '../../data/index.ts';
 import type { MissionNode, VillainDef } from '../../data/schema.ts';
 import {
   abandonMission, advance, applyRest, bossSupercharge, chooseBranch, completeMission, currentNode, type MissionRun,
@@ -232,9 +232,9 @@ export function createMissionRunScene(run: MissionRun): Scene {
       case 'battle':
       case 'boss': {
         const enc = node.encounter;
-        const lead = villainOf(node.kind === 'boss' ? enc.enemies[enc.enemies.length - 1]?.villain : enc.enemies[0]?.villain);
+        // The lead's taunt; before a showdown the boss's, then his lieutenant's (who fights first).
         const lines = [enc.intro];
-        if (lead?.taunt) lines.push(`${lead.name.toUpperCase()}: "${lead.taunt}"`);
+        for (const v of tauntingVillains(node)) if (v.taunt) lines.push(`${v.name.toUpperCase()}: "${v.taunt}"`);
         phase = 'away';
         sfx(node.kind === 'boss' ? 'boss' : 'select');
         app.nav.dialog(lines, () => {
@@ -298,10 +298,20 @@ export function createMissionRunScene(run: MissionRun): Scene {
     if (o === 'lost' || run.outcome === 'lost') {
       app.save();
       phase = 'leaving';
+      // Won the fight, but nobody is left standing for the next one (tuckeredAfterWin): the Chief
+      // says why before MISSION FAILED, so a win is never followed by a failure out of nowhere.
+      if (o === 'won') {
+        app.nav.dialog([
+          "You won that fight, agent! But the whole squad is too tuckered out to make it to the next one. Let's head back to the Burrow and rest up.",
+        ], () => app.nav.results(run, null), 'chief');
+        return;
+      }
       app.nav.results(run, null);
       return;
     }
-    // won: on to the next stop
+    // won: on to the next stop (finishBattle may have taken a branch's route for a squad that is
+    // all down: if that changed the number of stops, lay the trail out again)
+    if (layout.length !== run.nodes.length) { layout = target(); layoutFrom = []; }
     advance(run);
     app.save();
     sfx('coin', { volume: 0.6 });
@@ -599,7 +609,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
         drawTypeBadges(ctx, v.types, bx, y, { small: true });
       });
     } else if (node.kind === 'rest') {
-      detail = `A cosy spot to heal up (${Math.round(Math.min(1, node.heal) * 100)}% HP).`;
+      detail = `A cozy spot to heal up (${Math.round(Math.min(1, node.heal) * 100)}% HP).`;
     } else if (node.kind === 'branch') {
       detail = node.text;
     } else {

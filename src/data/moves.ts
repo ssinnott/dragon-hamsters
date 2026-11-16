@@ -46,7 +46,7 @@ const LIST: MoveDef[] = [
   // ---- FLUFF: the generic hamster toolkit plus plain, sturdy attacks -------------------------
   phys('nibble', 'Nibble', 'FLUFF', 40, 100, 35, 'bite', 'A quick little bite with tiny front teeth.'),
   phys('scurry', 'Scurry', 'FLUFF', 40, 100, 30, 'tackle', 'Scampers in so fast that it always strikes first.', { priority: 1 }),
-  phys('startle', 'Startle', 'FLUFF', 40, 100, 10, 'sound', 'Jumps out going BOO! Only works on its first turn out.', { priority: 3, effects: [{ kind: 'firstTurn' }] }),
+  phys('startle', 'Startle', 'FLUFF', 40, 100, 10, 'sound', 'Jumps out going BOO! The foe flinches. First turn only.', { priority: 3, effects: [{ kind: 'firstTurn' }] }),
   phys('pitter-pat', 'Pitter Pat', 'FLUFF', 20, 100, 20, 'punch', 'Pats the foe with tiny paws 2 to 5 times.', { effects: [multi] }),
   phys('whisker-swipe', 'Whisker Swipe', 'FLUFF', 70, 100, 20, 'slash', 'A sharp swipe of the whiskers. High critical-hit ratio.', { effects: [crit] }),
   phys('grumpy-chomp', 'Grumpy Chomp', 'FLUFF', 70, 100, 20, 'bite', 'Power doubles if the user has a status problem.', { effects: [{ kind: 'facade' }] }),
@@ -63,7 +63,7 @@ const LIST: MoveDef[] = [
   // ---- FIRE: special and mixed sweepers --------------------------------------------------------
   phys('ember-nip', 'Ember Nip', 'FIRE', 40, 100, 30, 'bite', 'A warm little nip. May leave the foe BURNED.', { effects: [inflict('burn', 10)] }),
   phys('kindle-dash', 'Kindle Dash', 'FIRE', 50, 100, 20, 'flame', "Dashes in a trail of sparks. Raises the user's SPEED.", { effects: [self({ spe: 1 })] }),
-  phys('blaze-roll', 'Blaze Roll', 'FIRE', 65, 100, 25, 'flame', 'Rolls up in flames. Works even while FROZEN.', { effects: [{ kind: 'thaw' }, inflict('burn', 10)] }),
+  phys('blaze-roll', 'Blaze Roll', 'FIRE', 65, 100, 25, 'flame', 'Rolls up in flames, even if FROZEN. May BURN the foe.', { effects: [{ kind: 'thaw' }, inflict('burn', 10)] }),
   phys('flare-dive', 'Flare Dive', 'FIRE', 100, 100, 15, 'flame', 'A blazing dive that thaws the user. Some recoil.', { effects: [{ kind: 'thaw' }, recoil(0.25)] }),
   spec('cinder-sneeze', 'Cinder Sneeze', 'FIRE', 40, 100, 25, 'flame', 'A sneeze of hot sparks. May leave the foe BURNED.', { effects: [inflict('burn', 10)] }),
   spec('campfire-ring', 'Campfire Ring', 'FIRE', 35, 90, 15, 'flame', 'Rings the foe in flames so it cannot swap out.', { effects: [{ kind: 'trap' }] }),
@@ -158,7 +158,7 @@ const LIST: MoveDef[] = [
 
   // ---- DARKNESS: fast physical tricksters ------------------------------------------------------
   phys('night-nibble', 'Night Nibble', 'DARKNESS', 50, 100, 25, 'bite', 'A sneaky bite in the dark. May make the foe flinch.', { effects: [flinch(20)] }),
-  phys('peekaboo', 'Peekaboo', 'DARKNESS', 40, 100, 10, 'shadow', 'Peekaboo! Only works on its first turn out.', { priority: 3, effects: [{ kind: 'firstTurn' }] }),
+  phys('peekaboo', 'Peekaboo', 'DARKNESS', 40, 100, 10, 'shadow', 'Peekaboo! The foe flinches. Only on its first turn out.', { priority: 3, effects: [{ kind: 'firstTurn' }] }),
   phys('dusk-crunch', 'Dusk Crunch', 'DARKNESS', 85, 100, 15, 'bite', "A crunchy bite. May lower the foe's DEFENSE.", { effects: [foe({ def: -1 }, 20)] }),
   spec('grumble', 'Grumble', 'DARKNESS', 50, 95, 15, 'sound', "A grumpy grumble that lowers the foe's SP. ATK.", { effects: [foe({ spa: -1 })] }),
   spec('jinx', 'Jinx', 'DARKNESS', 65, 100, 10, 'shadow', 'Power doubles if the foe has a status problem.', { effects: [{ kind: 'hex' }] }),
@@ -200,6 +200,7 @@ const LIST: MoveDef[] = [
   stat('tune-up', 'Tune Up', 'METAL', 'self', 20, 'buff', [self({ atk: 1, spe: 1 })], 'Oils its gears. ATTACK and SPEED rise.'),
   stat('tin-dome', 'Tin Dome', 'METAL', 'self', 10, 'shield', [{ kind: 'protect' }], 'Hides under a tin cup and blocks every attack.', { priority: 4 }),
   stat('squeaky-hinge', 'Squeaky Hinge', 'METAL', 'foe', 30, 'sound', [foe({ spd: -2 })], "A dreadful squeak. The foe's SP. DEF sharply drops.", { accuracy: 85 }),
+  stat('gear-grind', 'Gear Grind', 'METAL', 'foe', 30, 'sound', [foe({ def: -2 })], "Grinds its gears so loudly the foe's DEFENSE sharply drops.", { accuracy: 85 }),
 
   // ---- MIND: special sweepers ------------------------------------------------------------------
   phys('brain-bonk', 'Brain Bonk', 'MIND', 45, 100, 30, 'psy', 'A thoughtful little headbutt.'),

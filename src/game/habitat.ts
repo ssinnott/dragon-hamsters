@@ -26,6 +26,16 @@ export const GLUM_AT = 20;
 export const JOYFUL_AT = 80;
 /** Bag cap, so a pantry never overflows its shelves. */
 export const BAG_MAX = 99;
+/**
+ * The agency's safety net: a morning that starts with a bare pantry and too few coins to buy every
+ * dragon the cheapest snack brings a care package from Chief Nibbles, this many of the cheapest
+ * food per dragon. Food is the only way to refill fullness, and digging and missions both need a
+ * fed dragon, so without it a burrow that spent its coins on battle items could starve for good.
+ */
+export const CARE_PACKAGE_PER_DRAGON = 2;
+/** endDay: happiness above this drifts down each night by HAPPINESS_DRIFT (never below it). */
+export const HAPPINESS_SETTLE = 50;
+export const HAPPINESS_DRIFT = 10;
 
 /** Dig loot: coins every time; food sometimes; an item rarely; a jackpot very rarely. */
 const DIG = {
@@ -318,10 +328,28 @@ const NIGHT_LINES = [
   'Everyone curled up in one big fluffy pile and slept until morning.',
   'The burrow snored in harmony all night long.',
   'Chief Nibbles tucked everyone in and read a spy story. Zzz.',
-  'A cosy night of tail-tucked dreams about mountains of seeds.',
+  'A cozy night of tail-tucked dreams about mountains of seeds.',
 ];
 
-/** SLEEP: heal and cure everyone, restore energy, spend fullness, reset slots, next day. */
+/** The cheapest food in the shop (the care package's snack). */
+export function cheapestFood(): FoodId {
+  return [...FOOD_IDS].sort((a, b) => getFood(a).price - getFood(b).price)[0];
+}
+
+/**
+ * Whether tomorrow morning's care package is due: dragons to feed, nothing at all in the pantry,
+ * and not enough coins to buy each dragon one of the cheapest snack.
+ */
+export function needsCarePackage(state: GameState): boolean {
+  if (!state.dragons.length) return false;
+  if (FOOD_IDS.some((f) => (state.food[f] ?? 0) > 0)) return false;
+  return state.coins < getFood(cheapestFood()).price * state.dragons.length;
+}
+
+/**
+ * SLEEP: heal and cure everyone, restore energy, spend fullness, let happiness settle, reset
+ * slots, next day. A bare pantry with no coins to fill it brings Chief Nibbles' care package.
+ */
 export function endDay(state: GameState): DayReport {
   const lines: string[] = [NIGHT_LINES[(state.day - 1) % NIGHT_LINES.length]];
   let mended = false;
@@ -333,6 +361,8 @@ export function endDay(state: GameState): DayReport {
     d.status = null;
     d.needs.energy = clampNeed(d.needs.energy + NIGHT_ENERGY);
     d.needs.fullness = clampNeed(d.needs.fullness - NIGHT_FULLNESS);
+    // Happiness settles overnight: the Ball Pit and favourite foods keep a dragon overjoyed.
+    if (d.needs.happiness > HAPPINESS_SETTLE) d.needs.happiness = Math.max(HAPPINESS_SETTLE, d.needs.happiness - HAPPINESS_DRIFT);
     if (d.needs.fullness <= 0) d.needs.happiness = clampNeed(d.needs.happiness - STARVING_HAPPINESS);
     d.slotsUsed = 0;
     const name = dragonName(d);
@@ -344,7 +374,14 @@ export function endDay(state: GameState): DayReport {
   if (mended && state.dragons.length) lines.push('Scrapes mended, sniffles gone: the whole burrow is healed.');
   lines.push(...warnings);
   if (state.dragons.length && !warnings.length) lines.push('Everyone woke up bright-eyed and ready for action!');
-  if (FOOD_IDS.every((f) => (state.food[f] ?? 0) <= 0)) lines.push('The pantry is empty! The Pantry Shop sells snacks.');
+  if (needsCarePackage(state)) {
+    const f = cheapestFood();
+    const n = Math.min(BAG_MAX, CARE_PACKAGE_PER_DRAGON * state.dragons.length);
+    state.food[f] = n;
+    lines.push(`Chief Nibbles left ${n} ${getFood(f).name} by the door: the agency never lets an agent go hungry!`);
+  } else if (FOOD_IDS.every((f) => (state.food[f] ?? 0) <= 0)) {
+    lines.push('The pantry is empty! The Pantry Shop sells snacks.');
+  }
   lines.push(`Day ${state.day} begins!`);
   return { day: state.day, lines };
 }

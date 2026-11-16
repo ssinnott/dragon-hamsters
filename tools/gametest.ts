@@ -2,9 +2,11 @@
 //
 // Covers the save contract, dragons (creation, XP, moves, evolution, training), every Burrow
 // activity and refusal, the shop, and the mission lifecycle end to end through the real battle
-// engine with a simple autopilot. It finishes with a campaign simulation: three missions by
-// default, the whole campaign with --sim. The simulation only fails the run on an exception; losing
-// a mission is reported, never an error. Exit code 1 on any failure.
+// engine with a simple autopilot. It finishes with a campaign simulation (three missions by
+// default, the whole campaign with --sim; a lost mission is only reported, but a campaign that
+// gets stuck fails) and a balance check: the whole campaign for every starter pair, with each case
+// replayed from the state the campaign first reached it in, against win-rate floors (BALANCE).
+// Exit code 1 on any failure.
 //
 // Every expectation is derived from the content tables, so the tests keep working as content is
 // rebalanced. Checks that need content the tables do not have (say, no species evolves yet) are
@@ -15,13 +17,14 @@ import {
 } from '../src/data/index.ts';
 import { STARTERS } from '../src/data/index.ts';
 import {
-  ACTIVITY_IDS, FOOD_IDS, ITEM_IDS, STAT_IDS,
+  ACTIVITY_IDS, FOOD_IDS, ITEM_IDS, STAT_IDS, TYPE_IDS,
   type ActivityId, type FoodId, type MissionId, type SpeciesDef, type SpeciesId,
 } from '../src/data/schema.ts';
 import { xpForLevel, levelForXp } from '../src/battle/stats.ts';
 import { defaultMoves } from '../src/battle/build.ts';
 import { activeMon, createBattle, legal, startBattle, submitSwitch, submitTurn } from '../src/battle/battle.ts';
 import { estimateDamage } from '../src/battle/damage.ts';
+import { intelGrade, moveEffectiveness } from '../src/battle/matchup.ts';
 import type { BattleState } from '../src/battle/types.ts';
 import {
   MAX_LEVEL, MISSION_ENERGY, MISSION_FULLNESS, SAVE_KEY, SAVE_VERSION, SLOTS_PER_DAY, SQUAD_SIZE,
@@ -34,12 +37,17 @@ import {
   STATUS_MOVE_VALUE, addDragon, addTraining, autoSwapFor, createDragon, dragonName, dragonStats, dragonTypes, evolve,
   evolveDragon, foldSwaps, grantXp, isFainted, moveValue, setLoadout, syncFromBattle, toMonInit, type XpReport,
 } from '../src/game/dragons.ts';
-import { canDoActivity, doActivity, endDay, moodLine, swapLines as swapLinesFor, useItemOutside } from '../src/game/habitat.ts';
+import {
+  CARE_PACKAGE_PER_DRAGON, HAPPINESS_DRIFT, HAPPINESS_SETTLE, canDoActivity, cheapestFood, doActivity, endDay, moodLine,
+  needsCarePackage, swapLines as swapLinesFor, useItemOutside,
+} from '../src/game/habitat.ts';
 import { SHOP, buy } from '../src/game/shop.ts';
 import {
-  abandonMission, advance, applyRest, canLaunch, chooseBranch, completeMission, currentNode, encounterSetup,
-  finishBattle, intelTypes, missionStatus, nextMission, startMission, type MissionRun,
+  FAINT_HAPPINESS, INTEL_WEIGHT, PICK_LEVEL_GAP, abandonMission, advance, applyRest, canLaunch, chooseBranch, completeMission,
+  currentNode, encounterSetup, finishBattle, intelTypes, missionGrade, missionIntel, missionStatus, nextMission, rankForMission,
+  recommendSquad, startMission, tooLowFor, tuckeredAfterWin, type MissionRun,
 } from '../src/game/missions.ts';
+import { defeatAdvice } from '../src/game/advice.ts';
 
 // ---------------------------------------------------------------------------------------------
 // A tiny harness
@@ -284,6 +292,29 @@ test('createDragon: determinism and shape', () => {
   ok(g.dex.seen.includes(FIRE) && g.dex.owned.includes(FIRE), 'dex seen + owned');
   addDragon(g, g.dragons[0]);
   eq(g.dragons.length, 1, 'adding twice does not duplicate');
+});
+
+test('createDragon: a dragon that joins at a high level has the loadout levelling up would give it', () => {
+  // Reward and rescue dragons join at the mission level minus 2: their moves must be the ones a
+  // dragon raised from level 1 would have (auto-equip keeps the best attacks), not simply the last
+  // four in the learnset, which can be utility moves.
+  const g = newGame(77);
+  let differ = 0;
+  for (const sp of SPECIES) {
+    for (const L of [8, 15, 20, 27, 31, 40]) {
+      const fresh = createDragon(g, sp.id, L);
+      const raised = createDragon(g, sp.id, 1);
+      grantXp(raised, xpForLevel(L) - raised.xp);
+      deepEq(fresh.moves, raised.moves, `${sp.id} L${L}: joins with the loadout of one raised from level 1`);
+      ok(fresh.moves.every((m) => fresh.knownMoves.includes(m)), `${sp.id} L${L}: equipped moves are known`);
+      if (JSON.stringify(fresh.moves) !== JSON.stringify(defaultMoves(sp.learnset, L))) differ++;
+    }
+  }
+  ok(differ > 0, 'some species would otherwise join with weaker last-four loadouts');
+  // The case from the content review: Brrrito at level 31 keeps its FROST attacks.
+  const b = createDragon(g, 'brrrito', 31);
+  ok(b.moves.includes('flurry-puff') && b.moves.includes('chilly-nip'), `Brrrito L31 keeps its FROST attacks: ${b.moves.join(', ')}`);
+  ok(b.moves.filter((m) => getMove(m).category === 'status').length <= 1, 'at most one status move');
 });
 
 test('XP curve, level ups and learned moves', () => {
@@ -734,6 +765,61 @@ test('endDay', () => {
   ok(moodLine(a).length > 0 && moodLine(a) !== 'HUNGRY!', 'mood happy');
 });
 
+test('endDay: happiness settles overnight', () => {
+  const s = gameWithStarters(62, 10);
+  const [a, b] = s.dragons;
+  a.needs = { fullness: 90, happiness: 100, energy: 50 };
+  b.needs = { fullness: 90, happiness: HAPPINESS_SETTLE + 3, energy: 50 };
+  endDay(s);
+  eq(a.needs.happiness, 100 - HAPPINESS_DRIFT, 'an overjoyed dragon calms down a little each night');
+  eq(b.needs.happiness, HAPPINESS_SETTLE, 'the drift stops at the settle point');
+  b.needs.happiness = 30;
+  endDay(s);
+  eq(b.needs.happiness, 30, 'a fed dragon below the settle point keeps its happiness');
+  // Without daily fun, the >= 80 battle perk does not last.
+  a.needs.happiness = 100;
+  for (let i = 0; i < 5; i++) { a.needs.fullness = 90; endDay(s); }
+  ok(a.needs.happiness < 80, `five days without play: happiness ${a.needs.happiness} < 80`);
+  // ...but one Ball Pit visit a day keeps it up.
+  a.needs.happiness = 100;
+  for (let i = 0; i < 5; i++) { a.needs.fullness = 90; doActivity(s, a.id, 'play'); endDay(s); }
+  ok(a.needs.happiness >= 80, `a daily Ball Pit visit keeps happiness ${a.needs.happiness} >= 80`);
+});
+
+test('endDay: a broke burrow with a bare pantry gets a care package (no starvation soft-lock)', () => {
+  const s = gameWithStarters(63, 5);
+  // Spend every coin on battle items and eat the whole pantry.
+  s.coins = 0;
+  for (const f of FOOD_IDS) s.food[f] = 0;
+  for (const d of s.dragons) d.needs.fullness = 10;
+  const seeds = cheapestFood();
+  eq(FOODS[seeds].price, Math.min(...FOOD_IDS.map((f) => FOODS[f].price)), 'the care package is the cheapest snack');
+  ok(needsCarePackage(s), 'care package due');
+  const r = endDay(s);
+  for (const d of s.dragons) eq(d.needs.fullness, 0, 'everyone went to bed hungry');
+  eq(s.food[seeds], CARE_PACKAGE_PER_DRAGON * s.dragons.length, 'Chief Nibbles leaves snacks for every dragon');
+  ok(r.lines.some((l) => l.includes('Chief Nibbles') && l.includes(FOODS[seeds].name)), 'the morning report says so');
+  ok(!r.lines.some((l) => /pantry is empty/i.test(l)), 'no "pantry is empty" once the package arrived');
+  // The burrow can work its way back: feed, then dig for coins or go on a case.
+  for (const d of s.dragons) ok(doActivity(s, d.id, 'feed', seeds).ok, 'feed from the care package');
+  ok(canDoActivity(s, s.dragons[0].id, 'dig').ok, 'a fed dragon can dig for coins again');
+  ok(canLaunch(s, MISSIONS_IN_ORDER[0].id, [s.dragons[0].id]).ok, 'and go on a case again');
+  // No package while there is any food left, or coins enough to buy everyone a snack.
+  ok(!needsCarePackage(s), 'not due while the pantry has food');
+  for (const f of FOOD_IDS) s.food[f] = 0;
+  s.coins = FOODS[seeds].price * s.dragons.length;
+  ok(!needsCarePackage(s), 'not due while the coins can buy everyone a snack');
+  endDay(s);
+  eq(s.food[seeds], 0, 'no free snacks for a burrow that can afford them');
+  // Thirty nights of a broke burrow never end with everyone starving and stuck.
+  s.coins = 0;
+  for (let i = 0; i < 30; i++) {
+    endDay(s);
+    for (const d of s.dragons) while (s.food[seeds] > 0 && doActivity(s, d.id, 'feed', seeds).ok) { /* nom */ }
+  }
+  ok(s.dragons.every((d) => d.needs.fullness > 0), 'every morning brings enough to eat');
+});
+
 test('shop', () => {
   eq(SHOP.length, 10, 'ten shelves');
   for (const f of FOOD_IDS) eq(SHOP.find((e) => e.id === f)?.price, FOODS[f].price, `food price ${f}`);
@@ -862,6 +948,173 @@ test('missions: status, canLaunch, intel', () => {
   }
 });
 
+test('missions: the squad grade weights the boss and caps on him', () => {
+  // Every mission's weighted intel: one weight per villain, the org boss counts 3x, his lieutenant 2x.
+  for (const m of MISSIONS) {
+    const intel = missionIntel(m.id);
+    deepEq(intel.types, intelTypes(m.id), `${m.id} intel types`);
+    eq(intel.weights.length, intel.types.length, `${m.id} one weight per villain`);
+    ok(intel.boss >= 0, `${m.id} has a boss`);
+    eq(intel.weights[intel.boss], INTEL_WEIGHT.boss, `${m.id} boss weight`);
+  }
+  // Synthetic intel: three LEAF minions and a WATER boss, graded for a FIRE attacker.
+  const fireMove = Object.values(MOVES).find((mv) => mv.type === 'FIRE' && mv.power > 0 && !mv.effects.some((e) => e.kind === 'fixed'));
+  ok(fireMove, 'a damaging FIRE move');
+  const intel = [['LEAF'], ['LEAF'], ['LEAF'], ['WATER']] as const;
+  eq(intelGrade(['FIRE'], [fireMove.id], intel), 3, 'unweighted: the minions outvote the boss');
+  eq(intelGrade(['FIRE'], [fireMove.id], intel, { boss: 3 }), 2, 'a dragon the boss resists never gets 3 stars');
+  eq(intelGrade(['FIRE'], [fireMove.id], intel, { weights: [1, 1, 1, 3] }), 2, 'the boss counting 3x pulls the grade down');
+  eq(intelGrade(['FIRE'], [fireMove.id], [['LEAF'], ['WATER']], { weights: [1, 1] }), 2, 'equal weights: the plain average');
+  // A dragon whose damaging moves cannot touch the boss at all gets 1 star, however good it is elsewhere.
+  const types = TYPE_IDS;
+  let found = false;
+  for (const atk of types) {
+    const mv = Object.values(MOVES).find((x) => x.type === atk && x.power > 0 && !x.effects.some((e) => e.kind === 'fixed'));
+    if (!mv) continue;
+    const immune = types.find((t) => moveEffectiveness(mv.id, [t]) === 0);
+    const prey = types.find((t) => moveEffectiveness(mv.id, [t]) > 1);
+    if (!immune || !prey) continue;
+    const intel2 = [[prey], [prey], [prey], [immune]];
+    ok(intelGrade([atk], [mv.id], intel2) >= 2, `${atk} unweighted grade is not 1`);
+    eq(intelGrade([atk], [mv.id], intel2, { boss: 3 }), 1, `${mv.id} does nothing to a ${immune} boss: 1 star`);
+    found = true;
+    break;
+  }
+  ok(found, 'the chart has an immunity to test with');
+});
+
+test('missions: AUTO-PICK weighs level and matchup together (rankForMission / recommendSquad)', () => {
+  const m = MISSIONS_IN_ORDER.find((x) => x.level >= 20);
+  ok(m, 'a mid-game case');
+  const s = newGame(171);
+  for (const r of MISSIONS_IN_ORDER.slice(0, MISSIONS_IN_ORDER.indexOf(m))) s.missions[r.id] = { clears: 1, firstClearDay: 1 };
+  eq(missionStatus(s, m.id), 'available', 'case open');
+  // Grade every first-stage species at the case's level, then pick a 3-star and three 1-2 star ones.
+  const graded = SPECIES.filter((sp) => !sp.evolvesFrom).map((sp) => {
+    const d = createDragon(s, sp.id, m.level + 2);
+    return { sp, g: missionGrade(d, m.id) };
+  });
+  const great = graded.find((x) => x.g === 3);
+  const meh = graded.filter((x) => x.g < 3 && x.sp.id !== great?.sp.id).slice(0, 3);
+  ok(great && meh.length === 3, 'a 3-star species and three others');
+  const top = m.level + 2;
+  const add = (sp: SpeciesId, level: number): OwnedDragon => { const d = createDragon(s, sp, level); addDragon(s, d); return d; };
+  const core = meh.map((x) => add(x.sp.id, top));
+  const lowStar = add(great.sp.id, top - PICK_LEVEL_GAP - 4);
+  eq(missionGrade(lowStar, m.id), 3, 'the low dragon really is a great matchup');
+  ok(tooLowFor(lowStar, m.id), 'and too low for the case');
+  ok(!core.some((d) => tooLowFor(d, m.id)), 'the core is not too low');
+  let squad = recommendSquad(s, m.id);
+  eq(squad.length, SQUAD_SIZE, 'a full squad');
+  ok(!squad.includes(lowStar.id), 'a great matchup far below the squad stays home');
+  deepEq([...squad].sort(), core.map((d) => d.id).sort(), 'the core goes instead');
+  const order = rankForMission(s, m.id).map((d) => d.id);
+  eq(order[order.length - 1], lowStar.id, 'and is listed last');
+  // Within reach of the top level, the better matchup wins over a couple of levels.
+  lowStar.level = top - 2;
+  lowStar.xp = xpForLevel(lowStar.level);
+  squad = recommendSquad(s, m.id);
+  ok(squad.includes(lowStar.id), 'a great matchup two levels down makes the squad');
+  eq(rankForMission(s, m.id)[0].id, lowStar.id, 'and tops the list');
+  const lv = squad.map((id) => s.dragons.find((d) => d.id === id)?.level ?? 0);
+  deepEq(lv, [...lv].sort((a, b) => b - a), 'the strongest is sent out first');
+  ok(!tooLowFor(lowStar, m.id), 'two below the top is not too low');
+  // Dragons that cannot go are never picked and are listed after the ones that can.
+  core[0].hp = 0;
+  squad = recommendSquad(s, m.id);
+  ok(!squad.includes(core[0].id), 'a fainted dragon is not picked');
+  eq(rankForMission(s, m.id)[s.dragons.length - 1].id, core[0].id, 'and is listed last');
+});
+
+test('defeat advice agrees with the briefing stars and AUTO-PICK (game/advice.ts)', () => {
+  const FONT_OK = /^[A-Z0-9 .,:;!?'"\-+/()%><&=*[\]#@$_▶♥←→↑↓★]+$/;
+  const m = MISSIONS_IN_ORDER.find((x) => x.level >= 20);
+  ok(m, 'a mid-game case');
+  const s = newGame(181);
+  for (const r of MISSIONS_IN_ORDER.slice(0, MISSIONS_IN_ORDER.indexOf(m))) s.missions[r.id] = { clears: 1, firstClearDay: 1 };
+  const graded = SPECIES.filter((sp) => !sp.evolvesFrom).map((sp) => ({ sp, g: missionGrade(createDragon(s, sp.id, m.level), m.id) }));
+  const great = graded.filter((x) => x.g === 3);
+  const meh = graded.filter((x) => x.g < 3);
+  ok(great.length >= 1 && meh.length >= 3, 'a 3-star species and three others');
+  const add = (sp: SpeciesId, level: number): OwnedDragon => { const d = createDragon(s, sp, level); addDragon(s, d); return d; };
+  const losers = meh.slice(0, 2).map((x) => add(x.sp.id, m.level));
+  const star = add(great[0].sp.id, m.level);
+  const squad = losers.map((d) => d.id);
+  for (const d of losers) d.hp = 0;   // the squad that lost is knocked out
+
+  // A 3-star dragon that stayed home, and that AUTO-PICK would bring after a rest: send it.
+  let a = defeatAdvice(s, m.id, squad);
+  eq(a.kind, 'send', 'a great matchup stayed home');
+  deepEq(a.dragons, [star.id], 'the Chief names it');
+  ok(a.text.toUpperCase().includes(dragonName(star).toUpperCase()), `by name: "${a.text}"`);
+  for (const d of s.dragons) d.hp = dragonStats(d).hp;
+  ok(recommendSquad(s, m.id).includes(star.id), 'AUTO-PICK picks it too');
+  for (const d of losers) d.hp = 0;
+
+  // Too low for the case: train it first (AUTO-PICK would not send it either).
+  star.level = m.level - 10; star.xp = xpForLevel(star.level);
+  ok(tooLowFor(star, m.id), 'too low now');
+  a = defeatAdvice(s, m.id, squad);
+  eq(a.kind, 'train-pick', 'a great matchup that needs levels');
+  deepEq(a.dragons, [star.id], 'named to train');
+
+  // It was in the squad that lost: the types were right, so no new type advice.
+  star.level = m.level; star.xp = xpForLevel(star.level);
+  a = defeatAdvice(s, m.id, [star.id, losers[0].id]);
+  eq(a.kind, 'train', 'every great matchup was already there');
+  deepEq(a.dragons, [], 'nobody new to send');
+  deepEq(a.types, [], 'no "try bringing" types');
+
+  // Nobody great at home, but a BAD MATCHUP went along: name the 2-star dragon AUTO-PICK would send.
+  const caseWith = MISSIONS_IN_ORDER.find((mm) => {
+    const g = SPECIES.filter((sp) => !sp.evolvesFrom).map((sp) => missionGrade(createDragon(newGame(1), sp.id, mm.level), mm.id));
+    return g.includes(1) && g.filter((x) => x === 2).length >= 2;
+  });
+  ok(caseWith, 'a case with a 1-star and two 2-star first-stage species');
+  {
+    const w = newGame(182);
+    for (const r of MISSIONS_IN_ORDER.slice(0, MISSIONS_IN_ORDER.indexOf(caseWith))) w.missions[r.id] = { clears: 1, firstClearDay: 1 };
+    const pick = (want: number, n: number): SpeciesId[] => SPECIES.filter((sp) => !sp.evolvesFrom)
+      .filter((sp) => missionGrade(createDragon(w, sp.id, caseWith.level), caseWith.id) === want).slice(0, n).map((sp) => sp.id);
+    const [bad] = pick(1, 1);
+    const [ok2, home2] = pick(2, 2);
+    const wAdd = (sp: SpeciesId): OwnedDragon => { const d = createDragon(w, sp, caseWith.level); addDragon(w, d); return d; };
+    const bd = wAdd(bad), od = wAdd(ok2), hd = wAdd(home2);
+    bd.hp = 0; od.hp = 0;
+    const adv = defeatAdvice(w, caseWith.id, [bd.id, od.id]);
+    eq(adv.kind, 'send', 'swap out the bad matchup');
+    deepEq(adv.dragons, [hd.id], 'the 2-star dragon that stayed home');
+    deepEq(adv.stars, [2], 'with its briefing stars');
+    ok(/BAD MATCHUP/.test(adv.text) && adv.text.toUpperCase().includes(dragonName(bd).toUpperCase()), `names the bad matchup: "${adv.text}"`);
+    for (const d of w.dragons) d.hp = dragonStats(d).hp;
+    const rank = rankForMission(w, caseWith.id).map((d) => d.id);
+    ok(rank.indexOf(hd.id) < rank.indexOf(bd.id), 'AUTO-PICK ranks it above the bad matchup');
+  }
+
+  // Nobody grades 3 stars: only counter types the burrow does not own yet.
+  s.dragons = s.dragons.filter((d) => d.id !== star.id);
+  a = defeatAdvice(s, m.id, squad);
+  ok(a.kind === 'recruit' || a.kind === 'train', `no great matchup in the burrow: ${a.kind}`);
+  const ownedTypes = new Set(s.dragons.flatMap((d) => dragonTypes(d)));
+  ok(a.types.every((t) => !ownedTypes.has(t)), `never a type the burrow already has: ${a.types}`);
+
+  // Every case, a starters-only burrow that lost with both: whatever the Chief says agrees with
+  // the stars (named dragons are 3-star and stayed home; types are not owned) and is font-safe.
+  for (const mm of MISSIONS_IN_ORDER) {
+    const w = gameWithStarters(191, Math.max(5, mm.level - 2));
+    for (const r of MISSIONS_IN_ORDER.slice(0, MISSIONS_IN_ORDER.indexOf(mm))) w.missions[r.id] = { clears: 1, firstClearDay: 1 };
+    const brought = [w.dragons[0].id];
+    const adv = defeatAdvice(w, mm.id, brought);
+    adv.dragons.forEach((id, i) => {
+      const d = w.dragons.find((x) => x.id === id);
+      ok(d && !brought.includes(id) && adv.stars[i] === missionGrade(d, mm.id), `${mm.id}: a named dragon stayed home and shows its real stars`);
+    });
+    const owned = new Set(w.dragons.flatMap((d) => dragonTypes(d)));
+    ok(adv.types.every((t) => !owned.has(t)), `${mm.id}: no owned type is suggested`);
+    ok(FONT_OK.test(adv.text.toUpperCase()), `${mm.id}: font-safe advice "${adv.text}"`);
+  }
+});
+
 test('missions: lifecycle through the real battle engine', () => {
   const first = MISSIONS_IN_ORDER[0];
   const s = gameWithStarters(101, Math.min(MAX_LEVEL, first.level + 25));
@@ -972,6 +1225,16 @@ test('missions: lifecycle through the real battle engine', () => {
     eq(rewards.dragon.level, Math.max(2, first.level - 2), 'reward dragon level');
   }
   for (const m of MISSIONS) if (m.requires.length && m.requires.every((r) => r === first.id)) eq(missionStatus(s, m.id), 'available', `${m.id} unlocked`);
+  for (const sp of dr?.species ?? []) ok(s.dex.seen.includes(sp), `the case's pool dragon ${sp} is seen in the Dragondex`);
+  // A pool the player has not won yet stays unseen; clearing that case marks it.
+  const later = MISSIONS_IN_ORDER.find((m) => (m.rewards.dragon?.species ?? []).some((sp) => !s.dex.seen.includes(sp)));
+  ok(later, 'a later case has dragons not seen yet');
+  {
+    const s3 = clone(s);
+    const fake: MissionRun = { missionId: later.id, squad, nodes: [], index: 0, coins: 0, defeated: [], xp: {}, outcome: 'active' };
+    completeMission(s3, fake);
+    for (const sp of later.rewards.dragon?.species ?? []) ok(s3.dex.seen.includes(sp), `${later.id} pool ${sp} seen once cleared`);
+  }
 
   // Replay: half pay, not a first clear.
   endDay(s);
@@ -986,6 +1249,28 @@ test('missions: lifecycle through the real battle engine', () => {
   eq(s.coins, coinsBefore + r2.coins, 'replay coins banked');
   eq(s.missions[first.id].clears, 2, 'two clears');
   eq(s.missions[first.id].firstClearDay, 1, 'first clear day kept');
+});
+
+test('missions: a rescued captive joins on the first clear even when the burrow has one already', () => {
+  const rescue = MISSIONS.find((m) => m.type === 'rescue' && m.rewards.dragon
+    && MISSIONS.some((o) => o.id !== m.id && o.rewards.dragon?.species.includes(m.rewards.dragon!.species[0])));
+  if (!rescue) { skip('captive owned already (no captive also lives in another pool)'); return; }
+  const captive = rescue.rewards.dragon!.species[0];
+  const s = gameWithStarters(124, 20);
+  addDragon(s, createDragon(s, captive, 10));
+  const owned = (): number => s.dragons.filter((d) => d.speciesId === captive).length;
+  const fake = (): MissionRun => ({ missionId: rescue.id, squad: [s.dragons[0].id], nodes: [], index: 0, coins: 0, defeated: [], xp: {}, outcome: 'active' });
+  const r1 = completeMission(s, fake());
+  ok(r1.firstClear, 'first clear');
+  eq(r1.dragon?.speciesId, captive, `the rescued ${captive} comes home`);
+  eq(owned(), 2, 'now two of its kind');
+  ok(!r1.lines.some((l) => /instead/.test(l)), 'no consolation coins on the rescue');
+  // Replays never bring another copy: new species only (or the consolation coins).
+  for (let i = 0; i < 6; i++) {
+    const r = completeMission(s, fake());
+    ok(!r.firstClear && r.dragon === null, 'a replay brings no second captive');
+  }
+  eq(owned(), 2, 'still two');
 });
 
 test('missions: retreat, loss and rest stops', () => {
@@ -1052,6 +1337,138 @@ test('missions: retreat, loss and rest stops', () => {
   ok(a.hp > 0, 'fainted dragon revived');
   ok(b.hp > 1, 'hurt dragon healed');
   eq(a.hp, Math.max(1, restNode.heal >= 1 ? dragonStats(a).hp : Math.floor(dragonStats(a).hp * restNode.heal)), 'revive amount');
+
+  // HP only: a status stays, and the line says so (never "tip-top" over a BRN badge).
+  a.hp = dragonStats(a).hp; a.status = 'burn';
+  b.hp = dragonStats(b).hp; b.status = null;
+  s.items.herbtea = 1;
+  const burned = applyRest(s, run);
+  eq(a.status, 'burn', 'a rest stop heals HP, not a status');
+  ok(!/tip-top/i.test(burned[0]) && /still BURNED/i.test(burned[0]) && /Herbal Tea/i.test(burned[0]), `burned at full HP: "${burned[0]}"`);
+  ok(/tip-top/i.test(burned[1]), `a healthy dragon at full HP is tip-top: "${burned[1]}"`);
+  a.hp = 1;
+  s.items.herbtea = 0;
+  const hurt = applyRest(s, run);
+  ok(/recovered \d+ HP/i.test(hurt[0]) && /still BURNED/i.test(hurt[0]) && /nap/i.test(hurt[0]), `burned and hurt, no tea in the bag: "${hurt[0]}"`);
+});
+
+test('missions: a double wipe-out win ends the mission unless a rest stop comes first', () => {
+  // The last foe and the last squad dragon fall together (say, from recoil): the engine gives the
+  // battle to the player, but nobody is left for the next fight. tuckeredAfterWin is what the
+  // battle scene checks before its outro (no VICTORY!), and finishBattle applies the same rule.
+  const first = MISSIONS_IN_ORDER[0];
+  const s = gameWithStarters(131, 10);
+  const run = startMission(s, first.id, s.dragons.map((d) => d.id));
+  const fight = run.nodes.find((n) => n.kind === 'battle' || n.kind === 'boss');
+  ok(fight, 'the first mission has a battle');
+  const rest = { kind: 'rest', label: 'Nap', text: 'A nap.', heal: 0.5 } as const;
+  const story = { kind: 'story', label: 'Story', text: 'Meanwhile...' } as const;
+  const doubleWipe = (): BattleState => {
+    const b = createBattle(encounterSetup(s, run));
+    startBattle(b);
+    for (const m of [...b.enemy.team, ...b.player.team]) m.hp = 0;
+    b.phase = 'over';
+    b.winner = 'player';
+    return b;
+  };
+  const cases: [string, MissionRun['nodes'], boolean][] = [
+    ['another fight next', [fight, story, fight], true],
+    ['a rest stop next', [fight, story, rest, fight], false],
+    ['the last fight', [fight, story], false],
+  ];
+  for (const [what, nodes, lost] of cases) {
+    for (const d of s.dragons) d.hp = dragonStats(d).hp;
+    run.nodes = clone(nodes);
+    run.index = 0;
+    run.outcome = 'active';
+    const b = doubleWipe();
+    eq(tuckeredAfterWin(run, b), lost, `tuckeredAfterWin: ${what}`);
+    finishBattle(s, run, b);
+    eq(run.outcome, lost ? 'lost' : 'active', `outcome: ${what}`);
+    ok(s.dragons.every((d) => d.hp === 0), `everyone fainted: ${what}`);
+  }
+  // One dragon still standing: a plain win, whatever comes next.
+  for (const d of s.dragons) d.hp = dragonStats(d).hp;
+  run.nodes = clone([fight, fight]);
+  run.index = 0;
+  run.outcome = 'active';
+  const b = doubleWipe();
+  b.player.team[0].hp = 1;
+  eq(tuckeredAfterWin(run, b), false, 'a dragon left standing');
+  finishBattle(s, run, b);
+  eq(run.outcome, 'active', 'a dragon left standing: still active');
+
+  // A branch next (a sabotage crossroads): the rush route (story, then the path's rest stop) lets
+  // a wiped squad carry on, so the win stands and that route is taken for it; the cut-the-power
+  // route would start with a fight, so it is never offered to a squad nobody can stand up in.
+  const charge = { atk: 1, spa: 1 };
+  const branch: MissionRun['nodes'][number] = {
+    kind: 'branch', label: 'Crossroads', text: 'Which way?',
+    options: [
+      { label: 'Fight first', description: 'One more battle.', nodes: [fight] },
+      { label: 'Rush', description: 'Sneak on.', nodes: [story], supercharge: charge },
+    ],
+  };
+  const boss = run.nodes.find((n) => n.kind === 'boss') ?? fight;
+  const branchCases: [string, MissionRun['nodes'], boolean][] = [
+    ['a branch whose rush route reaches a rest', [fight, branch, rest, boss], false],
+    ['a branch with a fight on every route', [fight, branch, boss], true],
+  ];
+  for (const [what, nodes, lost] of branchCases) {
+    for (const d of s.dragons) d.hp = dragonStats(d).hp;
+    run.nodes = clone(nodes);
+    run.index = 0;
+    run.outcome = 'active';
+    delete run.supercharge;
+    const bw = doubleWipe();
+    eq(tuckeredAfterWin(run, bw), lost, `tuckeredAfterWin: ${what}`);
+    finishBattle(s, run, bw);
+    eq(run.outcome, lost ? 'lost' : 'active', `outcome: ${what}`);
+    if (lost) continue;
+    const next = run.nodes[1];
+    ok(next.kind === 'story' && next.text.endsWith(story.text) && /tuckered/i.test(next.text), `${what}: the rush route replaced the branch, with a reason`);
+    eq(run.nodes[2].kind, 'rest', `${what}: the rest stop follows`);
+    deepEq(run.supercharge, charge, `${what}: the rushed boss is supercharged`);
+    ok(!run.nodes.some((n) => n.kind === 'branch'), `${what}: no branch left to choose`);
+    // and the rest stop stands the squad back up for the boss
+    advance(run); advance(run);
+    applyRest(s, run);
+    ok(s.dragons.every((d) => d.hp > 0), `${what}: everyone back on their paws`);
+  }
+  // The real sabotage missions: every branch has a route that reaches a rest stop.
+  for (const m of MISSIONS.filter((x) => x.nodes.some((n) => n.kind === 'branch'))) {
+    for (const d of s.dragons) d.hp = dragonStats(d).hp;
+    const r2: MissionRun = { ...run, missionId: m.id, nodes: clone(m.nodes), index: m.nodes.findIndex((n) => n.kind === 'branch') - 1, outcome: 'active' };
+    delete r2.supercharge;
+    ok(r2.index >= 0 && (r2.nodes[r2.index].kind === 'battle'), `${m.id}: a battle comes before the branch`);
+    eq(tuckeredAfterWin(r2, doubleWipe()), false, `${m.id}: a double wipe-out before the branch is still a win`);
+  }
+});
+
+test('missions: a dragon that faints in battle loses a little happiness', () => {
+  const first = MISSIONS_IN_ORDER[0];
+  const s = gameWithStarters(132, 10);
+  const [a, b] = s.dragons;
+  a.needs.happiness = 90; b.needs.happiness = 90;
+  const run = startMission(s, first.id, [a.id, b.id]);
+  while (currentNode(run)?.kind !== 'battle') advance(run);
+  const battle = createBattle(encounterSetup(s, run));
+  startBattle(battle);
+  battle.player.team[0].hp = 0;
+  for (const m of battle.enemy.team) m.hp = 0;
+  battle.phase = 'over';
+  battle.winner = 'player';
+  finishBattle(s, run, battle);
+  eq(a.needs.happiness, 90 - FAINT_HAPPINESS, 'the dragon that fainted');
+  eq(b.needs.happiness, 90, 'the one still standing');
+  // Already down before the battle: no second penalty.
+  const battle2 = createBattle(encounterSetup(s, run));
+  startBattle(battle2);
+  for (const m of battle2.enemy.team) m.hp = 0;
+  battle2.phase = 'over';
+  battle2.winner = 'player';
+  finishBattle(s, run, battle2);
+  eq(a.needs.happiness, 90 - FAINT_HAPPINESS, 'no penalty for a dragon that was already down');
 });
 
 test('missions: branches splice and supercharge', () => {
@@ -1093,6 +1510,33 @@ test('missions: branches splice and supercharge', () => {
   // ...and merges with a route's (clamped to +6).
   r.supercharge = { spe: 5, atk: 1 };
   deepEq(encounterSetup(s, r).enemy.at(-1)?.startStages, { spe: 6, atk: 1 }, 'route + node supercharge merge, clamped');
+});
+
+test('missions: the boss is caught in the showdown (its caught line) and escapes before it', () => {
+  const s = gameWithStarters(123, 50);
+  for (const x of MISSIONS) s.missions[x.id] = { clears: 1, firstClearDay: 1 };
+  for (const m of MISSIONS) {
+    s.dragons.forEach((d) => { d.needs = { fullness: 100, happiness: 60, energy: 100 }; });
+    const run = startMission(s, m.id, [s.dragons[0].id]);
+    run.nodes = run.nodes.filter((n) => n.kind === 'boss');
+    run.index = 0;
+    const setup = encounterSetup(s, run);
+    const boss = setup.enemy[setup.enemy.length - 1];
+    eq(!!boss.caught, m.index === 5, `${m.id}: boss caught only in the showdown`);
+    for (const e of setup.enemy.slice(0, -1)) ok(!e.caught, `${m.id}: only the boss is caught`);
+    if (m.index !== 5) continue;
+    // Through the real engine: the showdown boss's faint line is its caught line, never its escape line.
+    const v = getVillain(boss.defId);
+    ok(v.caught, `${v.id} has a caught line`);
+    setup.enemy = [{ ...boss, hp: 1 }];
+    const battle = createBattle(setup);
+    startBattle(battle);
+    for (let turn = 0; turn < 20 && battle.phase === 'choose'; turn++) submitTurn(battle, { kind: 'move', slot: bestMoveSlot(battle) });
+    eq(battle.winner, 'player', `${m.id}: the boss went down`);
+    const lines = battle.log.flatMap((e) => (e.t === 'text' ? [e.text] : []));
+    ok(lines.includes(`${v.name.toUpperCase()}: "${v.caught.toUpperCase()}"`), `${m.id}: says its caught line`);
+    ok(!lines.some((l) => l.includes(v.defeat.toUpperCase())), `${m.id}: no escape line`);
+  }
 });
 
 test('sabotage: rushing supercharges the boss, cutting the power does not', () => {
@@ -1260,14 +1704,25 @@ function pickSquad(s: GameState, missionId: MissionId): string[] {
 
 interface SimLine { mission: string; day: number; levels: string; result: string; attempts: number; note: string }
 
-function simulateCampaign(seed: number, maxMissions: number): { lines: SimLine[]; cleared: number; days: number; dragons: number } {
+interface SimResult { lines: SimLine[]; cleared: number; days: number; dragons: number; stuck: string | null }
+
+/**
+ * Play the campaign in order with dailyCare, pickSquad and the autopilot; a lost case is followed
+ * by a replay of the one before it to train up, and SIM_MAX_ATTEMPTS losses give up (stuck).
+ * `onArrive` sees the world as it first arrives at each case (before the first attempt).
+ */
+function simulateCampaign(
+  seed: number, maxMissions: number, starters: readonly SpeciesId[] = [FIRE, WATER],
+  onArrive?: (id: MissionId, s: GameState) => void,
+): SimResult {
   const s = newGame(seed);
-  for (const sp of [FIRE, WATER]) addDragon(s, createDragon(s, sp, 5));
+  for (const sp of starters) addDragon(s, createDragon(s, sp, 5));
   const order = MISSIONS_IN_ORDER.slice(0, maxMissions);
   const lines: SimLine[] = [];
   let ti = 0;
   let attempts = 0;
   let replay: MissionId | null = null;
+  let stuck: string | null = null;
   while (ti < order.length && s.day <= SIM_MAX_DAYS) {
     dailyCare(s);
     const target = order[ti];
@@ -1276,10 +1731,12 @@ function simulateCampaign(seed: number, maxMissions: number): { lines: SimLine[]
     replay = null;
     if (missionStatus(s, id) === 'locked') {
       lines.push({ mission: id, day: s.day, levels: '-', result: 'LOCKED', attempts, note: 'campaign order is blocked' });
+      stuck = `${id} locked`;
       break;
     }
     const squad = pickSquad(s, id);
     if (squad.length === 0) { endDay(s); continue; }
+    if (!isReplay && attempts === 0) onArrive?.(id, s);
     const levels = squad.map((sid) => 'L' + (s.dragons.find((d) => d.id === sid)?.level ?? 0)).join('/');
     const day = s.day;
     const run = startMission(s, id, squad);
@@ -1302,6 +1759,7 @@ function simulateCampaign(seed: number, maxMissions: number): { lines: SimLine[]
         lines.push({ mission: id, day, levels, result, attempts, note });
         if (attempts >= SIM_MAX_ATTEMPTS) {
           lines.push({ mission: id, day: s.day, levels, result: 'STUCK', attempts, note: `gave up after ${attempts} attempts` });
+          stuck = id;
           break;
         }
         replay = ti > 0 ? order[ti - 1].id : null;
@@ -1309,7 +1767,8 @@ function simulateCampaign(seed: number, maxMissions: number): { lines: SimLine[]
     }
     endDay(s);
   }
-  return { lines, cleared: ti, days: s.day, dragons: s.dragons.length };
+  if (!stuck && ti < order.length) stuck = `${order[ti].id} (out of days)`;
+  return { lines, cleared: ti, days: s.day, dragons: s.dragons.length, stuck };
 }
 
 function printSim(title: string, sim: ReturnType<typeof simulateCampaign>): void {
@@ -1325,7 +1784,69 @@ test(`campaign simulation (${FULL_SIM ? 'full' : 'first 3 missions'}, seed ${SIM
   const t0 = Date.now();
   const sim = simulateCampaign(SIM_SEED, FULL_SIM ? MISSIONS_IN_ORDER.length : 3);
   printSim(`simulation finished in ${Date.now() - t0} ms`, sim);
-  // Losses are fine; only exceptions fail the run. The world must still be a valid save afterwards.
+  // Losses are fine (a replay trains the squad up), but a campaign that gets stuck is a wall.
+  ok(!sim.stuck, `the campaign got stuck at ${sim.stuck}`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Balance: how hard each case is when the campaign first gets there, for every starter pair
+// ---------------------------------------------------------------------------------------------
+
+/** Campaign seeds per starter pair, and replays of each case from its arrival snapshot. */
+const BALANCE_SEEDS = [1, 2, 3];
+const BALANCE_REPLAYS = 20;
+/**
+ * Autopilot win rates on arrival (top three by level, no switching, no items: a pessimistic
+ * player whose results swing with which dragon happens to lead). No campaign may get stuck, and
+ * every case's average over all pairs and seeds must reach CASE_MIN (a wall such as cheese-2 at
+ * 16% fails it). The two cases after the tutorial must average EARLY_MIN and reach
+ * EARLY_PAIR_MIN for every pair (FIRE + LEAF sends its FIRE dragon into Vinnie Grater's EARTH
+ * moves first, so it sits lowest; switching wins it nearly every time). Every pair must win the
+ * finale FINALE_MIN of the time.
+ */
+const BALANCE = { CASE_MIN: 0.3, EARLY_MIN: 0.7, EARLY_PAIR_MIN: 0.4, FINALE_MIN: 0.75 } as const;
+
+test(`balance: arrival win rates for every starter pair (${BALANCE_SEEDS.length} campaigns each, ${BALANCE_REPLAYS} replays per case)`, () => {
+  const pairs = [[0, 1], [0, 2], [1, 2]] as const;
+  const order = MISSIONS_IN_ORDER;
+  const finale = order[order.length - 1].id;
+  const early = order.slice(1, 3).map((m) => m.id);
+  const rates: Record<string, Record<string, number[]>> = {};
+  const stuck: string[] = [];
+  for (const [a, b] of pairs) {
+    const pair = `${getSpecies(STARTERS[a]).name}+${getSpecies(STARTERS[b]).name}`;
+    for (const seed of BALANCE_SEEDS) {
+      const snaps: [MissionId, GameState][] = [];
+      const sim = simulateCampaign(seed, order.length, [STARTERS[a], STARTERS[b]], (id, s) => snaps.push([id, clone(s)]));
+      if (sim.stuck) stuck.push(`${pair} seed ${seed}: ${sim.stuck}`);
+      for (const [id, snap] of snaps) {
+        let wins = 0;
+        for (let k = 0; k < BALANCE_REPLAYS; k++) {
+          const s = clone(snap);
+          s.seed = (s.seed + k * 2654435761) >>> 0;
+          const run = startMission(s, id, pickSquad(s, id));
+          playMission(s, run, k % 2);
+          if (run.outcome === 'active') wins++;
+        }
+        ((rates[id] ??= {})[pair] ??= []).push(wins / BALANCE_REPLAYS);
+      }
+    }
+  }
+  const avg = (x: readonly number[]): number => x.reduce((p, q) => p + q, 0) / Math.max(1, x.length);
+  const pct = (x: number): string => `${Math.round(x * 100)}%`;
+  const bad: string[] = [...stuck.map((x) => `stuck: ${x}`)];
+  console.log('    case        all   ' + pairs.map(([a, b]) => `${getSpecies(STARTERS[a]).name.slice(0, 5)}+${getSpecies(STARTERS[b]).name.slice(0, 5)}`.padEnd(13)).join(''));
+  for (const m of order) {
+    const r = rates[m.id];
+    if (!r) { bad.push(`${m.id}: never reached`); continue; }
+    const all = avg(Object.values(r).flat());
+    console.log(`    ${m.id.padEnd(10)} ${pct(all).padStart(4)}   ` + Object.values(r).map((x) => pct(avg(x)).padEnd(13)).join(''));
+    const min = early.includes(m.id) ? BALANCE.EARLY_MIN : BALANCE.CASE_MIN;
+    if (all < min) bad.push(`${m.id} ${pct(all)} < ${pct(min)}`);
+    const floor = m.id === finale ? BALANCE.FINALE_MIN : early.includes(m.id) ? BALANCE.EARLY_PAIR_MIN : 0;
+    for (const [pair, x] of Object.entries(r)) if (avg(x) < floor) bad.push(`${m.id} ${pair} ${pct(avg(x))} < ${pct(floor)}`);
+  }
+  ok(bad.length === 0, `balance walls:\n    ${bad.join('\n    ')}`);
 });
 
 test('a played world survives save and load', () => {

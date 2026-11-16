@@ -13,6 +13,7 @@ import { drawDragon, dragonHeight } from '../../art/dragon.ts';
 import { STARTERS, getSpecies } from '../../data/index.ts';
 import { loadGame } from '../../game/state.ts';
 import { music, setMusic, setSound, sfx } from '../../audio/index.ts';
+import { drawNoteIcon, drawSpeakerIcon } from '../icons.ts';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -120,37 +121,6 @@ function drawRibbon(ctx: Ctx, text: string, cx: number, y: number): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Little pixel icons for the switches
-// ---------------------------------------------------------------------------------------------
-
-function drawSpeakerIcon(ctx: Ctx, cx: number, cy: number, on: boolean, color: string): void {
-  ctx.fillStyle = color;
-  ctx.fillRect(cx - 5, cy - 2, 3, 4);
-  ctx.fillRect(cx - 2, cy - 3, 1, 6);
-  ctx.fillRect(cx - 1, cy - 4, 1, 8);
-  ctx.fillRect(cx, cy - 5, 1, 10);
-  if (on) {
-    ctx.fillRect(cx + 2, cy - 1, 1, 2);
-    ctx.fillRect(cx + 3, cy - 3, 1, 1); ctx.fillRect(cx + 4, cy - 2, 1, 4); ctx.fillRect(cx + 3, cy + 2, 1, 1);
-  } else {
-    for (let k = 0; k < 4; k++) { ctx.fillRect(cx + 2 + k, cy - 2 + k, 1, 1); ctx.fillRect(cx + 5 - k, cy - 2 + k, 1, 1); }
-  }
-}
-
-function drawNoteIcon(ctx: Ctx, cx: number, cy: number, on: boolean, color: string): void {
-  ctx.fillStyle = color;
-  ctx.fillRect(cx - 4, cy + 1, 3, 3); ctx.fillRect(cx - 5, cy + 2, 1, 1);
-  ctx.fillRect(cx - 2, cy - 5, 1, 7);
-  ctx.fillRect(cx + 2, cy, 3, 3); ctx.fillRect(cx + 1, cy + 1, 1, 1);
-  ctx.fillRect(cx + 4, cy - 6, 1, 7);
-  ctx.fillRect(cx - 2, cy - 6, 7, 2);
-  if (!on) {
-    ctx.fillStyle = UI.bad;
-    for (let k = -5; k <= 5; k++) ctx.fillRect(cx + k, cy - k, 1, 1);
-  }
-}
-
-// ---------------------------------------------------------------------------------------------
 // The scene
 // ---------------------------------------------------------------------------------------------
 
@@ -227,7 +197,7 @@ export function createTitleScene(): Scene {
     get label() { return app.state.settings.music ? 'MUSIC ON' : 'MUSIC OFF'; },
     hotkey: 'm', color: '#e4dcf6',
     rect: { x: BX + BW - half, y: 216, w: half, h: 22 },
-    icon: (ctx, cx, cy) => drawNoteIcon(ctx, cx, cy, app.state.settings.music, UI.text),
+    icon: (ctx, cx, cy) => drawNoteIcon(ctx, cx, cy, app.state.settings.music, UI.text, UI.bad),
     onClick: toggleMusic,
   });
 

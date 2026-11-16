@@ -283,7 +283,8 @@ function faintCheck(c: Ctx, m: BattleMon, killer: BattleMon | null): void {
   emit(c, { t: 'faint', side: m.side, uid: m.uid });
   say(c, `${who(m)} FAINTED!`);
   if (m.side === 'enemy' && m.kind === 'villain') {
-    const line = getVillain(m.defId).defeat;
+    const v = getVillain(m.defId);
+    const line = (m.caught && v.caught) || v.defeat;
     if (line) say(c, `${NAME(m)}: "${line}"`);
   }
   m.status = null;
@@ -883,13 +884,15 @@ function afterTurn(c: Ctx): void {
   if (s.phase === 'over') return;
   const e = activeMon(s, 'enemy');
   if (e.hp <= 0 && healthyBench(s, 'enemy')) {
-    const idx = chooseEnemyReplacement(s);
+    // The player's active is on its way out: knocked out too (a double knockout), or tagging out
+    // after a pivot. Its real replacement is not in yet, so the AI does not pick against the
+    // leaving dragon, and the newcomer's entry ability waits for the replacement (submitSwitch)
+    // instead of fizzling on a fainted foe or hitting one whose stages the withdraw wipes.
+    const playerLeaving = healthyBench(s, 'player') && (activeMon(s, 'player').hp <= 0 || c.pivot);
+    const idx = chooseEnemyReplacement(s, playerLeaving);
     if (idx >= 0) {
-      // A double knockout: the player's replacement is not in yet, so the newcomer's entry ability
-      // waits for it (submitSwitch) instead of fizzling on a fainted foe.
-      const playerDown = activeMon(s, 'player').hp <= 0 && healthyBench(s, 'player');
-      sendOut(c, 'enemy', idx, { text: true, entry: !playerDown });
-      if (playerDown) s.pendingEntry = s.enemy.team[idx].uid;
+      sendOut(c, 'enemy', idx, { text: true, entry: !playerLeaving });
+      if (playerLeaving) s.pendingEntry = s.enemy.team[idx].uid;
     }
   }
   const p = activeMon(s, 'player');

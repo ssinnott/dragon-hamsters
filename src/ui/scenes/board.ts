@@ -132,6 +132,15 @@ export function createBoardScene(): Scene {
     const first = orgMissions(org)[0];
     return !first || missionStatus(state(), first.id) === 'locked';
   };
+  /**
+   * The gang whose boss opens the file at `idx`, by its short name, or null when that gang's own
+   * file is still classified too (its tab reads "???", so naming it here would spoil it).
+   */
+  const prevGangName = (idx: number): string | null => {
+    if (idx <= 0) return null;
+    const prev = ORDERED_ORGS[idx - 1];
+    return orgLocked(prev) ? null : getOrg(prev).short.toUpperCase();
+  };
 
   // Start on the gang of the first open, unsolved case (or the last gang that is open).
   const next = nextMission(state());
@@ -180,8 +189,8 @@ export function createBoardScene(): Scene {
     if (orgLocked(org())) {
       sfx('error');
       wiggle = { slot, t: 0.4 };
-      const prevOrg = orgIdx > 0 ? getOrg(ORDERED_ORGS[orgIdx - 1]).short.toUpperCase() : 'PREVIOUS';
-      showToast(`CLASSIFIED! CATCH THE ${prevOrg} BOSS TO OPEN THIS FILE.`);
+      const prevOrg = prevGangName(orgIdx);
+      showToast(prevOrg ? `CLASSIFIED! CATCH THE ${prevOrg} BOSS TO OPEN THIS FILE.` : 'CLASSIFIED! OPEN THE FILES BEFORE THIS ONE FIRST.');
       return;
     }
     const st = missionStatus(state(), m.id);
@@ -371,8 +380,10 @@ export function createBoardScene(): Scene {
       ctx.beginPath(); ctx.arc(ex, ey, 19, 0, Math.PI * 2); ctx.fill();
       drawLock(ctx, ex, ey + 1, 18);
       drawText(ctx, 'CLASSIFIED FILE', d.x + 64, d.y + 12, { size: 2, color: '#b8323a', shadowColor: '#f0c8b0' });
-      const prev = orgIdx > 0 ? getOrg(ORDERED_ORGS[orgIdx - 1]).short.toUpperCase() : 'PREVIOUS GANG';
-      const lines = wrapText(`Nobody knows who these crooks are yet. Catch the boss of the ${prev} to open this file.`, 330);
+      const prev = prevGangName(orgIdx);
+      const lines = wrapText(prev
+        ? `Nobody knows who these crooks are yet. Catch the boss of the ${prev} to open this file.`
+        : 'Nobody knows who these crooks are yet. Crack the classified files before this one first!', 330);
       lines.slice(0, 3).forEach((l, i) => drawText(ctx, l, d.x + 64, d.y + 32 + i * 10, { color: UI.text, shadow: false }));
     } else {
       const def = getOrg(o);

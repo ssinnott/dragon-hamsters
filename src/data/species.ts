@@ -103,10 +103,12 @@ const FLITTERBIT_MOVES = moves(
 );
 const SWOOPERNOVA_MOVES = extend(FLITTERBIT_MOVES, [18, 'kindle-dash'], [36, 'flare-dive']);
 
-// DARKNESS line: fast physical trickster with startles, traps and WINGED coverage for BRAWL.
+// DARKNESS line: fast physical trickster with startles, traps and WINGED coverage for BRAWL. Its
+// big bite (Dusk Crunch) comes at 22, so it is not stuck on a 50-power nibble for the mid-game; a
+// grumble softens special attackers.
 const SPOOKUMS_MOVES = moves(
   [1, 'nibble'], [1, 'peekaboo'], [5, 'spooky-story'], [9, 'night-nibble'], [13, 'sneaky-scheme'],
-  [18, 'jinx'], [23, 'homing-swoop'], [31, 'dusk-crunch'], [38, 'stink-eye'],
+  [18, 'jinx'], [22, 'dusk-crunch'], [23, 'homing-swoop'], [31, 'grumble'], [38, 'stink-eye'],
 );
 const GRIMSTER_MOVES = extend(SPOOKUMS_MOVES, [26, 'fluster-flap'], [44, 'loop-de-loop']);
 
@@ -116,9 +118,10 @@ const HAMICORN_MOVES = moves(
   [22, 'thought-bubble'], [28, 'glow-up'], [34, 'sunbeam'], [40, 'brainwave'], [46, 'rainbow-ray'],
 );
 
-// LIGHT/WINGED single: speedy special support with a LIGHTNING pivot.
+// LIGHT/WINGED single: speedy special support with a LIGHTNING pivot and a flashing gem (ROCK) for
+// the FROST types that threaten it.
 const GLIMMERWING_MOVES = moves(
-  [1, 'wing-slap'], [1, 'glimmer'], [5, 'breezy-puff'], [10, 'stardust'], [15, 'fluster-flap'],
+  [1, 'wing-slap'], [1, 'glimmer'], [5, 'breezy-puff'], [10, 'stardust'], [12, 'gem-glint'], [15, 'fluster-flap'],
   [20, 'zip-zap'], [25, 'preen'], [30, 'sunbeam'], [35, 'glow-up'], [40, 'tornado-twirl'], [46, 'clear-skies'],
 );
 
@@ -130,10 +133,10 @@ const BLOBBIT_MOVES = moves(
 const GOOLIATH_MOVES = extend(BLOBBIT_MOVES, [20, 'hot-spring'], [39, 'goo-hammer']);
 
 // MIND single: special sweeper; LIGHT and BRAWL coverage for the DARKNESS and METAL types MIND
-// cannot dent.
+// cannot dent. Brainwave comes at 22, so it is not stuck on a 40-power bubble for the mid-game.
 const SMARTYPAWS_MOVES = moves(
   [1, 'brain-bonk'], [1, 'thought-bubble'], [6, 'brain-fog'], [11, 'think-fast'], [16, 'daydream'],
-  [21, 'stardust'], [26, 'counting-sheep'], [31, 'brainwave'], [36, 'deep-thought'], [42, 'chi-blast'],
+  [21, 'stardust'], [22, 'brainwave'], [26, 'counting-sheep'], [36, 'deep-thought'], [42, 'chi-blast'],
 );
 
 // MIND/WATER single: slow, bulky special attacker with FROST coverage.
@@ -155,16 +158,18 @@ const GRANITOOTH_MOVES = moves(
   [22, 'shovel-swipe'], [28, 'dusk-crunch'], [34, 'crag-crash'], [40, 'hibernate'], [46, 'boulder-bonk'],
 );
 
-// LIGHTNING line: fast special glass cannon with FROST coverage for LEAF and EARTH; the final turns METAL.
+// LIGHTNING line: fast special glass cannon with FROST coverage for LEAF and EARTH; its runaway
+// wheel (Volt Tackle) is a strong STAB before Thunder Squeak; the final turns METAL and squeaks.
 const STATICKLE_MOVES = moves(
   [1, 'scurry'], [1, 'tingle-zap'], [5, 'static-cuddle'], [9, 'fizz-nip'], [13, 'wheel-spin'],
-  [18, 'zip-zap'], [23, 'flurry-puff'], [31, 'thunder-squeak'], [44, 'megawatt'],
+  [18, 'zip-zap'], [21, 'wild-wheel'], [23, 'flurry-puff'], [31, 'thunder-squeak'], [44, 'megawatt'],
 );
-const DYNAMUNCH_MOVES = extend(STATICKLE_MOVES, [26, 'magnet-hum'], [35, 'chrome-cannon']);
+const DYNAMUNCH_MOVES = extend(STATICKLE_MOVES, [26, 'magnet-hum'], [30, 'squeaky-hinge'], [35, 'chrome-cannon']);
 
 // METAL line: armoured physical wall with EARTH coverage; the final gets rocket fists (BRAWL).
+// Gear Grind lowers the foe's DEFENSE, the stat its physical hits care about.
 const CLANKLET_MOVES = moves(
-  [1, 'cog-nip'], [1, 'squeaky-hinge'], [5, 'rivet-rap'], [10, 'tin-dome'], [15, 'scissor-snip'],
+  [1, 'cog-nip'], [1, 'gear-grind'], [5, 'rivet-rap'], [10, 'tin-dome'], [15, 'scissor-snip'],
   [20, 'tune-up'], [26, 'shovel-swipe'], [34, 'anvil-drop'], [42, 'cheek-stuff'],
 );
 const MECHAMSTER_MOVES = extend(CLANKLET_MOVES, [30, 'haymaker'], [45, 'all-out-brawl']);
@@ -379,7 +384,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'flitterbit', dex: 16, name: 'Flitterbit', category: 'Flutter Hamster', types: ['WINGED'],
     baseStats: st(41, 53, 41, 46, 41, 68),
-    abilities: ['lucky-feather', 'night-owl'], hiddenAbility: 'updraft',
+    abilities: ['lucky-feather', 'night-owl'], hiddenAbility: 'zoomy-feet',
     learnset: FLITTERBIT_MOVES,
     evolvesTo: { species: 'swoopernova', level: 18 },
     backstory: 'Flitterbit zips from washing line to washing line so fast that it looks like a blur with a squeak. It lives in rooftop gutters and eats the seeds that fall from bird feeders, which annoys the birds a lot. It cannot hover yet, so it simply never stops flapping.',
@@ -390,7 +395,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'swoopernova', dex: 17, name: 'Swoopernova', category: 'Comet Hamster', types: ['WINGED', 'FIRE'],
     baseStats: st(67, 89, 69, 85, 70, 105),
-    abilities: ['lucky-feather', 'night-owl'], hiddenAbility: 'updraft',
+    abilities: ['lucky-feather', 'night-owl'], hiddenAbility: 'zoomy-feet',
     learnset: SWOOPERNOVA_MOVES,
     evolvesFrom: 'flitterbit',
     backstory: 'Swoopernova flies so fast that its feathers catch fire, leaving a glowing streak across the night sky. It nests on the very top of the Sky Tower and races the sunrise every morning. People who spot its streak make a wish, and it secretly tries to grant them.',
@@ -427,7 +432,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'hamicorn', dex: 20, name: 'Hamicorn', category: 'Unicorn Hamster', types: ['LIGHT'],
     baseStats: st(74, 59, 71, 102, 102, 63),
-    abilities: ['fresh-sparkle', 'halo-glow'], hiddenAbility: 'glitterize',
+    abilities: ['fresh-sparkle', 'halo-glow'], hiddenAbility: 'true-colors',
     learnset: HAMICORN_MOVES,
     backstory: "Hamicorn's horn glows a soft pink that mends scraped knees and grumpy moods alike. It grazes in moonlit meadows and eats only blueberries that are still sparkling with dew. Seeing one is said to bring a whole week of good luck.",
     fact: 'Its horn glows brighter whenever someone nearby says thank you.',
@@ -492,7 +497,7 @@ export const SPECIES: SpeciesDef[] = [
     backstory: 'Thinktank wears an old fishbowl as a helmet and claims it helps it think deep thoughts. It lives by the aquarium at the City Zoo and gives the goldfish advice about life. Its ideas come out as bubbles, and the best ones pop with a little ding.',
     fact: 'Nobody knows how it gets the fishbowl on and off.',
     height: '0.6 m', weight: '7.2 kg', favoriteFood: 'berries', rarity: 'rare', baseXp: 175,
-    visual: vis('#9a7ae0', '#e8e0ff', '#3a7ad0', '#a8d0f8', '#1a1040', '#ff8ac8', 1.15, 0.5, 'cloud', 'crystal', 'fin', 'scales', ['bubbles', 'whiskersLong']),
+    visual: vis('#9a7ae0', '#e8e0ff', '#3a7ad0', '#a8d0f8', '#1a1040', '#ff8ac8', 1.15, 0.5, 'cloud', 'nubs', 'fin', 'scales', ['fishbowl', 'bubbles']),
   },
 
   // ---- 26-27: BRAWL line (parallel: Tyrogue, Hitmonchan) ----------------------------------------
@@ -503,7 +508,7 @@ export const SPECIES: SpeciesDef[] = [
     learnset: SCRAPPLING_MOVES,
     evolvesTo: { species: 'champster', level: 24 },
     backstory: 'Scrappling challenges everything to a boxing match, including its own shadow and one very confused sock. It trains on the hamster wheel at dawn and swears by crunchy carrots for strength. Win or lose, it always shakes paws afterwards.',
-    fact: 'It won its headband for the most push-ups ever done by a hamster.',
+    fact: 'It won its lucky scarf for the most push-ups ever done by a hamster.',
     height: '0.3 m', weight: '0.9 kg', favoriteFood: 'carrot', rarity: 'common', baseXp: 60,
     visual: vis('#f2a49a', '#fff0e4', '#c82838', '#f8c8b8', '#2a140a', '#ff6a5a', 0.8, 0.3, 'stubby', 'nubs', 'club', 'none', ['scarf']),
   },
@@ -583,7 +588,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'brrrito', dex: 33, name: 'Brrrito', category: 'Burrito Hamster', types: ['FROST'],
     baseStats: st(65, 59, 52, 54, 44, 36),
-    abilities: ['snowcone-snack', 'icy-fur'], hiddenAbility: 'puffball-coat',
+    abilities: ['snowcone-snack', 'frost-heart'], hiddenAbility: 'puffball-coat',
     learnset: BRRRITO_MOVES,
     evolvesTo: { species: 'glaciator', level: 28 },
     backstory: 'Brrrito is always chilly, so it wraps itself in a snowy blanket and rolls about like a burrito. It lives in snowdrifts and supermarket freezers and likes its blueberries frozen solid. Every sneeze leaves a tiny snowflake behind.',
@@ -594,7 +599,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'glaciator', dex: 34, name: 'Glaciator', category: 'Glacier Hamster', types: ['FROST', 'WATER'],
     baseStats: st(102, 91, 84, 85, 74, 59),
-    abilities: ['snowcone-snack', 'icy-fur'], hiddenAbility: 'puffball-coat',
+    abilities: ['snowcone-snack', 'frost-heart'], hiddenAbility: 'puffball-coat',
     learnset: GLACIATOR_MOVES,
     evolvesFrom: 'brrrito',
     backstory: 'Glaciator trains in the polar sea by wrestling icebergs, and the icebergs usually lose. Its armour is made of ice that never melts, not even in summer. It finally gave up its snowy blanket, but it keeps it folded under its pillow.',
@@ -607,7 +612,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'triceratot', dex: 35, name: 'Triceratot', category: 'Fossil Hamster', types: ['ROCK', 'EARTH'],
     baseStats: st(57, 74, 82, 32, 53, 37),
-    abilities: ['pebble-grit', 'boulder-hide'], hiddenAbility: 'hard-noggin',
+    abilities: ['pebble-grit', 'boulder-hide'], hiddenAbility: 'sap-snacker',
     learnset: TRICERATOT_MOVES,
     evolvesTo: { species: 'tricerampage', level: 30 },
     backstory: 'Triceratot hatched from the dinosaur egg that slept in the Natural History Museum for millions of years. It still carries half of its eggshell on its back and bonks into everything with its stubby horns. It munches crunchy carrots and roars, very squeakily, at anything that moves.',
@@ -618,7 +623,7 @@ export const SPECIES: SpeciesDef[] = [
   {
     id: 'tricerampage', dex: 36, name: 'Tricerampage', category: 'Dinosaur Hamster', types: ['ROCK', 'EARTH'],
     baseStats: st(86, 111, 124, 48, 80, 56),
-    abilities: ['pebble-grit', 'boulder-hide'], hiddenAbility: 'hard-noggin',
+    abilities: ['pebble-grit', 'boulder-hide'], hiddenAbility: 'sap-snacker',
     learnset: TRICERAMPAGE_MOVES,
     evolvesFrom: 'triceratot',
     backstory: 'Tricerampage is the mightiest dragon hamster of the dinosaur age, back for a second go. It charges horns first through solid rock and leaves tunnels big enough for a bus. Every week it visits the museum to say hello to its skeleton cousins.',

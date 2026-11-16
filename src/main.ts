@@ -34,6 +34,7 @@ import { createBriefingScene } from './ui/scenes/briefing.ts';
 import { createMissionRunScene } from './ui/scenes/missionRun.ts';
 import { createResultsScene } from './ui/scenes/results.ts';
 import { createBattleScene } from './ui/scenes/battle.ts';
+import { createOptionsScene } from './ui/scenes/options.ts';
 
 const DT = 1 / 60;
 const STARTER_LEVEL = 5;
@@ -117,6 +118,7 @@ const nav: Nav = {
   evolve: (dragonId, onDone) => scenes.push(createEvolutionScene(dragonId, onDone)),
   dialog: (lines, onDone, speaker) => scenes.push(createDialogScene(lines, onDone, speaker)),
   confirm: (text, onYes, onNo) => scenes.push(createConfirmScene(text, onYes, onNo)),
+  options: () => scenes.push(createOptionsScene()),
 };
 Object.assign(app.nav, nav);
 

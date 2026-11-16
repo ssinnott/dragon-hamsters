@@ -1,5 +1,5 @@
-// The evolution cutscene. Over a dimmed screen with slowly turning light rays, the dragon pulses and
-// flashes white, then flickers between its old shape and the new species' silhouette, faster and
+// The evolution cutscene. Over an opaque night backdrop with slowly turning light rays, the dragon
+// pulses and flashes white, then flickers between its old shape and the new species' silhouette, faster and
 // faster, while motes of light stream in; a white flash, a sparkle burst, and the reveal: evolve()
 // runs at that moment, the new form hops for joy, and the message box says who it became, which
 // moves it just learned and which new ones are coming. Cards slide in with the stat gains.
@@ -385,10 +385,10 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
     },
     update,
     draw(ctx: Ctx): void {
-      // dim the screen below much further, so the light reads
+      // an opaque backdrop: the screen underneath (the results banner and story text) must not
+      // read through the title, the light rays or the cards
       ctx.save();
-      // nearly opaque: the results screen underneath must not read through the title and cards
-      ctx.globalAlpha = 0.95;
+      ctx.globalAlpha = 1;
       ctx.fillStyle = UI.ink;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.restore();

@@ -24,6 +24,8 @@ export function effectiveness(attack: TypeId, defender: readonly TypeId[]): numb
 // index.ts       getType/getMove/getAbility/getPersonality/getFood/getItem/getActivity/getSpecies/
 //                getOrg/getVillain/getMission/getMissionType/getLocation (throw on unknown id),
 //                isFood, SPECIES_BY_DEX, MISSIONS_IN_ORDER, and re-exports of every table and STARTERS.
+//                tauntingVillains(node: MissionNode): VillainDef[] // whose taunts play before a battle/boss
+//                node: the first enemy of a battle; the boss, then his lieutenant(s), before a showdown
 ```
 
 ## src/battle (engine; pure, Node-safe)
@@ -38,7 +40,7 @@ export function stageMult(stage: number): number;            // (2+n)/2 or 2/(2-
 export function accStageMult(stage: number): number;         // (3+n)/3 or 3/(3-n)
 
 // matchup.ts  (also used by the UI for the rock-paper-scissors displays)
-export function moveEffectiveness(moveId: MoveId, defenderTypes: readonly TypeId[]): number;
+export function moveEffectiveness(moveId: MoveId, defenderTypes: readonly TypeId[]): number; // as the FIGHT tags show it: fixed-damage moves are x1 (x0 when immune)
 export function bestTypeMultiplier(attackerTypes: readonly TypeId[], defenderTypes: readonly TypeId[]): number; // max over attacker's types
 export function weaknesses(defenderTypes: readonly TypeId[]): TypeId[];   // attacking types that deal > 1x
 export function resistances(defenderTypes: readonly TypeId[]): TypeId[];  // attacking types that deal < 1x (incl. 0)
@@ -53,8 +55,13 @@ export function matchupParts(selfTypes, selfMoves, foeTypes): MatchupParts;
  *     can touch the foe). 2 = everything else. Battle swap cards and briefing squad picks both use it.
  */
 export function matchupGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): 1 | 2 | 3;
-/** Rounded average of matchupGrade over several expected enemy type sets (mission intel); one set = that set's grade. */
-export function intelGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[]): 1 | 2 | 3;
+/**
+ * Rounded (weighted) average of matchupGrade over several expected enemy type sets (mission intel);
+ * one set = that set's grade. opts.weights: one per set (default 1). opts.boss: the boss's set,
+ * which caps the grade: 2 at most unless a damaging move hits him at least x1, 1 when none touches him.
+ */
+export interface IntelGradeOptions { weights?: readonly number[]; boss?: number }
+export function intelGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[], opts?: IntelGradeOptions): 1 | 2 | 3;
 export const GRADE_LABELS: Record<1 | 2 | 3, string>;       // 'GREAT MATCHUP!' / 'EVEN MATCHUP' / 'BAD MATCHUP', the one wording for star grades
 /** Types that would be good to bring against these (super-effective on most of them, ideally resisting them). */
 export function counterTypes(intelTypes: readonly TypeId[]): TypeId[];
@@ -76,7 +83,7 @@ export function startBattle(state: BattleState): BattleEvent[];   // both leads 
 export function activeMon(state: BattleState, side: Side): BattleMon;
 export function legal(state: BattleState): { moves: boolean[]; switches: boolean[]; items: ItemId[]; retreat: boolean; mustSwitch: boolean };
 export function submitTurn(state: BattleState, action: PlayerAction): BattleEvent[];
-export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // when phase === 'switch'; fires a waiting enemy entry ability (state.pendingEntry, double knockouts)
+export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // when phase === 'switch'; fires a waiting enemy entry ability (state.pendingEntry: a double knockout, or a foe knocked out while the player pivots)
 export function itemTargetOk(state: BattleState, item: ItemId, index: number): boolean; // the engine's item-target rule (legal().items, submitTurn); the battle scene's target cards use it
 // Events (types.ts): { t: 'volatile'; side; uid; seeded; stuck } whenever SEEDED / STUCK change (set by a move, STUCK
 // released when the trapper leaves). 'faint' / 'withdraw' / 'sendOut' clear volatile state (and 'faint' the status)
@@ -84,7 +91,7 @@ export function itemTargetOk(state: BattleState, item: ItemId, index: number): b
 
 // ai.ts
 export function chooseEnemyAction(state: BattleState): { kind: 'move'; slot: number } | { kind: 'switch'; index: number };
-export function chooseEnemyReplacement(state: BattleState): number;
+export function chooseEnemyReplacement(state: BattleState, foeLeaving?: boolean): number; // best matchup vs the player's active, bosses last; foeLeaving (it pivoted or is down too): send order
 ```
 
 ## src/game (systems; pure, Node-safe except storage, which is injected)
@@ -104,7 +111,9 @@ export function saveGame(state: GameState, storage?: Storage): void;     // defa
 export function loadGame(storage?: Storage): GameState | null;           // validates + migrates; null if absent/corrupt
 export function clearSave(storage?: Storage): void;
 // dragons.ts
-export function createDragon(state: GameState, speciesId: SpeciesId, level: number): OwnedDragon; // random genes/personality/ability via stateRng
+export function createDragon(state: GameState, speciesId: SpeciesId, level: number): OwnedDragon; // random genes/personality/ability via stateRng; moves = startingLoadout
+/** The loadout a dragon raised from level 1 to `level` would have (auto-equip's rule at every learned move), not just the last four learned. */
+export function startingLoadout(species: SpeciesDef, level: number): MoveId[];
 export function addDragon(state: GameState, d: OwnedDragon): void;      // pushes, marks dex seen+owned
 export function dragonName(d: OwnedDragon): string;
 export function dragonStats(d: OwnedDragon): Stats;
@@ -137,7 +146,13 @@ export function canDoActivity(state: GameState, dragonId: string, activity: Acti
 export function doActivity(state: GameState, dragonId: string, activity: ActivityId, food?: FoodId): ActivityResult;
 export function useItemOutside(state: GameState, item: ItemId, dragonId: string): { ok: boolean; line: string };
 export interface DayReport { day: number; lines: string[] }
-export function endDay(state: GameState): DayReport;  // heals, cures, +80 energy (cap 100), -25 fullness, next day
+export function endDay(state: GameState): DayReport;  // heals, cures, +80 energy (cap 100), -25 fullness, happiness settles, next day
+export const HAPPINESS_SETTLE = 50, HAPPINESS_DRIFT = 10;  // each night happiness above 50 drops by 10 (never below 50)
+// The care package: a morning with nothing in the pantry and coins < cheapest food x dragons brings
+// CARE_PACKAGE_PER_DRAGON of the cheapest food per dragon (so a broke, starving burrow is never stuck).
+export const CARE_PACKAGE_PER_DRAGON = 2;
+export function cheapestFood(): FoodId;
+export function needsCarePackage(state: GameState): boolean;
 export function moodLine(d: OwnedDragon): string;  // e.g. 'HUNGRY!', 'SLEEPY', 'HAPPY'
 export const HUNGRY_AT = 30, GLUM_AT = 20, JOYFUL_AT = 80;  // the need thresholds behind moods (the burrow's body language uses them too)
 export function xpLines(d: OwnedDragon, r: XpReport): string[];   // result lines for an XP report (incl. swap lines)
@@ -160,14 +175,37 @@ export function currentNode(run: MissionRun): MissionNode | null;
 export function chooseBranch(run: MissionRun, option: number): void;   // splices the option's nodes in place of the branch; records the route's supercharge on run.supercharge
 export function bossSupercharge(run: MissionRun, node: MissionNode): StageChanges | undefined; // boss node's own supercharge + run.supercharge (encounterSetup applies it)
 export function mergeStages(a?: StageChanges, b?: StageChanges): StageChanges | undefined;     // summed, clamped to -6..+6
-export function applyRest(state: GameState, run: MissionRun): string[];
+export function applyRest(state: GameState, run: MissionRun): string[]; // HP only (fainted ones get back up); a dragon left with a status is told so ("still BURNED", with the Herbal Tea fix), never "tip-top"
 export function advance(run: MissionRun): void;
-export function encounterSetup(state: GameState, run: MissionRun): BattleSetup; // for the current battle/boss node
-export function finishBattle(state: GameState, run: MissionRun, battle: BattleState): AfterBattle; // sync; loss -> outcome 'lost'
+export function encounterSetup(state: GameState, run: MissionRun): BattleSetup; // for the current battle/boss node; in case 5 the boss gets MonInit.caught (says VillainDef.caught when he faints)
+export function tuckeredAfterWin(run: MissionRun, battle: BattleState): boolean; // won, but the whole squad is down and no rest stop comes before the next fight (the scene skips VICTORY!); a branch counts when one of its routes reaches a rest first
+// finishBattle: sync; loss or tuckeredAfterWin -> outcome 'lost'; each dragon that fainted in the battle loses
+// FAINT_HAPPINESS happiness; a won battle that leaves everyone down right before a branch takes, in its place,
+// the first route that reaches a rest stop (its story beat says why).
+export function finishBattle(state: GameState, run: MissionRun, battle: BattleState): AfterBattle;
+export const FAINT_HAPPINESS = 5;
 export interface MissionRewards { coins: number; food: Partial<Record<FoodId, number>>; items: Partial<Record<ItemId, number>>; dragon: OwnedDragon | null; firstClear: boolean; lines: string[] }
-export function completeMission(state: GameState, run: MissionRun): MissionRewards;
+export function completeMission(state: GameState, run: MissionRun): MissionRewards; // also marks the case's reward pool seen in the Dragondex; a pool dragon is a species not owned yet, except a rescue's captive, which joins on the first clear regardless
 export function abandonMission(state: GameState, run: MissionRun): void;
 export function intelTypes(missionId: MissionId): TypeId[][];  // one type set per enemy kind the mission fields
+export const INTEL_WEIGHT: { boss: 3; lieutenant: 2; minion: 1 };
+export function missionIntel(missionId: MissionId): { types: TypeId[][]; weights: number[]; boss: number }; // intelTypes + a weight per set + the boss's index
+export function missionGrade(d: OwnedDragon, missionId: MissionId): 1 | 2 | 3;  // the briefing's stars: intelGrade with missionIntel's weights and boss cap
+export const PICK_LEVEL_GAP = 5, TOO_LOW_BELOW_BAND = 3;
+export function tooLowFor(d: OwnedDragon, missionId: MissionId): boolean;      // level < case level - 3 (the briefing warns)
+// Briefing order: those that can go; then those within PICK_LEVEL_GAP of the best one that can go
+// (or at least at the case's level); each group by missionGrade, then level.
+export function rankForMission(state: GameState, missionId: MissionId): OwnedDragon[];
+export function recommendSquad(state: GameState, missionId: MissionId): string[]; // AUTO-PICK: the top 3 of rankForMission that can go, highest level sent out first
+// advice.ts: Chief Nibbles' advice on the MISSION FAILED screen, from the same missionGrade stars and
+// the AUTO-PICK a rested burrow would get (recommendSquad), so the results and the briefing agree.
+//   send: 3-star dragons that stayed home and AUTO-PICK would bring (or, with none, the dragon it would
+//         swap in for a BAD MATCHUP that went); train-pick: 3-star dragons that need levels first;
+//   train: every 3-star dragon already went; recruit: nobody grades 3, counter types nobody owns.
+export type AdviceKind = 'send' | 'train-pick' | 'train' | 'recruit';
+export interface DefeatAdvice { kind: AdviceKind; crew: TypeId[]; dragons: string[]; stars: (1 | 2 | 3)[]; types: TypeId[]; text: string }
+export function defeatAdvice(state: GameState, missionId: MissionId, squad: readonly string[]): DefeatAdvice; // pure
+export function adviceDragons(state: GameState, advice: DefeatAdvice): OwnedDragon[];
 ```
 
 ## src/ui (kit; browser)
@@ -256,6 +294,14 @@ export const MISSION_NODE_FILL: Record<MissionNode['kind'], string>;
 export function missionNodeSprite(kind: MissionNode['kind'], t?: number): HTMLCanvasElement;   // mission run trail
 export function drawMissionNodeIcon(ctx, kind, cx, cy, t?: number, scale?: number): void;
 export function drawTickIcon(ctx, cx, cy): void;
+export function drawSpeakerIcon(ctx, cx, cy, on: boolean, color: string): void;              // SOUND switch (title, OPTIONS)
+export function drawNoteIcon(ctx, cx, cy, on: boolean, color: string, strike?: string): void; // MUSIC switch
+export function drawGearIcon(ctx, cx, cy, color?: string, ink?: string): void;                // the Burrow's OPTIONS button
+// app.ts: scenes navigate through app.nav (wired in src/main.ts): title, intro, burrow, roster, dex,
+// typeChart, shop, bag, board, briefing, run, battle, results, evolve, dialog, confirm, and
+// options(): the OPTIONS box (SOUND, MUSIC, FAST TEXT, SAVE & BACK TO TITLE), pushed over the Burrow.
+// battle/hud.ts: the MATCHUP strip's verdict follows Matchup.grade (the active dragon's matchupGrade,
+// the SWAP cards' grade) when set, in GRADE_LABELS words; the arrows show the type multipliers.
 ```
 
 ## src/art (browser)

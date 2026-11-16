@@ -14,7 +14,7 @@ import {
 } from '../src/data/schema.ts';
 import {
   ABILITIES, ACTIVITIES, FOODS, ITEMS, LOCATIONS, MISSIONS, MISSION_TYPES, MOVES, ORGS, PERSONALITIES,
-  SPECIES, TYPES, VILLAINS,
+  SPECIES, TYPES, VILLAINS, tauntingVillains,
 } from '../src/data/index.ts';
 import { CHART, TYPE_CYCLES, TYPE_CYCLE_NAMES, effectiveness } from '../src/data/types.ts';
 import { STARTERS } from '../src/data/species.ts';
@@ -641,6 +641,23 @@ check('moves: numbers follow the conventions', () => {
   return errs;
 });
 
+check('moves: descriptions name their status, flinch and confusion effects ("May ..." for a chance)', () => {
+  const errs: string[] = [];
+  const word: Record<string, RegExp> = { burn: /BURN/, goop: /GOOP/, zap: /ZAP/, snooze: /SNOOZ|SLEEP/, frozen: /FROZEN|FREEZ/ };
+  for (const m of Object.values(MOVES)) {
+    const d = m.description.toUpperCase();
+    for (const e of m.effects) {
+      const re = e.kind === 'inflict' ? word[e.status] : e.kind === 'flinch' || e.kind === 'firstTurn' ? /FLINCH/ : e.kind === 'confuse' ? /CONFUS/ : null;
+      if (!re) continue;
+      const what = e.kind === 'inflict' ? `${e.kind} ${e.status}` : e.kind;
+      if (!re.test(d)) errs.push(`move '${m.id}' (${what}): the description never says so: "${m.description}"`);
+      else if ('chance' in e && e.chance < 100 && !/\bMAY\b/.test(d)) errs.push(`move '${m.id}' (${what} ${e.chance}%): say "May ...": "${m.description}"`);
+      if (e.kind === 'firstTurn' && !/FIRST TURN/.test(d)) errs.push(`move '${m.id}': say it only works on the first turn: "${m.description}"`);
+    }
+  }
+  return errs;
+});
+
 check('moves: every type has 7+ moves covering weak/strong physical and special, status and 2 utility', () => {
   const errs: string[] = [];
   const all = Object.values(MOVES);
@@ -716,6 +733,60 @@ check('abilities: effects are well formed and every AbilityEffect kind is used',
     if (!a.parallel || !a.parallel.trim()) errs.push(`ability '${a.id}' has no parallel`);
   }
   for (const k of ABILITY_KINDS) if (!Object.values(ABILITIES).some((a) => a.effect.kind === k)) errs.push(`kind '${k}' is used by no ability`);
+  return errs;
+});
+
+check('abilities and moves: every one is held or learned by some species or villain', () => {
+  const errs: string[] = [];
+  const abilities = new Set<string>();
+  const moves = new Set<string>();
+  for (const sp of SPECIES) {
+    for (const x of sp.abilities) abilities.add(x);
+    if (sp.hiddenAbility) abilities.add(sp.hiddenAbility);
+    for (const e of sp.learnset) moves.add(e.move);
+  }
+  for (const v of Object.values(VILLAINS)) {
+    abilities.add(v.ability);
+    for (const e of v.learnset) moves.add(e.move);
+  }
+  for (const id of Object.keys(ABILITIES)) if (!abilities.has(id)) errs.push(`ability '${id}' is on no species and no villain, so no battle ever sees it`);
+  for (const id of Object.keys(MOVES)) if (!moves.has(id)) errs.push(`move '${id}' is in no learnset, so nobody can ever use it`);
+  return errs;
+});
+
+check('villains: no villain holds an ability that only works when it swaps out (it never swaps by choice)', () => {
+  const errs: string[] = [];
+  for (const v of Object.values(VILLAINS)) {
+    const k = ABILITIES[v.ability]?.effect.kind;
+    if (k === 'switchHeal' || k === 'switchCure') errs.push(`${v.role} '${v.id}' has '${v.ability}' (${k}), which never triggers`);
+  }
+  return errs;
+});
+
+/** The moves an enemy (or a fresh dragon by the battle engine's rule) knows at level L: the last four learned. */
+function lastFour(ls: readonly { level: number; move: string }[], L: number): string[] {
+  const order: string[] = [];
+  for (const e of [...ls].filter((x) => x.level <= L).sort((a, b) => a.level - b.level)) {
+    const at = order.indexOf(e.move);
+    if (at >= 0) order.splice(at, 1);
+    order.push(e.move);
+  }
+  return order.slice(-4);
+}
+
+check("learnsets: a line with no special attacks never learns a move that only lowers the foe's SP. DEF", () => {
+  const errs: string[] = [];
+  const spdOnly = (id: string): boolean => {
+    const m = MOVES[id];
+    return !!m && m.category === 'status' && m.effects.length > 0
+      && m.effects.every((e) => e.kind === 'stages' && e.who === 'foe' && Object.keys(e.changes).every((k) => k === 'spd'));
+  };
+  const look = (who: string, ls: readonly { move: string }[]): void => {
+    if (ls.some((e) => MOVES[e.move]?.category === 'special')) return;
+    for (const e of ls) if (spdOnly(e.move)) errs.push(`${who} has only physical attacks but learns '${e.move}' (SP. DEF down helps special attacks)`);
+  };
+  for (const sp of SPECIES) look(`species '${sp.id}'`, sp.learnset);
+  for (const v of Object.values(VILLAINS)) look(`villain '${v.id}'`, v.learnset);
   return errs;
 });
 
@@ -809,6 +880,40 @@ check('species: every non-starter first or single stage is in a mission reward p
   return errs;
 });
 
+check('species: a dragon of every type (or one that evolves into it) can join from a reward pool in the first half of the campaign', () => {
+  const order = [...MISSIONS].sort((a, b) => ORGS[a.org].order - ORGS[b.org].order || a.index - b.index);
+  const half = Math.ceil(order.length / 2);
+  const lineTypes = (id: string): TypeId[] => {
+    const out: TypeId[] = [];
+    for (let s = speciesById.get(id), n = 0; s && n < 5; s = s.evolvesTo ? speciesById.get(s.evolvesTo.species) : undefined, n++) out.push(...s.types);
+    return out;
+  };
+  const first = new Map<TypeId, number>();
+  order.forEach((m, i) => {
+    for (const id of m.rewards.dragon?.species ?? []) for (const t of lineTypes(id)) if (!first.has(t)) first.set(t, i + 1);
+  });
+  return TYPE_IDS.filter((t) => (first.get(t) ?? Infinity) > half)
+    .map((t) => `no ${t} dragon can join before case ${first.get(t) ?? 'never'} of ${order.length} (want ${half} or earlier)`);
+});
+
+/** By this level every species has learned a plain same-type attack of 60+ power (multi-hits count 3.1 hits). */
+const STAB_60_BY = 27;
+
+check(`species: every species learns a plain same-type attack of 60+ power by level ${STAB_60_BY}`, () => {
+  const errs: string[] = [];
+  const plainPower = (id: string): number => {
+    const m = MOVES[id];
+    if (!m || m.power <= 0 || m.effects.some((e) => e.kind === 'firstTurn' || e.kind === 'pivot')) return 0;
+    const multi = m.effects.find((e) => e.kind === 'multiHit');
+    return m.power * (multi && multi.kind === 'multiHit' ? (multi.min === 2 && multi.max === 5 ? 3.1 : (multi.min + multi.max) / 2) : 1);
+  };
+  for (const sp of SPECIES) {
+    const ok = sp.learnset.some((e) => e.level <= STAB_60_BY && sp.types.includes(MOVES[e.move]?.type as TypeId) && plainPower(e.move) >= 60);
+    if (!ok) errs.push(`species '${sp.id}' has no plain ${sp.types.join('/')} attack of 60+ power until after level ${STAB_60_BY} (first-turn-only and swap-out moves do not count)`);
+  }
+  return errs;
+});
+
 advise('species: dragondex size and abilities per species', () => {
   const errs: string[] = [];
   if (SPECIES.length < 30) errs.push(`only ${SPECIES.length} species; the design calls for about 36`);
@@ -827,6 +932,50 @@ check('villains: org bosses have role boss and belong to their org', () => {
     if (!b) continue;
     if (b.role !== 'boss') errs.push(`org '${o.id}' boss '${b.id}' has role '${b.role}'`);
     if (b.org !== o.id) errs.push(`org '${o.id}' boss '${b.id}' belongs to org '${b.org}'`);
+  }
+  return errs;
+});
+
+check('villains: bosses have a caught line for their showdown (their defeat line is an escape)', () => {
+  const errs: string[] = [];
+  for (const v of Object.values(VILLAINS)) {
+    if (v.role === 'boss' && !v.caught?.trim()) errs.push(`boss '${v.id}' has no caught line (it is caught in its org's case 5)`);
+    if (v.role !== 'boss' && v.caught !== undefined) errs.push(`${v.role} '${v.id}' has a caught line, but only bosses are caught`);
+    if (v.caught !== undefined && v.caught === v.defeat) errs.push(`boss '${v.id}' caught line is its defeat line`);
+  }
+  return errs;
+});
+
+check('villains: every taunt is heard before some battle (tauntingVillains)', () => {
+  const heard = new Set<string>();
+  const walk = (nodes: readonly MissionNode[]): void => {
+    for (const n of nodes) {
+      for (const v of tauntingVillains(n)) heard.add(v.id);
+      if (n.kind === 'branch') for (const o of n.options) walk(o.nodes);
+    }
+  };
+  for (const m of MISSIONS) walk(m.nodes);
+  return Object.values(VILLAINS).filter((v) => !heard.has(v.id)).map((v) => `${v.role} '${v.id}' never taunts the squad: "${v.taunt}"`);
+});
+
+/** The tutorial boss carries no coverage below this level (his first three showdowns: see villains.ts). */
+const COVERAGE_FROM: Record<string, number> = { 'big-cheese': 10 };
+
+check('villains: lieutenants and bosses carry a move super effective on one of their weaknesses at every level they are fought', () => {
+  const errs: string[] = [];
+  const levels = new Map<string, Set<number>>();
+  for (const m of MISSIONS) for (const { enc } of encounters(m.nodes)) {
+    for (const e of enc.enemies) { if (!levels.has(e.villain)) levels.set(e.villain, new Set()); levels.get(e.villain)!.add(e.level); }
+  }
+  for (const v of Object.values(VILLAINS)) {
+    if (v.role === 'minion') continue;
+    const weak = TYPE_IDS.filter((t) => effectiveness(t, v.types) > 1);
+    for (const L of [...(levels.get(v.id) ?? [])].sort((a, b) => a - b)) {
+      if (L < (COVERAGE_FROM[v.id] ?? 0)) continue;
+      const known = lastFour(v.learnset, L);
+      const cover = known.some((id) => (MOVES[id]?.power ?? 0) > 0 && weak.some((w) => effectiveness(MOVES[id].type, [w]) > 1));
+      if (!cover) errs.push(`${v.role} '${v.id}' at level ${L} knows ${known.join(', ')}: nothing hits its weaknesses (${weak.join(', ')})`);
+    }
   }
   return errs;
 });
@@ -872,7 +1021,7 @@ check('missions: enemy levels are 1..MAX_LEVEL', () => {
 advise('missions: board levels follow the design bands', () => {
   const errs: string[] = [];
   const bands: Record<string, number[]> = {
-    cheese: [5, 7, 9, 11, 14], crows: [13, 15, 17, 19, 22], snakes: [20, 22, 24, 26, 29], cats: [27, 29, 31, 33, 36], ferrets: [34, 36, 38, 41, 45],
+    cheese: [5, 7, 8, 10, 13], crows: [13, 15, 17, 19, 22], snakes: [20, 22, 24, 26, 29], cats: [27, 29, 31, 33, 36], ferrets: [34, 36, 38, 41, 44],
   };
   for (const m of MISSIONS) {
     const want = bands[m.org]?.[m.index - 1];

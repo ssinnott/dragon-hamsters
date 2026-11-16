@@ -21,9 +21,15 @@ export function typeEffectiveness(attack: TypeId, defender: readonly TypeId[]): 
   return m;
 }
 
-/** Type multiplier of a move against a defender's types (status moves report their type's multiplier too). */
+/**
+ * The multiplier a move gets against a defender's types, as the FIGHT tags show it. Fixed-damage
+ * moves ignore the chart except for immunity, so they are x1 (x0 when immune); status moves report
+ * their type's multiplier.
+ */
 export function moveEffectiveness(moveId: MoveId, defenderTypes: readonly TypeId[]): number {
-  return typeEffectiveness(getMove(moveId).type, defenderTypes);
+  const m = getMove(moveId);
+  const eff = typeEffectiveness(m.type, defenderTypes);
+  return m.effects.some((e) => e.kind === 'fixed') ? (eff === 0 ? 0 : 1) : eff;
 }
 
 /** The best multiplier any of the attacker's own types gets against the defender. */
@@ -66,12 +72,8 @@ function offence(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foe
   const damaging = selfMoves.filter((id) => isDamagingMove(id) && (!stabOnly || selfTypes.includes(getMove(id).type)));
   if (!damaging.length) return bestTypeMultiplier(selfTypes, foeTypes);
   let best = 0;
-  for (const id of damaging) {
-    const m = getMove(id);
-    const eff = typeEffectiveness(m.type, foeTypes);
-    // Fixed-damage moves ignore the multiplier except for immunity.
-    best = Math.max(best, m.effects.some((e) => e.kind === 'fixed') ? (eff === 0 ? 0 : 1) : eff);
-  }
+  // moveEffectiveness: fixed-damage moves ignore the multiplier except for immunity.
+  for (const id of damaging) best = Math.max(best, moveEffectiveness(id, foeTypes));
   return best;
 }
 
@@ -126,16 +128,42 @@ export const GRADE_LABELS: Record<1 | 2 | 3, string> = {
   1: 'BAD MATCHUP',
 };
 
+/** intelGrade options: how much each intel set counts, and which one is the boss. */
+export interface IntelGradeOptions {
+  /** One weight per intel set (default 1 each). The briefing counts the boss 3x and the lieutenant 2x. */
+  weights?: readonly number[];
+  /**
+   * Index of the boss's set. The boss decides the case, so he also caps the grade: no 3 stars
+   * without a damaging move that hits him at least x1, and 1 star when nothing touches him.
+   */
+  boss?: number;
+}
+
 /**
- * Grade against several expected enemy type sets (mission intel): the rounded average of the
- * per-set matchupGrade, so one set gives exactly that set's grade.
+ * Grade against several expected enemy type sets (mission intel): the rounded (weighted) average
+ * of the per-set matchupGrade, so one set gives exactly that set's grade; then the boss cap (see
+ * IntelGradeOptions.boss).
  */
-export function intelGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[]): 1 | 2 | 3 {
+export function intelGrade(
+  selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[], opts: IntelGradeOptions = {},
+): 1 | 2 | 3 {
   if (!intel.length) return 2;
   let sum = 0;
-  for (const foe of intel) sum += matchupGrade(selfTypes, selfMoves, foe);
-  const avg = Math.round(sum / intel.length);
-  return avg >= 3 ? 3 : avg <= 1 ? 1 : 2;
+  let total = 0;
+  intel.forEach((foe, i) => {
+    const w = Math.max(0, opts.weights?.[i] ?? 1);
+    sum += w * matchupGrade(selfTypes, selfMoves, foe);
+    total += w;
+  });
+  const avg = total > 0 ? Math.round(sum / total) : 2;
+  let grade: 1 | 2 | 3 = avg >= 3 ? 3 : avg <= 1 ? 1 : 2;
+  const boss = opts.boss !== undefined ? intel[opts.boss] : undefined;
+  if (boss) {
+    const off = offence(selfTypes, selfMoves, boss);
+    if (off === 0) grade = 1;
+    else if (off < 1 && grade > 2) grade = 2;
+  }
+  return grade;
 }
 
 /** Types that would be good to bring against these (super-effective on most of them, ideally resisting them). */

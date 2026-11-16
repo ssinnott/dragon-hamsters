@@ -3,7 +3,6 @@
 import { STAT_IDS, type MoveId, type SpeciesDef, type SpeciesId, type Stats, type TypeId } from '../data/schema.ts';
 import { PERSONALITIES, getMove, getSpecies } from '../data/index.ts';
 import { calcStats, levelForXp, xpForLevel } from '../battle/stats.ts';
-import { defaultMoves } from '../battle/build.ts';
 import type { BattleState, MonInit } from '../battle/types.ts';
 import {
   MAX_LEVEL, TRAINING_CAP_STAT, TRAINING_CAP_TOTAL,
@@ -27,9 +26,21 @@ export function learnedMovesUpTo(species: SpeciesDef, level: number): MoveId[] {
   return out;
 }
 
-/** The loadout a fresh dragon of this species and level starts with (the battle engine's rule). */
+/**
+ * The loadout a fresh dragon of this species and level starts with: the one it would have if it
+ * had levelled up from level 1, so a reward dragon that joins at a high level keeps its best
+ * attacks. Each learned move fills a free slot, then auto-equip's rule decides (swapFor): the
+ * weakest equipped move makes way only for a better one, and one status move is kept.
+ */
 export function startingLoadout(species: SpeciesDef, level: number): MoveId[] {
-  return defaultMoves(species.learnset, level);
+  const moves: MoveId[] = [];
+  for (const e of [...species.learnset].sort((a, b) => a.level - b.level)) {
+    if (e.level > level || moves.includes(e.move)) continue;
+    if (moves.length < 4) { moves.push(e.move); continue; }
+    const swap = swapFor(species.types, moves, e.move);
+    if (swap) moves[moves.indexOf(swap.out)] = swap.in;
+  }
+  return moves;
 }
 
 /** The dragon with this id, or undefined. */
@@ -64,7 +75,7 @@ function markDex(state: GameState, id: SpeciesId, owned: boolean): void {
   if (owned && !state.dex.owned.includes(id)) state.dex.owned.push(id);
 }
 
-/** Record a species as seen in the Dragondex (e.g. a mission's reward pool shown on a card). */
+/** Record a species as seen in the Dragondex (the unpicked starters; a cleared case's reward pool). */
 export function markSeen(state: GameState, id: SpeciesId): void {
   markDex(state, id, false);
 }
@@ -119,13 +130,17 @@ function loadoutValues(types: readonly TypeId[], moves: readonly MoveId[]): numb
  * loadout has no status move yet.
  */
 export function autoSwapFor(d: OwnedDragon, move: MoveId): MoveSwap | null {
-  if (d.moves.length < 4 || d.moves.includes(move)) return null;
-  const types = getSpecies(d.speciesId).types;
-  const values = loadoutValues(types, d.moves);
-  const value = isStatusMove(move) ? (d.moves.some(isStatusMove) ? 0 : STATUS_MOVE_VALUE) : moveValue(types, move);
+  return swapFor(getSpecies(d.speciesId).types, d.moves, move);
+}
+
+/** autoSwapFor for a loadout `moves` of a dragon of these types. */
+function swapFor(types: readonly TypeId[], moves: readonly MoveId[], move: MoveId): MoveSwap | null {
+  if (moves.length < 4 || moves.includes(move)) return null;
+  const values = loadoutValues(types, moves);
+  const value = isStatusMove(move) ? (moves.some(isStatusMove) ? 0 : STATUS_MOVE_VALUE) : moveValue(types, move);
   let weakest = 0;
   for (let i = 1; i < values.length; i++) if (values[i] < values[weakest]) weakest = i;
-  return value > values[weakest] ? { out: d.moves[weakest], in: move } : null;
+  return value > values[weakest] ? { out: moves[weakest], in: move } : null;
 }
 
 /**
@@ -205,7 +220,7 @@ export function createDragon(state: GameState, speciesId: SpeciesId, level: numb
     missions: 0,
     battlesWon: 0,
   };
-  // The equipped moves are always known (defaultMoves draws from the same learnset).
+  // The equipped moves are always known (startingLoadout draws from the same learnset).
   for (const m of d.moves) if (!d.knownMoves.includes(m)) d.knownMoves.push(m);
   d.hp = dragonStats(d).hp;
   return d;

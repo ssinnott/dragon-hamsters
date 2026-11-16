@@ -14,10 +14,10 @@ import {
   getMission, getMissionType, getOrg, getSpecies, getVillain, isFood,
 } from '../../data/index.ts';
 import type { MissionId, MissionNode, TypeId, VillainId } from '../../data/schema.ts';
-import { canLaunch, intelTypes, startMission } from '../../game/missions.ts';
+import { canLaunch, intelTypes, missionGrade, rankForMission, recommendSquad, startMission, tooLowFor } from '../../game/missions.ts';
 import { dragonName, dragonStats, dragonTypes, findDragon } from '../../game/dragons.ts';
 import { MISSION_ENERGY, SQUAD_SIZE, type OwnedDragon } from '../../game/types.ts';
-import { GRADE_LABELS, counterTypes, intelGrade } from '../../battle/matchup.ts';
+import { GRADE_LABELS, counterTypes } from '../../battle/matchup.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { sfx, music } from '../../audio/index.ts';
 import { app } from '../app.ts';
@@ -47,7 +47,8 @@ const BOLT_ROWS = ['..yyy', '.yyy.', '.yy..', 'yyyyy', '..yy.', '.yy..', '.y...'
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
-type Reason = 'FAINTED' | 'TIRED' | 'HUNGRY' | 'BUSY';
+/** canLaunch only refuses a dragon for its tummy at 0 fullness: the Burrow's mood word for that is STARVING. */
+type Reason = 'FAINTED' | 'TIRED' | 'STARVING' | 'BUSY';
 
 /** Why canLaunch would refuse this dragon on its own (null: it can go). */
 function reasonOf(missionId: MissionId, d: OwnedDragon): Reason | null {
@@ -56,22 +57,31 @@ function reasonOf(missionId: MissionId, d: OwnedDragon): Reason | null {
   const r = (c.reason ?? '').toUpperCase();
   if (r.includes('FAINT')) return 'FAINTED';
   if (r.includes('TIRED')) return 'TIRED';
-  if (r.includes('HUNGRY')) return 'HUNGRY';
+  if (r.includes('HUNGRY')) return 'STARVING';
   if (d.hp <= 0) return 'FAINTED';
   if (d.needs.energy < MISSION_ENERGY) return 'TIRED';
-  if (d.needs.fullness <= 0) return 'HUNGRY';
+  if (d.needs.fullness <= 0) return 'STARVING';
   return 'BUSY';
 }
 
-const REASON_FILL: Record<Reason, string> = { FAINTED: '#e04f45', TIRED: '#7f8fb8', HUNGRY: '#f39c3a', BUSY: '#8f8170' };
+const REASON_FILL: Record<Reason, string> = { FAINTED: '#e04f45', TIRED: '#7f8fb8', STARVING: '#f39c3a', BUSY: '#8f8170' };
 
 function reasonHint(name: string, r: Reason): string {
   switch (r) {
     case 'FAINTED': return `${name} has fainted. A nap in the Cozy Nest will fix that!`;
     case 'TIRED': return `${name} is too tired. A nap in the Cozy Nest will perk them up!`;
-    case 'HUNGRY': return `${name} is too hungry to go. Visit the Snack Bar first!`;
+    case 'STARVING': return `${name} is starving! Visit the Snack Bar first.`;
     default: return `${name} can't go right now.`;
   }
+}
+
+/** Why nobody at all can go (every dragon has a Reason), and what fixes it. */
+function nobodyFitHint(reasons: readonly Reason[]): string {
+  if (!reasons.length) return 'No dragons in the burrow yet!';
+  const hungry = reasons.filter((r) => r === 'STARVING').length;
+  if (hungry === reasons.length) return 'Everyone is starving! Feed them at the Snack Bar first.';
+  if (hungry) return 'Nobody can go yet! Feed the starving ones, and nap or SLEEP the rest.';
+  return 'Everyone is wiped out! Nap in the Cozy Nest or SLEEP first.';
 }
 
 /** Every enemy the mission fields (all branch routes), as villain + level, without repeats. */
@@ -138,20 +148,18 @@ export function createBriefingScene(missionId: MissionId): Scene {
   const roster = def.type === 'infiltrate' ? scoutedRoster(missionId) : [];
   const firstClear = (app.state.missions[missionId]?.clears ?? 0) <= 0;
 
-  // dragons: the ones who can go first, best matchup first, then by level
+  // dragons: the ones who can go first, then rankForMission's order (matchup and level together:
+  // a great matchup far below the squad's level comes after the dragons that can keep up)
   const gradeOf = new Map<string, 1 | 2 | 3>();
   const reasons = new Map<string, Reason | null>();
   const refresh = (): void => {
     for (const d of app.state.dragons) {
-      gradeOf.set(d.id, intelGrade(dragonTypes(d), d.moves, intel));
+      gradeOf.set(d.id, missionGrade(d, missionId));
       reasons.set(d.id, reasonOf(missionId, d));
     }
   };
   refresh();
-  const dragons: OwnedDragon[] = [...app.state.dragons].sort((a, b) => {
-    const ra = reasons.get(a.id) ? 1 : 0, rb = reasons.get(b.id) ? 1 : 0;
-    return ra - rb || (gradeOf.get(b.id) ?? 2) - (gradeOf.get(a.id) ?? 2) || b.level - a.level;
-  });
+  const dragons: OwnedDragon[] = rankForMission(app.state, missionId);
   const squad: string[] = app.state.squad.filter((id) => !!findDragon(app.state, id) && !reasons.get(id)).slice(0, SQUAD_SIZE);
 
   let time = 0;
@@ -232,9 +240,10 @@ export function createBriefingScene(missionId: MissionId): Scene {
     label: '← BACK', rect: { x: RX, y: BTN_Y, w: 62, h: BTN_H }, hotkey: 'Escape',
     onClick: () => { sfx('back'); app.scenes.pop(); },
   });
+  const anyoneFit = (): boolean => dragons.some((d) => !reasons.get(d.id));
   const autoBtn = group.add({
     label: 'AUTO-PICK', rect: { x: RX + 68, y: BTN_Y, w: 92, h: BTN_H }, hotkey: 'a', color: UI.info,
-    enabled: () => dragons.some((d) => !reasons.get(d.id)),
+    enabled: anyoneFit,
     onClick: () => autoPick(),
   });
   const launchBtn = group.add({
@@ -275,18 +284,24 @@ export function createBriefingScene(missionId: MissionId): Scene {
     addedAt.set(d.id, time);
     sfx('select');
     const g = gradeOf.get(d.id) ?? 2;
+    if (tooLowFor(d, missionId)) {
+      say(`${g === 3 ? 'Great matchup, but' : `${name} joins in, but`} LV ${d.level} is too low for this case!`, true);
+      return;
+    }
     say(g === 3 ? `${GRADE_LABELS[3]} ${name} is a great pick for this case!` : g === 1 ? `${GRADE_LABELS[1]}: ${name} joins in, but this gang could give them trouble.` : `${GRADE_LABELS[2]}: ${name} is ready to go!`);
   }
 
   function autoPick(): void {
-    const best = dragons.filter((d) => !reasons.get(d.id))
-      .sort((a, b) => (gradeOf.get(b.id) ?? 2) - (gradeOf.get(a.id) ?? 2) || b.level - a.level)
-      .slice(0, SQUAD_SIZE);
+    // matchup and level together (rankForMission), never a great matchup that is far too low
+    const best = recommendSquad(app.state, missionId).map((id) => findDragon(app.state, id)).filter((d): d is OwnedDragon => !!d);
     squad.length = 0;
     best.forEach((d, i) => { squad.push(d.id); addedAt.set(d.id, time + i * 0.08); });
     sfx('select');
     sfx('sparkle', { volume: 0.6, delay: 0.08 });
-    say(best.length ? 'Auto-picked the best matchups. Good luck, agents!' : 'Nobody is fit to go. Rest up in the Burrow first!', !best.length);
+    const low = best.some((d) => tooLowFor(d, missionId));
+    say(!best.length ? 'Nobody is fit to go. Rest up in the Burrow first!'
+      : low ? 'Picked your strongest, but this case is tough for them. Train up!'
+        : 'Auto-picked strong dragons with good matchups. Good luck, agents!', !best.length || low);
   }
 
   function launch(): void {
@@ -367,6 +382,14 @@ export function createBriefingScene(missionId: MissionId): Scene {
         } else if (input.pressed('ArrowRight') && f && leftButtons.includes(f) && dragons.length) {
           zone = 'list'; groupKeys = false; list.ensureVisible(list.selected); sfx('click', { volume: 0.4 });
         }
+      }
+      // greyed-out AUTO-PICK / LAUNCH still explain themselves when poked (click or hotkey)
+      for (const b of [autoBtn, launchBtn]) {
+        if (b.isEnabled || launched) continue;
+        const poked = (p.pressed && hit(b.spec.rect, p.x, p.y)) || (!!b.spec.hotkey && input.pressed(b.spec.hotkey));
+        if (!poked) continue;
+        sfx('error');
+        say(!anyoneFit() ? nobodyFitHint(dragons.map((d) => reasons.get(d.id) ?? 'BUSY')) : canGo().reason ?? 'Not yet!', true);
       }
       group.keyboard = groupKeys;
       group.update(input);
@@ -472,6 +495,8 @@ export function createBriefingScene(missionId: MissionId): Scene {
       cy += 13;
       const maxRows = 6;
       const rows = roster.length > maxRows ? roster.slice(0, maxRows - 1) : roster;
+      // Six rows only fit above the BRING bar 11 px apart (a small badge is 11 px tall).
+      const rowStep = rows.length + (roster.length > rows.length ? 1 : 0) > 5 ? 11 : 12;
       for (const r of rows) {
         let v: ReturnType<typeof getVillain> | null = null;
         try { v = getVillain(r.villain); } catch { v = null; }
@@ -480,11 +505,11 @@ export function createBriefingScene(missionId: MissionId): Scene {
         drawPixelText(ctx, name, x + 16, cy + 2, r.boss ? '#a8282e' : UI.text);
         drawPixelText(ctx, `LV ${r.level}`, x + 128, cy + 2, UI.textDim);
         if (v) drawTypeBadges(ctx, v.types, x + 160, cy, { small: true });
-        cy += 12;
+        cy += rowStep;
       }
       if (roster.length > rows.length) {
         drawPixelText(ctx, `+${roster.length - rows.length} MORE`, x + 16, cy + 2, UI.textDim);
-        cy += 12;
+        cy += rowStep;
       }
     } else {
       drawPixelText(ctx, 'ENEMY TYPES SPOTTED', x + 10, cy, UI.textDim);
@@ -560,6 +585,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
     const hx = padRect(2).x + 38, hw = r.x + r.w - 8 - hx;
     let text: string, color: string;
     if (hint.t > 0 && hint.text) { text = hint.text; color = hint.warn ? '#b8323a' : '#3e7a32'; }
+    else if (!squad.length && !anyoneFit()) { text = nobodyFitHint(dragons.map((d) => reasons.get(d.id) ?? 'BUSY')); color = '#b8323a'; }
     else if (!squad.length) { text = 'Tap up to 3 dragons. Number 1 goes into battle first.'; color = UI.textDim; }
     else {
       const c = canGo();

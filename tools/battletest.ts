@@ -128,6 +128,7 @@ for (const [id, role] of [['test-goon', 'minion'], ['test-boss', 'boss']] as con
     id, name: id === 'test-goon' ? 'Test Goon' : 'Test Boss', org: 'cheese', role, types: ['FLUFF'],
     baseStats: { hp: 60, atk: 110, def: 80, spa: 80, spd: 80, spe: 80 }, ability: 'test-plain',
     learnset: [{ level: 1, move: 'test-wait' }], baseXp: 100, coins: 10, taunt: 'Test taunt.', defeat: 'Not fair!',
+    ...(role === 'boss' ? { caught: 'You got me!' } : {}),
     description: 'A test fixture.',
     visual: { animal: 'mouse', body: '#999999', belly: '#dddddd', accent: '#f0d040', eye: '#101010', outfit: 'none', outfitColor: '#303040', prop: 'none', size: 1 },
   };
@@ -355,6 +356,12 @@ test('type effectiveness: dual types and immunities', () => {
   eq(M.typeEffectiveness('LIGHTNING', ['EARTH']), 0, 'immune');
   eq(M.typeEffectiveness('LIGHTNING', ['EARTH', 'WATER']), 0, 'immunity wins over weakness');
   eq(M.moveEffectiveness('test-flame', ['METAL']), 2, 'moveEffectiveness');
+  // Fixed-damage moves ignore the chart except for immunity: the FIGHT tag must say x1, not SUPER/WEAK.
+  eq(M.moveEffectiveness('test-fixed-20', ['BRAWL']), 1, 'fixed move vs a type its type hits x2 shows x1');
+  eq(M.moveEffectiveness('test-fixed-20', ['FLUFF']), 1, 'fixed move vs a type that resists its type shows x1');
+  eq(M.moveEffectiveness('test-fixed-20', ['DARKNESS']), 0, 'fixed move vs an immune type shows NO EFFECT');
+  eq(M.moveEffectiveness('test-fixed-level', ['DARKNESS']), 1, 'FLUFF fixed move vs DARKNESS (x2 by type) shows x1');
+  eq(M.moveEffectiveness('test-debuff', ['DARKNESS']), 2, 'status moves still report their type multiplier');
   eq(M.bestTypeMultiplier(['FLUFF', 'WATER'], ['FIRE']), 2, 'best of the attacker types');
   eq(M.weaknesses(['FIRE']), ['WATER', 'EARTH', 'ROCK'], 'weaknesses');
   eq(M.resistances(['EARTH']), ['LIGHTNING', 'ROCK', 'SLIME'], 'resistances include immunities');
@@ -671,6 +678,23 @@ test('moves resolve fully in order; a fainted combatant does not act', () => {
   eq(st.winner, 'player', 'winner');
   eq(st.phase, 'over', 'phase');
   eq(evs[evs.length - 1].t, 'end', 'end is last');
+});
+
+test('a caught boss says its caught line instead of its escape line', () => {
+  const ko = (init: Partial<MonInit>): BattleEvent[] => {
+    const st = mk({ e: [{ moves: ['test-tackle'], ...init }], setup: (s) => { fast(s); s.enemy.team[0].hp = 1; } });
+    return submitTurn(st, mvA());
+  };
+  let evs = ko({ defId: 'test-boss', isBoss: true, caught: true });
+  check(has(evs, 'THE FOE\'S TEST BOSS FAINTED!'), 'faint line');
+  check(has(evs, 'TEST BOSS: "YOU GOT ME!"'), 'caught line');
+  check(!has(evs, 'NOT FAIR!'), 'no escape line when caught');
+  evs = ko({ defId: 'test-boss', isBoss: true });
+  check(has(evs, 'TEST BOSS: "NOT FAIR!"') && !has(evs, 'YOU GOT ME!'), 'not caught: the usual defeat line');
+  evs = ko({ defId: 'test-goon', caught: true });
+  check(has(evs, 'TEST GOON: "NOT FAIR!"'), 'no caught line written: falls back to the defeat line');
+  eq(buildMon(eInit({ caught: true }), 'enemy', 0).caught, true, 'buildMon keeps the caught flag');
+  eq(buildMon(eInit(), 'enemy', 0).caught, undefined, 'and leaves it off otherwise');
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1006,6 +1030,50 @@ test('pivot: player chooses after the turn; enemy swaps at once', () => {
   const st3 = mk({ p: [{ moves: ['test-pivot'] }], setup: (s) => { fast(s); bigHp(s.enemy.team[0]); } });
   submitTurn(st3, mvA());
   eq(st3.phase, 'choose', 'no teammate: no pivot');
+});
+
+test('pivot knockout: the foe\'s replacement waits for the dragon that really comes in', () => {
+  // The pivot knocks the foe out; its replacement has an entry ability (ATTACK down on the foe).
+  // The pivoting dragon is leaving, so the drop must land on the dragon that replaces it, and the
+  // AI must not pick its replacement against the leaving dragon (send order, as after a double KO).
+  const setup = (s: BattleState): void => {
+    fast(s);
+    s.enemy.team[0].hp = 1;
+    s.player.team[0].types = ['FIRE'];
+    s.enemy.team[1].types = ['LEAF'];
+    s.enemy.team[2].types = ['WATER'];
+  };
+  let st = mk({ ai: 'elite', p: [{ moves: ['test-pivot'] }, {}], e: [{}, { ability: 'test-intimidate' }, {}], setup });
+  let evs = submitTurn(st, mvA());
+  eq(st.phase, 'switch', 'the pivot still tags out');
+  eq(st.enemy.active, 1, 'replacement by send order, not by its matchup vs the leaving FIRE dragon');
+  check(!evs.some((e) => e.t === 'ability'), 'no entry ability on the leaving dragon');
+  eq(st.player.team[0].stages.atk, 0, 'the leaving dragon keeps its ATTACK');
+  eq(st.pendingEntry, st.enemy.team[1].uid, 'entry ability waits');
+  evs = submitSwitch(st, 1);
+  check(evs.some((e) => e.t === 'ability' && e.uid === st.enemy.team[1].uid), 'entry ability fires after the swap');
+  eq(P(st).uid, 'p1', 'the replacement is in');
+  eq(P(st).stages.atk, -1, 'the replacement gets the ATTACK drop');
+  eq(st.pendingEntry ?? null, null, 'nothing waits any more');
+  // Without a pivot the AI still picks by matchup (WATER vs the FIRE dragon that stays).
+  st = mk({ ai: 'elite', p: [{ moves: ['test-tackle'] }, {}], e: [{}, {}, { ability: 'test-intimidate' }], setup });
+  evs = submitTurn(st, mvA());
+  eq(st.enemy.active, 2, 'plain knockout: best matchup');
+  eq(st.phase, 'choose', 'plain knockout: no switch');
+  eq(P(st).stages.atk, -1, 'plain knockout: entry fires at once');
+  check(!st.pendingEntry, 'plain knockout: nothing waits');
+  // The foe falls to its burn at the end of a turn in which the player pivoted: same rule.
+  st = mk({
+    p: [{ moves: ['test-pivot'] }, {}], e: [{ moves: ['test-wait'] }, { ability: 'test-intimidate' }],
+    setup: (s) => { fast(s); bigHp(s.enemy.team[0]); s.enemy.team[0].hp = 600; s.enemy.team[0].status = 'burn'; },
+  });
+  evs = submitTurn(st, mvA());
+  check(has(evs, 'IS HURT BY ITS BURN!'), 'burn at the end of the turn');
+  eq(st.enemy.active, 1, 'replaced after the burn');
+  eq(st.phase, 'switch', 'still tags out');
+  eq(st.player.team[0].stages.atk, 0, 'end-of-turn KO: the leaving dragon is untouched');
+  submitSwitch(st, 1);
+  eq(P(st).stages.atk, -1, 'end-of-turn KO: the replacement gets the drop');
 });
 
 test('accuracy, evasion and sureHit', () => {
@@ -1488,6 +1556,28 @@ test('matchup grades on the real chart and content', () => {
 });
 
 const FONT_OK = /^[A-Z0-9 .,:;!?'"\-+/()%><&=*[\]#@$_▶♥←→↑↓★]+$/;
+
+const HUD = await import('../src/ui/battle/hud.ts');
+
+test('MATCHUP strip: the verdict is the SWAP cards grade, in the same words', () => {
+  // The review case: FLUFF/WINGED hits METAL x0.5 and METAL hits it x1. The SWAP card calls that an
+  // EVEN MATCHUP, so the strip must not say "they have the advantage".
+  const fw = M.bestTypeMultiplier(['FLUFF', 'WINGED'], ['METAL']), bk = M.bestTypeMultiplier(['METAL'], ['FLUFF', 'WINGED']);
+  check(fw < 1 && bk === 1, `the review case still holds (x${fw} / x${bk})`);
+  eq(HUD.verdictOf({ mine: ['FLUFF', 'WINGED'], theirs: ['METAL'], fwd: fw, back: bk, grade: M.matchupGrade(['FLUFF', 'WINGED'], [], ['METAL']) }), 'even', 'resisted but not beaten: even');
+  for (const a of TYPE_IDS) for (const b of TYPE_IDS) {
+    const grade = M.matchupGrade([a], [], [b]);
+    const m = { mine: [a], theirs: [b], fwd: M.bestTypeMultiplier([a], [b]), back: M.bestTypeMultiplier([b], [a]), grade };
+    const v = HUD.verdictOf(m);
+    eq(v, grade === 3 ? 'good' : grade === 1 ? 'bad' : 'even', `${a} vs ${b}: verdict follows the grade`);
+    if (v === 'bad') check(m.back > 1 || m.fwd === 0, `${a} vs ${b}: a bad verdict means their type really beats yours`);
+  }
+  eq(HUD.VERDICT_TEXT.good, M.GRADE_LABELS[3], 'good reads like the swap cards');
+  eq(HUD.VERDICT_TEXT.even, M.GRADE_LABELS[2], 'even reads like the swap cards');
+  check(HUD.VERDICT_TEXT.bad.includes(M.GRADE_LABELS[1]), 'bad reads like the swap cards');
+  for (const t of Object.values(HUD.VERDICT_TEXT)) check(FONT_OK.test(t), `font-safe verdict: ${t}`);
+});
+
 
 function validate(st: BattleState, evs: BattleEvent[], tag: string): string | null {
   const all = [...st.player.team, ...st.enemy.team];

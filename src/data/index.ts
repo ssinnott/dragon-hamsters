@@ -2,7 +2,7 @@
 // content bug, and tools/contenttest.ts walks every reference so it fails there first.
 import type {
   AbilityDef, AbilityId, ActivityDef, ActivityId, FoodDef, FoodId, ItemDef, ItemId, LocationDef,
-  LocationId, MissionDef, MissionId, MissionTypeDef, MissionTypeId, MoveDef, MoveId, OrgDef, OrgId,
+  LocationId, MissionDef, MissionId, MissionNode, MissionTypeDef, MissionTypeId, MoveDef, MoveId, OrgDef, OrgId,
   PersonalityDef, PersonalityId, SpeciesDef, SpeciesId, TypeId, TypeInfo, VillainDef, VillainId,
 } from './schema.ts';
 import { TYPES, CHART, effectiveness, TYPE_CYCLES, TYPE_CYCLE_NAMES } from './types.ts';
@@ -40,6 +40,22 @@ export const getLocation = (id: LocationId): LocationDef => must(LOCATIONS[id], 
 
 /** Is this id a food (as opposed to a battle item)? Mission rewards mix both. */
 export const isFood = (id: string): id is FoodId => Object.prototype.hasOwnProperty.call(FOODS, id);
+
+/**
+ * The villains whose taunts the squad hears before a battle or boss node, in the order shown: the
+ * first enemy of a battle; in a boss encounter the boss (last), then each lieutenant in front of
+ * him, who steps up first. Any other node: none.
+ */
+export function tauntingVillains(node: MissionNode): VillainDef[] {
+  if (node.kind === 'battle') {
+    const first = node.encounter.enemies[0];
+    return first ? [getVillain(first.villain)] : [];
+  }
+  if (node.kind !== 'boss') return [];
+  const list = node.encounter.enemies.map((e) => getVillain(e.villain));
+  const boss = list[list.length - 1];
+  return boss ? [boss, ...list.slice(0, -1).filter((v) => v.role === 'lieutenant')] : [];
+}
 
 /** Species in Dragondex order. */
 export const SPECIES_BY_DEX: readonly SpeciesDef[] = [...SPECIES].sort((a, b) => a.dex - b.dex);

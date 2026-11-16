@@ -5,7 +5,7 @@ import { drawText, measureText } from '../../lib/engine/text.ts';
 import { getMove, getItem, getType } from '../../data/index.ts';
 import type { ItemId, MoveDef, Stats, TypeId } from '../../data/schema.ts';
 import type { MoveSlot } from '../../battle/types.ts';
-import { GRADE_LABELS, weaknesses, typeEffectiveness } from '../../battle/matchup.ts';
+import { GRADE_LABELS, moveEffectiveness, weaknesses, typeEffectiveness } from '../../battle/matchup.ts';
 import {
   UI, drawBar, drawEffectTag, drawHpBar, drawPanel, drawStars, drawStatusBadge, drawTypeBadge, drawTypeBadges, movePowerLabel, typeBadgeWidth,
   drawWrapped, effectStyle, fillRoundRect, textOn, tint, wrapText, type Rect,
@@ -264,18 +264,25 @@ export interface Matchup {
   /** Your best type multiplier on them, and theirs on you. */
   fwd: number;
   back: number;
+  /**
+   * Your active dragon's matchupGrade (types and moves) against the foe: the grade the SWAP cards
+   * show for it. When present it decides the verdict, so the strip and the cards never disagree.
+   */
+  grade?: 1 | 2 | 3;
 }
 
 export type Verdict = 'good' | 'bad' | 'even';
 
 export function verdictOf(m: Matchup): Verdict {
+  if (m.grade !== undefined) return m.grade === 3 ? 'good' : m.grade === 1 ? 'bad' : 'even';
   return m.fwd > m.back ? 'good' : m.fwd < m.back ? 'bad' : 'even';
 }
 
+/** The strip's verdict, in the SWAP cards' words (GRADE_LABELS). */
 export const VERDICT_TEXT: Record<Verdict, string> = {
-  good: 'YOU HAVE THE TYPE ADVANTAGE!',
-  bad: 'CAREFUL - THEY HAVE THE ADVANTAGE!',
-  even: 'EVEN MATCH',
+  good: GRADE_LABELS[3],
+  bad: `CAREFUL - ${GRADE_LABELS[1]}!`,
+  even: GRADE_LABELS[2],
 };
 
 const VERDICT_COLOR: Record<Verdict, string> = { good: GOOD, bad: BAD, even: EVEN };
@@ -474,7 +481,8 @@ export function drawMoveFace(ctx: Ctx, face: Rect, enabled: boolean, slot: MoveS
   drawText(ctx, pp, face.x + 14, face.y + 22, { color: enabled && ppLow ? col : dim, shadow: false });
   drawText(ctx, powerText(mv), face.x + 14 + measureText(pp) + 8, face.y + 22, { color: dim, shadow: false });
   if (enabled && isDamagingMove(mv)) {
-    const mult = typeEffectiveness(mv.type, foeTypes);
+    // moveEffectiveness: a fixed-damage move is x1 (or NO EFFECT), whatever its type's chart row says.
+    const mult = moveEffectiveness(slot.id, foeTypes);
     drawEffectTag(ctx, mult, face.x + face.w - 4 - effectTagWidth(mult), face.y + face.h - 15, { small: true });
   }
 }

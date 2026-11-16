@@ -25,7 +25,7 @@ import type { BattleEvent, BattleState, PlayerAction, Side } from '../../battle/
 import { activeMon, createBattle, itemTargetOk, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
 import { bestTypeMultiplier, effectivenessLabel, matchupGrade, moveEffectiveness } from '../../battle/matchup.ts';
 import { xpForLevel } from '../../battle/stats.ts';
-import { encounterSetup, finishBattle, type MissionRun } from '../../game/missions.ts';
+import { encounterSetup, finishBattle, tuckeredAfterWin, type MissionRun } from '../../game/missions.ts';
 import { drawBattleBackdrop, drawPlatform } from '../../art/backdrops.ts';
 import { createFx } from '../../art/fx.ts';
 import { drawDizzyStars, type Pose } from '../../art/dragon.ts';
@@ -209,8 +209,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     const next: Matchup = {
       mine: [...p.types], theirs: [...e.types],
       fwd: bestTypeMultiplier(p.types, e.types), back: bestTypeMultiplier(e.types, p.types),
+      // the SWAP cards' grade for the dragon on the field decides the verdict (one answer everywhere)
+      grade: matchupGrade(p.types, p.moves, e.types),
     };
-    const key = (m: Matchup): string => `${m.mine.join()}|${m.theirs.join()}|${m.fwd}|${m.back}`;
+    const key = (m: Matchup): string => `${m.mine.join()}|${m.theirs.join()}|${m.fwd}|${m.back}|${m.grade}`;
     if (matchup && key(matchup) !== key(next)) {
       matchPulse = 1;
       const was = verdictOf(matchup), now = verdictOf(next);
@@ -564,6 +566,14 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         ended = true;
         const w = e.winner;
         music(null);
+        if (w === 'player' && tuckeredAfterWin(run, battle)) {
+          // The last foe and the last squad dragon fell together and no rest stop comes before the
+          // next fight: the battle is won but the mission ends here, so no VICTORY! and no confetti.
+          outro = { text: 'TUCKERED OUT!', color: '#8a6fb0', age: 0 };
+          sfx('defeat');
+          showText('BUT YOUR WHOLE SQUAD IS TOO TUCKERED OUT TO GO ON!');
+          return mkStep(1.8 * (0.7 + 0.3 * pace()), () => tw.done, { text: true, skippable: true, minAge: 0.6, onDone: finish });
+        }
         if (w === 'player') {
           victorySide = 'player';
           outro = { text: 'VICTORY!', color: '#e9a72a', age: 0 };
@@ -1067,16 +1077,25 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     if (tip) drawWrapped(ctx, tip, r.x + 12, Math.max(r.y + 14 + qh, r.y + r.h - 31), r.w - 28, { color: UI.textDim, shadow: false });
   }
 
+  /**
+   * A rock-paper-scissors tip that only states true type facts: "their type beats yours" only when
+   * their type really hits yours super-effectively (the strip's FOE arrow is above X1), "bounces
+   * off" when yours is resisted, and a SUPER-tag hint when a move can do better than the types.
+   */
   function tipText(): string {
     if (!matchup) return '';
-    const v = verdictOf(matchup);
     const canSwap = legal(battle).switches.some(Boolean);
-    if (v === 'bad') return canSwap ? 'TIP: THEIR TYPE BEATS YOURS. A SWAP COULD HELP!' : 'TIP: THEIR TYPE BEATS YOURS. HIT HARD AND FAST!';
-    if (v === 'good') return 'TIP: YOUR TYPE BEATS THEIRS. GO GET THEM!';
+    const { fwd, back } = matchup;
+    if (back > 1 && fwd > 1) return 'TIP: YOU BOTH HIT HARD HERE. STRIKE FIRST!';
+    if (back > 1) return canSwap ? 'TIP: THEIR TYPE BEATS YOURS. A SWAP COULD HELP!' : 'TIP: THEIR TYPE BEATS YOURS. HIT HARD AND FAST!';
+    if (fwd > 1) return 'TIP: YOUR TYPE BEATS THEIRS. GO GET THEM!';
     const me = activeMon(battle, 'player');
     const foe = activeView('enemy');
     const superMove = !!foe && me.moves.some((m) => m.pp > 0 && moveEffectiveness(m.id, foe.types) > 1 && getMove(m.id).power > 0);
-    return superMove ? 'TIP: A MOVE WITH A SUPER TAG HITS TWICE AS HARD!' : 'TIP: [?] TYPES SHOWS WHO BEATS WHO.';
+    if (superMove) return fwd < 1 ? 'TIP: YOUR TYPE BOUNCES OFF THEIRS, BUT A MOVE WITH A SUPER TAG HITS HARD!' : 'TIP: A MOVE WITH A SUPER TAG HITS TWICE AS HARD!';
+    if (fwd === 0) return canSwap ? 'TIP: YOUR TYPE HAS NO EFFECT ON THEIRS. TRY ANOTHER MOVE OR SWAP!' : 'TIP: YOUR TYPE HAS NO EFFECT ON THEIRS. TRY ANOTHER MOVE!';
+    if (fwd < 1) return canSwap ? 'TIP: YOUR TYPE BOUNCES OFF THEIRS. TRY ANOTHER MOVE OR SWAP!' : 'TIP: YOUR TYPE BOUNCES OFF THEIRS. TRY ANOTHER MOVE!';
+    return 'TIP: [?] TYPES SHOWS WHO BEATS WHO.';
   }
 
   function drawItemInfo(ctx: Ctx): void {

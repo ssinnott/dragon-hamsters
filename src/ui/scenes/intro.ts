@@ -229,20 +229,28 @@ const STAT_COLOR: Record<StatId, string> = {
 const STAT_MAX = 100;
 const HINT = "EACH ONE BEATS ONE TYPE AND LOSES TO ANOTHER. PICK TWO - THEY'LL COVER EACH OTHER!";
 
-/** First sentences of a backstory that fit two lines of `width`; cut at a word with '...' if needed. */
-function excerpt(text: string, width: number): string[] {
+/** Lines of the DRAGON FILE's lore box. */
+const LORE_LINES = 3;
+
+/**
+ * Whole first sentences of a backstory that fit LORE_LINES lines of `width`. When even the first
+ * sentence is too long, the species' one-line dex fact instead (a whole thought, never a sentence
+ * cut off mid-way); only if that does not fit either, a cut at a word with '...'.
+ */
+function excerpt(text: string, width: number, fact = ''): string[] {
   const sentences = text.match(/[^.!?]+[.!?]+/g)?.map((s) => s.trim()) ?? [text];
   let best = '';
   for (const s of sentences) {
     const next = best ? best + ' ' + s : s;
-    if (wrapText(next, width).length <= 2) best = next; else break;
+    if (wrapText(next, width).length <= LORE_LINES) best = next; else break;
   }
   if (best) return wrapText(best, width);
+  if (fact && wrapText(fact, width).length <= LORE_LINES) return wrapText(fact, width);
   const words = sentences[0].split(' ');
   let cut = '';
   for (const w of words) {
     const next = cut ? cut + ' ' + w : w;
-    if (wrapText(next + '...', width).length <= 2) cut = next; else break;
+    if (wrapText(next + '...', width).length <= LORE_LINES) cut = next; else break;
   }
   return wrapText(cut + '...', width);
 }
@@ -690,14 +698,16 @@ export function createIntroScene(): Scene {
     const bw = measureText(TYPES[type]?.name ?? type) + 23;
     drawTypeBadge(ctx, type, x + w - 12 - bw, y + 33);
     // backstory excerpt
-    const lines = excerpt(s.backstory, pw);
-    drawInset(ctx, px - 4, y + 52, pw + 8, 26);
+    const lines = excerpt(s.backstory, pw, s.fact);
+    drawInset(ctx, px - 4, y + 52, pw + 8, 6 + LORE_LINES * LINE_STEP);
     lines.forEach((l, k) => drawText(ctx, l, px, y + 57 + k * LINE_STEP, { color: UI.text, shadow: false }));
+    // everything below moves down with the lore box (two lines used to fit)
+    const dy = (LORE_LINES - 2) * LINE_STEP;
     // the triangle in words: what it beats, what it loses to
     const beats = types.filter((o) => o !== type && effectiveness(type, [o]) > 1);
     const loses = types.filter((o) => o !== type && effectiveness(o, [type]) > 1);
     let bx = px;
-    const by = y + 86;
+    const by = y + 86 + dy;
     drawText(ctx, 'BEATS', bx, by + 3, { color: UI.good, shadowColor: tint(UI.panel, -0.2) });
     bx += measureText('BEATS') + 5;
     for (const o of beats) bx += drawTypeBadge(ctx, o, bx, by, { small: false }) + 3;
@@ -706,7 +716,7 @@ export function createIntroScene(): Scene {
     lx += measureText('LOSES TO') + 5;
     for (const o of loses) lx += drawTypeBadge(ctx, o, lx, by, { small: false }) + 3;
     // base stats
-    const sy = y + 108;
+    const sy = y + 108 + dy;
     const total = STAT_IDS.reduce((a, k) => a + s.baseStats[k], 0);
     drawText(ctx, 'BASE STATS', px, sy, { color: UI.textDim, shadow: false });
     drawText(ctx, 'TOTAL ' + total, x + w - 12, sy, { align: 'right', color: UI.textDim, shadow: false });

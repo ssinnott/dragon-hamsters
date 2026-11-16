@@ -1,8 +1,11 @@
 // Every ability. Each type gets three, renamed from the signature abilities of its Pokemon parallel
 // (docs/POKEMON_RESEARCH.md section 3): a pinch boost, an absorb or immunity, a contact punish, or
-// a defensive trait. Then a few generic ones any dragon can roll, and the boss abilities villains
-// use (pressure, multiscale and a double intimidate; SPOOKY GLARE, SNACK STASH, SHINY PLATING,
-// BOULDER HIDE, TRUE COLORS and VICTORY STRUT also suit bosses well).
+// a defensive trait. Then a few generic ones that are not tied to a type, and the boss abilities
+// villains use (pressure, multiscale and a double intimidate; SPOOKY GLARE, SNACK STASH, SHINY
+// PLATING, BOULDER HIDE, TRUE COLORS and VICTORY STRUT also suit bosses well). A dragon only ever
+// rolls its own species' abilities, so every ability here is held by some species or villain
+// (tools/contenttest.ts checks it). A boss never swaps out by choice, so it gets no swap ability
+// (SECOND HELPING, FRESH SPARKLE): those only work for the player's dragons.
 // Names are at most 14 characters and descriptions at most 60.
 import type { AbilityDef, AbilityEffect, AbilityId } from './schema.ts';
 
@@ -138,7 +141,7 @@ const LIST: AbilityDef[] = [
   a('steady-stance', 'Steady Stance', { kind: 'innerFocus' },
     'Feet planted firmly: it never flinches or gets confused.', 'Steadfast + Own Tempo'),
 
-  // ---- Generic: any dragon may roll these ----
+  // ---- Generic: not tied to a type (species and villains hold them like any other) ----
   a('snack-stash', 'Snack Stash', { kind: 'regenTurn', fraction: 1 / 16 },
     'Nibbles snacks from its cheeks: heals 1/16 HP every turn.', 'Leftovers (as an ability)'),
   a('zoomy-feet', 'Zoomy Feet', { kind: 'statMult', stat: 'spe', mult: 1.5, when: 'statused' },

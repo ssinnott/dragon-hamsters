@@ -11,23 +11,28 @@
 //        ferrets  infiltrate  retrieve    rescue      sabotage    defend
 //   - Node shapes: retrieve = 3 battles, rest, boss. Rescue = 2 battles, rest, 1 battle, boss.
 //     Sabotage = battle, branch, rest, boss. Infiltrate = 2 battles, boss, no rest. Defend = 4 waves
-//     of 1-2 enemies, rest after wave 2, boss. A boss encounter is [lieutenant, boss], with a minion
-//     in front in a few late cases; the very first case is the tutorial showdown, the boss alone at
-//     band +1.
+//     of 1-2 enemies, rest after wave 2, boss (the finale, ferrets-5, adds a second rest before the
+//     boss). A boss encounter is [lieutenant, boss], with a minion in front in a few late cases; the
+//     very first case is the tutorial showdown, the boss alone at band +1.
 //   - Sabotage branch: option 1 rushes on (a story beat) and carries the route `supercharge`
 //     { atk: +1, spa: +1 }, which the device gives the boss at the start of the boss battle; option 2
 //     cuts the power with one extra battle and leaves the boss normal. The boss node itself stays
 //     outside the branch, so every mission ends with exactly one boss node.
 //   - Levels: `level` is the design band for the org and case. Minions fight at the band -1..+1,
-//     the lieutenant at +1 and the boss at +3. The first two cases use single-enemy battles (the
+//     the lieutenant at +1 and the boss at +3, except in the first org, where a fixed +3 is a big
+//     share of a small level: cheese-2 (the first case with a lieutenant) fields Vinnie at -1 and
+//     the boss at +0, cheese-3..5 field them at +0 / +1. In simulations cheese-2 at +1 / +3 was won
+//     about 16% of the time on arrival. The first two cases use single-enemy battles (the
 //     player has two level-5 starters); after that battles field 1-2 enemies. The very first case's
 //     minions all sit at band -1: the boss encounter decides that mission, and in simulations
 //     tougher minions only wore a FIRE + LEAF pair down before it got there.
-//   - Rewards: 60 + 12 * level coins (src/game/missions.ts adds +50% for infiltrate), 2 foods or
+//   - Rewards: 50 + 6 * level coins (src/game/missions.ts adds +50% for infiltrate), 2 foods or
 //     items (3 for retrieve, its bonus, and for showdowns), and a dragon for every case:
 //       * cheese-1 hatches the stolen dinosaur egg: Triceratot, chance 1.
-//       * Rescue frees the captive named in the briefing (a pool of one, chance 1). Captives appear
-//         in no other pool, so a rescue always brings a new dragon.
+//       * Rescue frees the captive named in the briefing (a pool of one, chance 1). The captive
+//         joins on the first clear even if the burrow already has one of its kind, so a rescue
+//         always brings a dragon. Captives appear in no other pool, except Statickle (the only
+//         LIGHTNING line): it also lives at the Sky Tower (cheese-4), ahead of the WINGED crows.
 //       * Other cases have a themed pool of 2-4 first stages (chance 0.35, showdowns 0.4) that live
 //         at that place and mostly counter the NEXT org's types, e.g. the cheese pools hold ROCK,
 //         FROST, METAL, FLUFF and BRAWL dragons for the crows. Each starter appears in a mid-game
@@ -123,11 +128,11 @@ export const LOCATIONS: Record<LocationId, LocationDef> = {
 
 /** Average enemy level per case 1..5 (the design bands). */
 const BANDS: Record<OrgId, readonly number[]> = {
-  cheese: [5, 7, 9, 11, 14],
+  cheese: [5, 7, 8, 10, 13],
   crows: [13, 15, 17, 19, 22],
   snakes: [20, 22, 24, 26, 29],
   cats: [27, 29, 31, 33, 36],
-  ferrets: [34, 36, 38, 41, 45],
+  ferrets: [34, 36, 38, 41, 44],
 };
 
 /** Each org's lieutenant and boss (src/data/villains.ts). */
@@ -160,7 +165,7 @@ interface Kit {
   /** A minion at the band level plus `d`. */
   m(villain: VillainId, d?: Offset): Enemy;
   battle(label: string, intro: string, ...enemies: Enemy[]): MissionNode;
-  /** The showdown encounter: any minions given go first, then the lieutenant (+1) and the boss (+3). */
+  /** The showdown encounter: any minions given go first, then the lieutenant (+1) and the boss (+3), or the case's `leaders` offsets. */
   boss(label: string, intro: string, ...minions: Enemy[]): MissionNode;
   /** A showdown with the boss alone at the band level plus `d` (the very first case: the tutorial boss). */
   soloBoss(label: string, intro: string, d: number): MissionNode;
@@ -170,14 +175,18 @@ interface Kit {
   branch(label: string, text: string, rush: Route, cut: Route): MissionNode;
 }
 
-function kit(org: OrgId, level: number): Kit {
+/** Default lieutenant and boss levels in a boss encounter, relative to the band (DESIGN: +1 / +3). */
+const LEADER_OFFSETS: readonly [number, number] = [1, 3];
+
+function kit(org: OrgId, level: number, leaders: readonly [number, number] = LEADER_OFFSETS): Kit {
   const { lieutenant, boss } = LEADERS[org];
+  const [ltUp, bossUp] = leaders;
   return {
     m: (villain, d = 0) => ({ villain, level: level + d }),
     battle: (label, intro, ...enemies) => ({ kind: 'battle', label, encounter: { enemies, intro } }),
     boss: (label, intro, ...minions) => ({
       kind: 'boss', label,
-      encounter: { enemies: [...minions, { villain: lieutenant, level: level + 1 }, { villain: boss, level: level + 3 }], intro },
+      encounter: { enemies: [...minions, { villain: lieutenant, level: level + ltUp }, { villain: boss, level: level + bossUp }], intro },
     }),
     soloBoss: (label, intro, d) => ({
       kind: 'boss', label, encounter: { enemies: [{ villain: boss, level: level + d }], intro },
@@ -205,8 +214,19 @@ interface CaseFile {
   dragons: SpeciesId[];
   /** Defaults: 1 for a rescue, SHOWDOWN_CHANCE for case 5, POOL_CHANCE otherwise. */
   chance?: number;
+  /** Lieutenant and boss level offsets from the band in the boss encounter (default LEADER_OFFSETS). */
+  leaders?: readonly [number, number];
   success: string;
 }
+
+/**
+ * Mission pay for a case at `level`. It grows slowly on purpose: the shop's prices are fixed (the
+ * dearest shelf costs 70), so pay that kept pace with the levels made coins meaningless by the
+ * second org.
+ */
+const missionPay = (level: number): number => PAY_BASE + PAY_PER_LEVEL * level;
+const PAY_BASE = 50;
+const PAY_PER_LEVEL = 6;
 
 /** Turn the case files (in campaign order) into MissionDefs: ids, levels, coins and unlocks. */
 function build(files: CaseFile[]): MissionDef[] {
@@ -224,8 +244,8 @@ function build(files: CaseFile[]): MissionDef[] {
       objective: f.objective,
       briefing: f.briefing,
       level,
-      nodes: f.path(kit(f.org, level)),
-      rewards: { coins: 60 + 12 * level, items: f.items, dragon: { species: f.dragons, chance } },
+      nodes: f.path(kit(f.org, level, f.leaders)),
+      rewards: { coins: missionPay(level), items: f.items, dragon: { species: f.dragons, chance } },
       requires: prev ? [`${prev.org}-${prev.index}`] : [],
       success: f.success,
     };
@@ -294,12 +314,13 @@ const CASES: CaseFile[] = [
         'You hide in the rope locker and nibble a seed. From somewhere below deck comes the sound of a tiny, very tired whisk.', FULL_HEAL),
       k.battle('Barge deck',
         'The Fondue Flinger is stirring a bathtub of cream cheese on deck. It looks up, ladle dripping.',
-        k.m('fondue-flinger', 1)),
+        k.m('fondue-flinger', -1)),
       k.boss('The galley',
         'In the galley, the Crumbkin is tied to a giant whisk while the Big Cheese licks a mixing spoon. Vinnie Grater cracks his knuckles. "Not you again!"'),
     ],
     items: [item('cheese', 2), item('seedcake', 1)],
     dragons: ['crumbkin'],
+    leaders: [-1, 0],
     success:
       'You untied the Crumbkin, and it baked your whole squad a thank-you biscuit on the spot. ' +
       'The Big Cheese escaped on a raft made from a giant cracker, yelling that you had ruined his cheesecake. ' +
@@ -315,7 +336,7 @@ const CASES: CaseFile[] = [
       'Get to that ray and switch it off before the flamingos get cheesy!',
     path: (k) => [
       k.battle('Zoo gates',
-        'Two mice in a zebra costume are blocking the zoo gates. The front half is a Crumb Snatcher. The back half is a very cross Tunnel Rat.',
+        'A mouse and a rat in a zebra costume are blocking the zoo gates. The front half is a Crumb Snatcher. The back half is a very cross Tunnel Rat.',
         k.m('crumb-snatcher', -1), k.m('tunnel-rat')),
       k.branch('Ray cable',
         'The Melt-o-Matic is humming on the lakeshore. Its power cable runs to a fuse box, and two of the crew are guarding it.',
@@ -338,6 +359,7 @@ const CASES: CaseFile[] = [
     ],
     items: [item('carrot', 2), item('herbtea', 1)],
     dragons: ['fuzzlet', 'blobbit', 'flitterbit'],
+    leaders: [0, 1],
     success:
       'You yanked the big red lever, and the Melt-o-Matic fizzled out with a sad little pfft. ' +
       'The Big Cheese paddled away on a giant rubber duck, shaking his fist at you. The flamingos have asked for your autograph.',
@@ -369,7 +391,10 @@ const CASES: CaseFile[] = [
         'A helicopter shaped like a cheese grater lands on the roof. Out step Vinnie Grater and the Big Cheese himself, wearing his best bib and holding a knife and fork.'),
     ],
     items: [item('cheese', 2), item('seedcake', 2)],
-    dragons: ['brrrito', 'scrappling', 'flitterbit'],
+    // Statickle (the only LIGHTNING line, the ferrets-3 captive) also lives up by the tower's
+    // antenna, so a LIGHTNING dragon can join before the WINGED-heavy crows.
+    dragons: ['brrrito', 'scrappling', 'flitterbit', 'statickle'],
+    leaders: [0, 1],
     success:
       'The Royal Wheel of Cheddar is safe! The Big Cheese clung to his grater-copter as it wobbled off into the night, wailing that he could still smell it. ' +
       'The festival crowd gave your squad a standing ovation and a slice each.',
@@ -395,6 +420,7 @@ const CASES: CaseFile[] = [
     ],
     items: [item('cheese', 3), item('peppep', 1), item('spicybiscuit', 1)],
     dragons: ['granitooth', 'clanklet', 'spookums'],
+    leaders: [0, 1],
     success:
       'Gotcha! The Big Cheese tried to hide inside his own hat, but it smelled far too tasty to fool anyone. ' +
       "He's under arrest, and the Big Cheese Crew is disbanded! The Mouse Hole Lounge is now a cafe for retired museum mice. " +
@@ -680,7 +706,7 @@ const CASES: CaseFile[] = [
       k.rest('Lighthouse',
         'You rest in the lighthouse. From the window you can count six tiny penguins on the raft below. They are waving.'),
       k.boss("Captain's deck",
-        "Captain Croak stands at the wheel of his raft, cheeks full of stolen fish fingers. Baron Von Hiss is wearing a captain's hat on top of his top hat."),
+        "Captain Croak stands at the wheel of his raft, cheeks full of stolen fish fingers. Baron Von Hiss is wearing a captain's hat, perched just above his monocle."),
     ],
     items: [item('seedcake', 2), item('peppep', 1), item('cheese', 2)],
     dragons: ['puddlepaw', 'blobbit', 'scrappling'],
@@ -766,7 +792,7 @@ const CASES: CaseFile[] = [
         'The tower lobby is already toasty. A Hot Tin Tom is hopping about on the warm floor tiles, and a Stone Cold Cat is pretending not to sweat.',
         k.m('hot-tin-tom', -1), k.m('stone-cold-cat')),
       k.branch('Sunlamp cable',
-        'The sunlamp is warming up and the whole tower feels cosy. A huge cable runs down to a generator on floor 40, guarded by the Cartel.',
+        'The sunlamp is warming up and the whole tower feels cozy. A huge cable runs down to a generator on floor 40, guarded by the Cartel.',
         {
           label: 'Rush the roof',
           description: 'Race up before you get sleepy. No extra battle, but the sunlamp warms up the Don: +1 ATTACK and SP. ATK.',
@@ -1025,23 +1051,27 @@ const CASES: CaseFile[] = [
     path: (k) => [
       k.story('Tower top',
         'Chief Nibbles radios in: "Every dragon in the burrow is cheering for you, agent. Now go and give those robots a good clanking!"'),
+      // The finale: waves of 1, 2, 1 and 2 like every defend case, with a second snack break before
+      // the boss. Two-robot waves all the way and a single break wore squads out before the
+      // Weather Machine (they won the boss fight alone from full HP almost every time).
       k.battle('Wave 1',
-        'The first robots clank out of the evening fog. A Clankbot 3000 and a Soaker Bot are climbing the tower walls on suction cups.',
-        k.m('clankbot', -1), k.m('soaker-bot', -1)),
+        'The first robot clanks out of the evening fog. A Clankbot 3000 is climbing the tower wall on suction cups!',
+        k.m('clankbot', -1)),
       k.battle('Wave 2',
         'A Voltage Weasel zips up the lightning rod, and a Cryo Ferret freezes the stairs behind it. Here comes wave two!',
         k.m('voltage-weasel'), k.m('cryo-ferret')),
       k.rest('Sky cafe',
         'The sky cafe sends up a tray of hot cocoa and seed cakes, on the house. Far below, the whole city is watching.'),
       k.battle('Wave 3',
-        'The robots are getting desperate. A Clankbot 3000 has strapped a Voltage Weasel to its back like a jet pack.',
-        k.m('clankbot', 1), k.m('voltage-weasel')),
+        'The robots are getting desperate. A giant Clankbot 3000 stomps up the stairs with a rocket strapped to its back like a jet pack.',
+        k.m('clankbot', 1)),
       k.battle('Wave 4',
         'The last wave! A Cryo Ferret and a Soaker Bot try a combo: water, then ice. The whole roof is turning into a skating rink.',
         k.m('cryo-ferret', 1), k.m('soaker-bot', 1)),
+      k.rest('Roof hatch',
+        'You duck under the roof hatch for a quick breather and the last seed cakes. Above you, rockets roar. Something big is landing!'),
       k.boss('Weather Machine',
-        'With a roar of rockets, the Weather Machine lands on the roof with Dr. Ferretstein at the controls. A Voltage Weasel and Icegor leap out, and the sky crackles with lightning.',
-        k.m('voltage-weasel')),
+        'With a roar of rockets, the Weather Machine lands on the roof with Dr. Ferretstein at the controls. Icegor leaps out, and the sky crackles with lightning.'),
     ],
     items: [item('dragonfruit', 3), item('royalcake', 2)],
     dragons: ['moonmunch', 'sunseedra'],

@@ -941,3 +941,64 @@ export function drawMissionNodeIcon(ctx: G, kind: MissionNodeKind, cx: number, c
 export function drawTickIcon(ctx: G, cx: number, cy: number): void {
   blitSprite(ctx, pixelSprite('tick', NODE_TICK, NODE_PAL), cx, cy);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Settings switches (title screen, OPTIONS): a speaker, a music note, and a gear
+// ---------------------------------------------------------------------------------------------
+
+/** A speaker with sound waves (on) or a cross (off). */
+export function drawSpeakerIcon(ctx: G, cx: number, cy: number, on: boolean, color: string): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - 5, cy - 2, 3, 4);
+  ctx.fillRect(cx - 2, cy - 3, 1, 6);
+  ctx.fillRect(cx - 1, cy - 4, 1, 8);
+  ctx.fillRect(cx, cy - 5, 1, 10);
+  if (on) {
+    ctx.fillRect(cx + 2, cy - 1, 1, 2);
+    ctx.fillRect(cx + 3, cy - 3, 1, 1); ctx.fillRect(cx + 4, cy - 2, 1, 4); ctx.fillRect(cx + 3, cy + 2, 1, 1);
+  } else {
+    for (let k = 0; k < 4; k++) { ctx.fillRect(cx + 2 + k, cy - 2 + k, 1, 1); ctx.fillRect(cx + 5 - k, cy - 2 + k, 1, 1); }
+  }
+}
+
+/** Two beamed music notes, struck through in `strike` when off. */
+export function drawNoteIcon(ctx: G, cx: number, cy: number, on: boolean, color: string, strike = '#e04f45'): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - 4, cy + 1, 3, 3); ctx.fillRect(cx - 5, cy + 2, 1, 1);
+  ctx.fillRect(cx - 2, cy - 5, 1, 7);
+  ctx.fillRect(cx + 2, cy, 3, 3); ctx.fillRect(cx + 1, cy + 1, 1, 1);
+  ctx.fillRect(cx + 4, cy - 6, 1, 7);
+  ctx.fillRect(cx - 2, cy - 6, 7, 2);
+  if (!on) {
+    ctx.fillStyle = strike;
+    for (let k = -5; k <= 5; k++) ctx.fillRect(cx + k, cy - k, 1, 1);
+  }
+}
+
+const GEAR_ROWS = [
+  '....kkk....',
+  '.kk.kgk.kk.',
+  '.kgkkgkkgk.',
+  '..kgggggk..',
+  'kkkggkggkkk',
+  'kgggkwkgggk',
+  'kkkggkggkkk',
+  '..kgggggk..',
+  '.kgkkgkkgk.',
+  '.kk.kgk.kk.',
+  '....kkk....',
+];
+
+/** A small cog (the OPTIONS button), 11 px across. */
+export function drawGearIcon(ctx: G, cx: number, cy: number, color = '#b8b0cc', ink = '#1b1426'): void {
+  const x0 = Math.round(cx - 5), y0 = Math.round(cy - 5);
+  for (let r = 0; r < GEAR_ROWS.length; r++) {
+    const row = GEAR_ROWS[r];
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[c];
+      if (ch === '.') continue;
+      ctx.fillStyle = ch === 'k' ? ink : ch === 'w' ? '#fff6de' : color;
+      ctx.fillRect(x0 + c, y0 + r, 1, 1);
+    }
+  }
+}

@@ -1,7 +1,8 @@
 // The Burrow: the hub of the game. Every owned dragon wanders the floor of the Secret Burrow and
 // shows its mood (hungry ones dream of seeds, tired ones nap in the Cozy Nest, overjoyed ones hop).
 //
-//   HUD strip      DAY n, coins, MISSIONS DRAGONS DEX TYPES SHOP BAG SLEEP (hotkeys M D X T S B Z)
+//   HUD strip      DAY n, coins, the OPTIONS gear (O, or Escape in the hub), MISSIONS DRAGONS DEX
+//                  TYPES SHOP BAG SLEEP (hotkeys M D X T S B Z)
 //   stations       click one or press 1-5 -> pick a dragon (and a food for the Snack Bar)
 //   dragons        click one -> a floating info card with its needs and quick activity buttons
 //   activity       doActivity, then a short vignette at the station, then a result card
@@ -18,7 +19,7 @@ import {
   drawKeycap, drawPlaque, drawSelection, drawTypeBadges, fillRoundRect, foodEffectText, hit, hpColor, tint, wrapText,
   type ButtonSpec, type Rect,
 } from '../widgets.ts';
-import { drawActivityIcon, drawCoinIcon, drawFoodIcon, drawItemIcon } from '../icons.ts';
+import { drawActivityIcon, drawCoinIcon, drawFoodIcon, drawGearIcon, drawItemIcon } from '../icons.ts';
 import { STATIONS, drawBurrow, drawStation, stationSignRect } from '../../art/backdrops.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
@@ -29,7 +30,7 @@ import {
   type ActivityId, type DragonVisual, type FoodId, type StatId, type StatusId,
 } from '../../data/schema.ts';
 import {
-  HUNGRY_AT, JOYFUL_AT, canDoActivity, doActivity, endDay, moodLine, swapLines, type ActivityResult, type DayReport,
+  GLUM_AT, HUNGRY_AT, JOYFUL_AT, canDoActivity, doActivity, endDay, moodLine, needsCarePackage, swapLines, type ActivityResult, type DayReport,
 } from '../../game/habitat.ts';
 import { dragonName, dragonStats, dragonTypes, findDragon, isFainted, xpProgress } from '../../game/dragons.ts';
 import { MISSION_ENERGY, SLOTS_PER_DAY, TUTORIAL_FLAGS, type OwnedDragon } from '../../game/types.ts';
@@ -50,6 +51,17 @@ const WALK_SPEED = 26;
 const ACT_TIME = 2.5;
 /** The first case: the MISSIONS button pulses until it is cleared. */
 const FIRST_CASE = 'cheese-1';
+/**
+ * At most this many dragons wander the Burrow at once, so a big collection does not pile up into
+ * one heap on the narrow floor. The others are "out exploring" (a tag that opens DRAGONS); one
+ * picked at a station pops back out of the Treasure Tunnels door.
+ */
+const MAX_SHOWN = 10;
+/** ...and their heights (a stand-in for their size) add up to at most this, so a burrow of big
+ *  evolved dragons shows about 8 and one of little first forms the full 10. */
+const SHOWN_SIZE_BUDGET = 400;
+/** Two idle dragons closer than this (x, y px; x grows with their size) shuffle apart. */
+const CROWD = { x: 18, y: 7 };
 
 /** Stations in screen order, left to right: hotkeys 1-5. */
 const STATION_ORDER: ActivityId[] = [...ACTIVITY_IDS].sort((a, b) => STATIONS[a].x - STATIONS[b].x);
@@ -230,6 +242,15 @@ function moodColor(m: string): string {
   if (m === 'OVERJOYED' || m === 'HAPPY') return tint(UI.good, -0.3);
   return UI.textDim;
 }
+
+/**
+ * A nap mends HP and status and restores energy. A dragon with nothing to mend is not offered one
+ * (it would only spend an activity slot), so the Cozy Nest lists it dimmed instead of READY!.
+ */
+function napHelps(d: OwnedDragon): boolean {
+  return d.hp < dragonStats(d).hp || !!d.status || d.needs.energy < 100;
+}
+const NAP_NOT_NEEDED = 'NOTHING TO FIX: FULL OF BEANS!';
 
 function stationName(id: ActivityId): string {
   return ACTIVITIES[id].name.toUpperCase();
@@ -468,13 +489,14 @@ const TIPS = [
   'Look for the ♥: a dragon doing its favourite activity gets double happiness.',
   'The Treasure Tunnels hide coins, snacks and the odd shiny item. Diggers welcome.',
   'Arrow keys hop between buttons, stations and dragons. Enter picks.',
+  'Too loud? The gear (or Esc) opens OPTIONS: sound, music and text speed.',
 ];
 
 const TUTORIAL = [
-  'Welcome to the Secret Burrow, agent! This cosy hole in the ground is the headquarters of the Dragon Hamster Agency. Mind the bunting.',
+  'Welcome to the Secret Burrow, agent! This cozy hole in the ground is the headquarters of the Dragon Hamster Agency. Mind the bunting.',
   'These five stations keep your dragons in tip-top shape. Click a station, or press 1 to 5, then pick who gets to go.',
   'Every dragon has three needs: FULLNESS, HAPPINESS and ENERGY. A hungry dragon dreams of seeds, and a sleepy one shuffles off to the Cozy Nest.',
-  `Each dragon gets ${SLOTS_PER_DAY} activity slots a day. Snacks at the Snack Bar are free. Snacks are always free. That is the agency's most important rule.`,
+  `Each dragon gets ${SLOTS_PER_DAY} activity slots a day, but a snack at the Snack Bar never uses one up. A full tummy is the agency's most important rule!`,
   'When everyone is worn out, press SLEEP. One good night heals every scrape and starts a brand new day.',
   'Click any dragon to see how it is feeling. The SHOP sells snacks, and your BAG holds healing items.',
   'Now, the important bit: our first case file is waiting on the MISSIONS board. That dinosaur egg will not un-steal itself!',
@@ -487,10 +509,18 @@ export function createBurrowScene(): Scene {
   let order: Walker[] = [];
   const hub = new ButtonGroup();
   const hudButtons: Button[] = [];
+  let optionsBtn: Button | null = null;
+  /** The dragons on screen (at most MAX_SHOWN, plus any picked at a station this visit). */
+  let shown = new Set<string>();
+  /** Dragons that did an activity today: they stay on screen. Cleared at night. */
+  const pinned = new Set<string>();
+  let exploreBtn: Button | null = null;
   const stationSpots: Hotspot[] = [];
   let shownCoins = app.state.coins;
   let coinFlash = 0;
   let navT = -99;
+  /** app.time when the hub last had something else on top (a card, a panel, another screen). */
+  let busyAt = -99;
   let tutorialAsked = false;
   let card: CardState | null = null;
   let panel: PanelState | null = null;
@@ -529,9 +559,27 @@ export function createBurrowScene(): Scene {
       hudButton('BAG', 'b', iconSack, () => nav.bag()),
       hudButton('SLEEP', 'z', (c, x, y) => drawActivityIcon(c, 'nap', x, y, 12), askSleep, '#b8a8e8'),
     );
-    const gap = 3;
+    const gap = 2;
     let x = VIEW_W - 5 - hudButtons.reduce((s, b) => s + b.spec.rect.w, 0) - gap * (hudButtons.length - 1);
     for (const b of hudButtons) { b.spec.rect.x = x; x += b.spec.rect.w + gap; }
+    // OPTIONS: a gear just left of MISSIONS, clear of its "!" nag badge (sound, music, text speed,
+    // back to the title). O or Escape in the hub opens it too. It goes last in the list: drawHud
+    // treats [0] as MISSIONS.
+    optionsBtn = new Button({
+      label: '', rect: { x: hudButtons[0].spec.rect.x - 6 - 22, y: 4, w: 22, h: 20 }, hotkey: 'o', color: '#d8d0e8',
+      onClick: () => { sfx('click'); nav.options(); },
+      decorate: (ctx, face) => drawGearIcon(ctx, face.x + Math.floor(face.w / 2), face.y + Math.floor(face.h / 2)),
+    });
+    hudButtons.push(optionsBtn);
+
+    // "+N OUT EXPLORING": the dragons not on screen; opens DRAGONS, where everyone is listed
+    const ew = measureText('+99 OUT EXPLORING') + 14;
+    exploreBtn = new Button({
+      get label() { return `+${hiddenCount()} OUT EXPLORING`; },
+      rect: { x: VIEW_W - 12 - ew, y: 301, w: ew, h: 15 }, color: UI.night,
+      visible: () => hiddenCount() > 0,
+      onClick: () => { sfx('click'); nav.roster(); },
+    });
 
     STATION_ORDER.forEach((id, i) => {
       const r = STATIONS[id];
@@ -554,7 +602,8 @@ export function createBurrowScene(): Scene {
     hub.clear();
     for (const b of hudButtons) hub.add(b);
     for (const s of stationSpots) hub.add(s);
-    for (const w of order) hub.add(w.btn);
+    if (exploreBtn) hub.add(exploreBtn);
+    for (const w of order) if (shown.has(w.id)) hub.add(w.btn);
     if (key) {
       const i = hub.buttons.findIndex((b) => (b instanceof Hotspot ? b.kind + ':' + b.ref : 'hud:' + b.spec.label) === key);
       if (i >= 0) hub.focus = i;
@@ -571,15 +620,17 @@ export function createBurrowScene(): Scene {
    * piling up in one heap.
    */
   function randomFloor(nearX?: number, self?: Walker): { x: number; y: number } {
-    let best = { x: 0, y: 0 }, bestRoom = -1;
-    for (let k = 0; k < 6; k++) {
+    let best = { x: 0, y: 0 }, bestRoom = -Infinity;
+    const myH = self?.h ?? 36;
+    for (let k = 0; k < 10; k++) {
       let x = FLOOR.x0 + Math.random() * (FLOOR.x1 - FLOOR.x0);
       if (nearX !== undefined) x = Math.max(FLOOR.x0, Math.min(FLOOR.x1, nearX + (Math.random() - 0.5) * 320));
       const p = { x, y: FLOOR.y0 + Math.random() * (FLOOR.y1 - FLOOR.y0) };
+      // the gap to the nearest neighbour's spot, minus both bodies (big evolved dragons need more)
       let room = Infinity;
       for (const o of walkers.values()) {
-        if (o === self || o.state === 'sleep' || o.state === 'toNest') continue;
-        room = Math.min(room, Math.hypot(o.tx - p.x, (o.ty - p.y) * 2));
+        if (o === self || !shown.has(o.id) || o.state === 'sleep' || o.state === 'toNest') continue;
+        room = Math.min(room, Math.hypot(o.tx - p.x, (o.ty - p.y) * 2) - (o.h + myH) * 0.4);
       }
       if (room > bestRoom) { bestRoom = room; best = p; }
     }
@@ -587,17 +638,25 @@ export function createBurrowScene(): Scene {
   }
 
   function newWalker(d: OwnedDragon): Walker {
-    const p = randomFloor();
     const w: Walker = {
-      id: d.id, x: p.x, y: p.y, tx: p.x, ty: p.y, state: 'idle', timer: Math.random() * 2.5,
+      id: d.id, x: 0, y: 0, tx: 0, ty: 0, state: 'idle', timer: 0,
       facing: Math.random() < 0.5 ? 1 : -1, phase: Math.random() * 10, wiggle: 0, nest: -1, h: 36,
       btn: null as unknown as Hotspot,
     };
+    w.h = Math.max(18, Math.round(dragonHeight(dragonVisual(d), DRAGON_SCALE)));
+    placeFresh(w, d);
     w.btn = new Hotspot({
-      label: d.id, rect: { x: p.x - 14, y: p.y - 36, w: 28, h: 36 }, onClick: () => openCard(w.id),
+      label: d.id, rect: { x: w.x - 14, y: w.y - 36, w: 28, h: 36 }, onClick: () => openCard(w.id),
       enabled: () => mode === 'hub' && !(vig && vig.id === w.id),
     }, 'dragon', d.id);
-    // Already-tired dragons start out asleep in the nest rather than wandering there.
+    return w;
+  }
+
+  /** A roomy spot on the floor; already-tired dragons start out asleep in the nest instead. */
+  function placeFresh(w: Walker, d: OwnedDragon): void {
+    const p = randomFloor(undefined, w);
+    w.x = w.tx = p.x; w.y = w.ty = p.y;
+    w.state = 'idle'; w.timer = Math.random() * 2.5; w.nest = -1;
     if (d.needs.energy < MISSION_ENERGY && !isFainted(d)) {
       w.nest = freeNestSpot();
       const s = nestSpot(w.nest);
@@ -606,12 +665,59 @@ export function createBurrowScene(): Scene {
     } else if (isFainted(d)) {
       w.state = 'faint';
     }
-    return w;
+  }
+
+  const hiddenCount = (): number => Math.max(0, app.state.dragons.length - shown.size);
+
+  /**
+   * Who is on screen: everyone, up to MAX_SHOWN. With more, the ones that did something today
+   * first, then the ones that need looking after (fainted, hungry, sleepy, glum: their bubbles and
+   * naps tell the story), then the squad, then the highest levels. Walkers that come back on
+   * screen get a fresh spot.
+   */
+  function chooseShown(): void {
+    const ds = app.state.dragons;
+    const size = (d: OwnedDragon): number => Math.max(18, dragonHeight(dragonVisual(d), DRAGON_SCALE));
+    let next: Set<string>;
+    if (ds.length <= MAX_SHOWN && ds.reduce((a, d) => a + size(d), 0) <= SHOWN_SIZE_BUDGET) {
+      next = new Set(ds.map((d) => d.id));
+    } else {
+      const squad = new Set(app.state.squad);
+      const needy = (d: OwnedDragon): boolean => isFainted(d) || d.needs.fullness <= HUNGRY_AT
+        || d.needs.energy < MISSION_ENERGY || d.needs.happiness <= GLUM_AT;
+      const ranked = ds.map((d, i) => ({ d, i })).sort((a, b) =>
+        Number(pinned.has(b.d.id)) - Number(pinned.has(a.d.id))
+        || Number(needy(b.d)) - Number(needy(a.d))
+        || Number(squad.has(b.d.id)) - Number(squad.has(a.d.id))
+        || b.d.level - a.d.level || a.i - b.i);
+      next = new Set<string>();
+      let used = 0;
+      for (const { d } of ranked) {
+        if (next.size >= MAX_SHOWN || (next.size > 0 && used + size(d) > SHOWN_SIZE_BUDGET)) break;
+        next.add(d.id);
+        used += size(d);
+      }
+    }
+    const was = shown;
+    shown = next;
+    for (const id of next) {
+      const w = walkers.get(id), d = findDragon(app.state, id);
+      if (w && d && !was.has(id) && was.size) placeFresh(w, d);
+    }
+  }
+
+  /** Another idle or wandering dragon stands right on top of this one. */
+  function crowded(w: Walker): boolean {
+    for (const o of order) {
+      if (o === w || !shown.has(o.id) || (o.state !== 'idle' && o.state !== 'walk' && o.state !== 'hop' && o.state !== 'held')) continue;
+      if (Math.abs(o.x - w.x) < Math.max(CROWD.x, (o.h + w.h) * 0.33) && Math.abs(o.y - w.y) < CROWD.y) return true;
+    }
+    return false;
   }
 
   function freeNestSpot(): number {
     const used = new Set<number>();
-    for (const w of walkers.values()) if ((w.state === 'sleep' || w.state === 'toNest') && w.nest >= 0) used.add(w.nest);
+    for (const w of walkers.values()) if (shown.has(w.id) && (w.state === 'sleep' || w.state === 'toNest') && w.nest >= 0) used.add(w.nest);
     let i = 0;
     while (used.has(i)) i++;
     return i;
@@ -623,6 +729,7 @@ export function createBurrowScene(): Scene {
     if (same) return;
     const ids = new Set(ds.map((d) => d.id));
     for (const id of [...walkers.keys()]) if (!ids.has(id)) walkers.delete(id);
+    chooseShown();
     for (const d of ds) if (!walkers.has(d.id)) walkers.set(d.id, newWalker(d));
     order = ds.map((d) => walkers.get(d.id) as Walker);
     rebuildHub();
@@ -649,6 +756,8 @@ export function createBurrowScene(): Scene {
       case 'idle':
         if (hovered) break;
         w.timer -= dt;
+        // standing right on top of someone: shuffle along soon
+        if (w.timer > 0.4 && crowded(w)) w.timer = 0.4;
         if (w.timer <= 0) {
           if (d.needs.happiness >= JOYFUL_AT && Math.random() < 0.45) { w.state = 'hop'; w.timer = 1.3 + Math.random() * 0.8; }
           else {
@@ -721,7 +830,10 @@ export function createBurrowScene(): Scene {
 
   function canFeedAny(d: OwnedDragon): { ok: boolean; reason: string } {
     const stocked = FOOD_IDS.filter((f) => (app.state.food[f] ?? 0) > 0);
-    if (!stocked.length) return { ok: false, reason: 'PANTRY EMPTY: VISIT THE SHOP' };
+    if (!stocked.length) {
+      // too broke for the shop: Chief Nibbles' care package arrives with the next morning
+      return { ok: false, reason: needsCarePackage(app.state) ? 'EMPTY PANTRY: SLEEP FOR SNACKS!' : 'PANTRY EMPTY: VISIT THE SHOP' };
+    }
     let reason = '';
     for (const f of stocked) {
       const c = canDoActivity(app.state, d.id, 'feed', f);
@@ -734,6 +846,7 @@ export function createBurrowScene(): Scene {
   function check(d: OwnedDragon, id: ActivityId): { ok: boolean; reason: string } {
     if (id === 'feed') return canFeedAny(d);
     const c = canDoActivity(app.state, d.id, id);
+    if (c.ok && id === 'nap' && !napHelps(d)) return { ok: false, reason: NAP_NOT_NEEDED };
     return { ok: c.ok, reason: c.ok ? '' : c.reason ?? 'NOT RIGHT NOW' };
   }
 
@@ -1053,7 +1166,9 @@ export function createBurrowScene(): Scene {
       drawText(ctx, row.liked ? 'READY! LOVES IT' : 'READY!', r.x + COL.status, r.y + 9, { color: tint(UI.good, -0.35), shadow: false });
     } else {
       const lines = wrapText(row.reason, sw).slice(0, 2);
-      lines.forEach((l, i) => drawText(ctx, l, r.x + COL.status, r.y + (lines.length === 1 ? 9 : 4 + i * 10), { color: UI.bad, shadow: false }));
+      // a nap it does not need is not a problem, just pointless: dim, not red
+      const color = row.reason === NAP_NOT_NEEDED ? UI.textDim : UI.bad;
+      lines.forEach((l, i) => drawText(ctx, l, r.x + COL.status, r.y + (lines.length === 1 ? 9 : 4 + i * 10), { color, shadow: false }));
     }
   }
 
@@ -1167,13 +1282,22 @@ export function createBurrowScene(): Scene {
     sfx('select');
     panel = null;
     card = null;
+    pinned.add(id);
+    if (!shown.has(id)) {
+      // back from exploring: it pops out of the Treasure Tunnels door
+      shown.add(id);
+      const door = STATIONS.dig;
+      w.x = w.tx = Math.round(door.x + door.w * 0.66); w.y = w.ty = FLOOR.y0 + 2;
+      w.state = 'idle'; w.nest = -1;
+      rebuildHub();
+    }
     const to = actPoint(activity);
     const dist = Math.hypot(to.x - w.x, to.y - w.y);
     w.state = 'act';
     w.wiggle = 0;
     // everyone else makes room at the station
     for (const o of order) {
-      if (o === w || (o.state !== 'idle' && o.state !== 'walk' && o.state !== 'hop')) continue;
+      if (o === w || !shown.has(o.id) || (o.state !== 'idle' && o.state !== 'walk' && o.state !== 'hop')) continue;
       if (Math.abs(o.x - to.x) < 44 && Math.abs(o.y - to.y) < 30) {
         const p = randomFloor(undefined, o);
         if (Math.abs(p.x - to.x) < 70) p.x = to.x + (to.x < 320 ? 90 : -90);
@@ -1402,7 +1526,7 @@ export function createBurrowScene(): Scene {
     const rowsH = rows.reduce((s, r) => s + r.h, 0);
     const w = 362;
     const h = Math.max(150, 16 + flavour.length * 10 + 8 + rowsH + 40);
-    const rect = { x: Math.round((VIEW_W - w) / 2), y: Math.max(HUD_H + 10, Math.round((VIEW_H - h) / 2)), w, h };
+    const rect = { x: Math.round((VIEW_W - w) / 2), y: resultCardY(h), w, h };
     const group = new ButtonGroup();
     group.add({
       label: 'OK!', rect: { x: rect.x + w - 84, y: rect.y + h - 30, w: 72, h: 22 }, color: UI.good, hotkey: 'Escape',
@@ -1413,6 +1537,19 @@ export function createBurrowScene(): Scene {
       evolveTo: res.xp?.evolveTo ?? null, xp,
     };
     mode = 'result';
+  }
+
+  /**
+   * The result card's top edge: centred, unless its title tab would land on or just under the
+   * HAMSTER WHEEL sign (the one station sign above the card), where the two read as one stacked
+   * label. Then the card moves up a little so its body hides the sign altogether.
+   */
+  function resultCardY(h: number): number {
+    const sign = stationSignRect('wheel');
+    let y = Math.round((VIEW_H - h) / 2);
+    // the tab spans y - 6 .. y + 7
+    if (y + 7 >= sign.y - 2 && y - 6 <= sign.y + sign.h + 10) y = sign.y - 9;
+    return Math.max(HUD_H + 10, y);
   }
 
   function closeResult(): void {
@@ -1539,6 +1676,10 @@ export function createBurrowScene(): Scene {
       night = null;
       mode = 'hub';
       if (!n.dawnPlayed) music('burrow');
+      // a new day: who is on screen is decided afresh (hungry and sleepy ones first)
+      pinned.clear();
+      chooseShown();
+      rebuildHub();
       // everyone wakes up: overjoyed ones bounce
       for (const w of order) if (w.state === 'idle' || w.state === 'hop') { w.state = 'hop'; w.timer = 0.6 + Math.random() * 0.8; }
       app.nav.dialog(n.report.lines);
@@ -1737,6 +1878,11 @@ export function createBurrowScene(): Scene {
           const left = Math.max(0, SLOTS_PER_DAY - d.slotsUsed);
           return `${dragonName(d)}, LV ${d.level}: ${moodLine(d)}. ${left} activity ${left === 1 ? 'slot' : 'slots'} left today. Click for details.`;
         }
+      } else if (f === exploreBtn) {
+        const n = hiddenCount();
+        return `${n} more ${n === 1 ? 'dragon is' : 'dragons are'} out exploring the tunnels. Click to see everyone on the DRAGONS screen.`;
+      } else if (f === optionsBtn) {
+        return 'OPTIONS [O]: sound, music, text speed, and back to the title screen.';
       } else {
         return HUD_HINTS[f.spec.label] ?? '';
       }
@@ -1766,7 +1912,7 @@ export function createBurrowScene(): Scene {
       drawKeycap(ctx, String(i + 1), s.x - 12, s.y);
     });
     // dragons, back to front
-    const sorted = [...order].sort((a, b) => a.y - b.y);
+    const sorted = order.filter((w) => shown.has(w.id)).sort((a, b) => a.y - b.y);
     const actor = vig ? vig.id : null;
     for (const w of sorted) {
       const d = findDragon(app.state, w.id);
@@ -1819,12 +1965,15 @@ export function createBurrowScene(): Scene {
 
   function refresh(): void {
     sync();
+    chooseShown();
+    rebuildHub();
     for (const w of order) if (w.state === 'held' || w.state === 'act') { w.state = 'idle'; w.timer = 0.5; }
   }
 
   return {
     name: 'burrow',
     enter() {
+      busyAt = app.time;
       setSound(app.state.settings.sound);
       setMusic(app.state.settings.music);
       music('burrow');
@@ -1833,6 +1982,7 @@ export function createBurrowScene(): Scene {
       publishDebug();
     },
     resume() {
+      busyAt = app.time;
       music('burrow');
       refresh();
       if (mode !== 'night') { mode = 'hub'; card = null; panel = null; }
@@ -1852,11 +2002,12 @@ export function createBurrowScene(): Scene {
       coinFlash = Math.max(0, coinFlash - dt);
       for (const w of order) {
         const d = findDragon(app.state, w.id);
-        if (!d) continue;
+        if (!d || !shown.has(w.id)) continue;
         if (!night || night.t >= NIGHT_DAWN - 0.3) thinkWalker(w, d, dt);
         updateHotspot(w, d);
       }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].some((k) => input.pressed(k))) navT = app.time;
+      if (mode !== 'hub') busyAt = app.time;
       switch (mode) {
         case 'hub':
           if (!tutorialAsked && !app.state.flags[TUTORIAL_FLAGS.burrow] && !app.scenes.busy) {
@@ -1864,6 +2015,9 @@ export function createBurrowScene(): Scene {
             app.nav.dialog(TUTORIAL, () => { app.state.flags[TUTORIAL_FLAGS.burrow] = true; app.save(); }, 'chief');
             return;
           }
+          // Escape in the hub opens OPTIONS (sound, music, text speed, back to the title), but not
+          // when it is still the Escape that closed a card, a panel or another screen a moment ago
+          if (input.back() && app.time - busyAt > 0.35) { sfx('click'); app.nav.options(); return; }
           hub.update(input);
           break;
         case 'card': updateCard(input); break;

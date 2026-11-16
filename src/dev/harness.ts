@@ -110,6 +110,7 @@ export function bootHarness(first: () => Scene, opts: HarnessOptions = {}): void
     confirm: (text, onYes, onNo) => {
       scenes.push(placeholder(log('confirm', [text]), onYes, { y: onYes, n: () => onNo?.() }));
     },
+    options: () => { scenes.push(placeholder(log('options', []))); },
   };
   app.nav = { ...stub, ...opts.nav };
 

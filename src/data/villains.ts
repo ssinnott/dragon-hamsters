@@ -19,8 +19,12 @@
 //     org's own level band (cheese 4-17, crows 12-25, snakes 19-32, cats 26-39, ferrets 33-48).
 //   - Lieutenants and bosses always carry a coverage move that hits one of their own weaknesses
 //     super effectively, so the obvious counter is never a free win. The one exception is The Big
-//     Cheese in the very first showdown (level 8-9): there the starters' FIRE and WATER really are
-//     the answer, and his mud and garnish only arrive from mission 2.
+//     Cheese below level 10, his first three showdowns (cases 1-3): there the starters' FIRE and
+//     WATER really are the answer, and his mud only arrives at level 10 (case 4). tools/contenttest.ts
+//     checks this at every level a lieutenant or boss is fought.
+//   - Entries above the levels a villain is ever fought at only keep the role cycle complete up to
+//     level 50; the campaign never shows them. The matchup notes below say which coverage the
+//     campaign really shows and which arrives only past it.
 import type {
   Animal, MoveId, OrgDef, OrgId, Outfit, Stats, VillainDef, VillainId, VillainProp, VillainVisual,
 } from './schema.ts';
@@ -135,18 +139,23 @@ const LIST: VillainDef[] = [
   {
     id: 'big-cheese', name: 'The Big Cheese', org: 'cheese', role: 'boss', types: ['COOKING', 'FLUFF'],
     // COOKING 60 / FLUFF 40 at 450, tilted portly: +HP, -speed.
-    baseStats: stats(104, 65, 68, 71, 84, 58), ability: 'second-helping',
-    // Weak to FIRE, WATER, WINGED, SLIME, BRAWL. His coverage starts at mission 2 (level 10): mud flung
-    // at FIRE, later parsley garnish (LEAF) at WATER. In the very first showdown (level 8) he only
-    // knows kitchen moves, so a FIRE or WATER starter really is the answer: the tutorial boss.
+    // He never swaps out by choice, so a swap ability (Second Helping) would never fire. His aged
+    // cheddar rind keeps out every status problem instead (healing every turn made the tutorial
+    // showdown too long for two level-5 starters).
+    baseStats: stats(104, 65, 68, 71, 84, 58), ability: 'salt-crust',
+    // Weak to FIRE, WATER, WINGED, SLIME, BRAWL. His coverage starts at level 10 (case 4): mud flung
+    // at FIRE. In the first three showdowns (levels 6, 7, 9) he only knows kitchen moves, so a FIRE or
+    // WATER starter really is the answer: the tutorial boss. His parsley garnish (LEAF sap) for WATER
+    // only comes at level 30, past the campaign.
     learnset: learn(
       [1, 'whisk-whack'], [1, 'pepper-puff'], [1, 'squeak'], [1, 'cheek-stuff'],
       [10, 'mud-pie'], [12, 'seed-spit'], [14, 'rolling-pin'], [17, 'secret-sauce'],
       [30, 'sap-sip'], [40, 'boiling-broth'],
     ),
     baseXp: 220, coins: 60,
-    taunt: "Say cheese, agent! This omelette isn't going to cook itself.",
+    taunt: "Say cheese, agent! You're about to get grated.",
     defeat: "Curds and whey! This isn't over! To the mouse hole, boys!",
+    caught: 'Curds and whey! Nowhere left to run... I surrender!',
     description:
       'A portly mouse in a pinstripe suit and a hat made from a wedge of aged cheddar, which he nibbles when he gets nervous. ' +
       "He dreams of cooking the world's biggest omelette, and only a dinosaur egg is big enough. He has never once shared a cracker.",
@@ -157,7 +166,9 @@ const LIST: VillainDef[] = [
     // EARTH 60 / FLUFF 40 at 380, tilted towards ATTACK.
     baseStats: stats(75, 84, 67, 41, 60, 53), ability: 'dirt-snacker',
     // Weak to WATER, LEAF, FROST, COOKING, BRAWL: he grates LEAF and FROST with his trusty grater
-    // (COOKING), and from mission 2 he also chews live wires (LIGHTNING) to zap WATER.
+    // (COOKING) up to level 10 (case 4), and from level 8 (case 3) he also chews live wires
+    // (LIGHTNING) to zap WATER. At level 11 his shovel pushes the grater out, so in the showdown
+    // (case 5) the wires are his only coverage.
     learnset: learn(
       [1, 'nibble'], [1, 'whisk-whack'], [1, 'cheek-stuff'], [1, 'burrow-bump'],
       [8, 'fizz-nip'], [11, 'shovel-swipe'], [14, 'dust-cloud'], [20, 'rolling-pin'],
@@ -205,7 +216,8 @@ const LIST: VillainDef[] = [
   },
   {
     id: 'fondue-flinger', name: 'Fondue Flinger', org: 'cheese', role: 'minion', types: ['COOKING'],
-    baseStats: stats(56, 34, 46, 53, 60, 41), ability: 'second-helping',
+    // A cook tastes as it goes (minions never swap, so Second Helping would never fire).
+    baseStats: stats(56, 34, 46, 53, 60, 41), ability: 'snack-stash',
     learnset: learn(
       [1, 'pepper-puff'], [1, 'hot-potato'], [1, 'seed-spit'], [1, 'secret-sauce'],
       [17, 'boiling-broth'], [24, 'snack-time'], [31, 'bonfire-burp'], [42, 'kitchen-sink'],
@@ -247,9 +259,10 @@ const LIST: VillainDef[] = [
       [20, 'dusk-crunch'], [22, 'anvil-drop'], [26, 'sneaky-scheme'], [30, 'loop-de-loop'],
       [38, 'comet-dive'], [45, 'crag-crash'],
     ),
-    baseXp: 240, coins: 80,
+    baseXp: 240, coins: 68,
     taunt: 'Caw me old-fashioned, but I like my agents plucked.',
     defeat: 'Fly, my birds, fly! The Godfeather always comes back!',
+    caught: "Caw! My necklaces! I'm all tangled up... I give up!",
     description:
       'The silver-beaked boss of Caw-sa Nostra, a big old crow in a dark suit and fedora who speaks so softly that everyone has to lean in. ' +
       'His nest is lined with stolen keys, spoons and lost earrings. He has never paid for a breadcrumb in his life.',
@@ -265,7 +278,7 @@ const LIST: VillainDef[] = [
       [16, 'stardust'], [21, 'chrome-cannon'], [23, 'glow-up'], [28, 'tornado-twirl'],
       [34, 'sunbeam'], [42, 'geode-beam'],
     ),
-    baseXp: 162, coins: 42,
+    baseXp: 162, coins: 36,
     taunt: "Darling, that badge is FAR too shiny for you. I'll take it.",
     defeat: 'My feathers! My jewels! Somebody fetch my fainting couch!',
     description:
@@ -281,7 +294,7 @@ const LIST: VillainDef[] = [
       [14, 'homing-swoop'], [20, 'night-nibble'], [26, 'loop-de-loop'], [33, 'preen'],
       [41, 'comet-dive'],
     ),
-    baseXp: 76, coins: 12,
+    baseXp: 76, coins: 10,
     taunt: "Coo! I seen nothin'. I know nothin'. Now scram!",
     defeat: "Okay, okay! I'll talk! Coo...",
     description:
@@ -296,7 +309,7 @@ const LIST: VillainDef[] = [
       [1, 'night-nibble'], [1, 'sneaky-scheme'], [1, 'rivet-rap'], [1, 'peekaboo'],
       [20, 'dusk-crunch'], [24, 'stink-eye'], [30, 'anvil-drop'], [40, 'loop-de-loop'],
     ),
-    baseXp: 82, coins: 13,
+    baseXp: 82, coins: 11,
     taunt: 'No lock can stop me. No door, no window, no cookie jar!',
     defeat: 'My crowbar! Who crowbarred my crowbar?',
     description:
@@ -312,7 +325,7 @@ const LIST: VillainDef[] = [
       [15, 'stardust'], [21, 'warm-glow'], [28, 'tornado-twirl'], [35, 'sunbeam'],
       [43, 'rainbow-ray'],
     ),
-    baseXp: 78, coins: 12,
+    baseXp: 78, coins: 10,
     taunt: "Let me hear you coo! It's time to boogie!",
     defeat: 'The music... stopped... coo...',
     description:
@@ -329,7 +342,7 @@ const LIST: VillainDef[] = [
       [17, 'jinx'], [22, 'sneaky-scheme'], [28, 'prism-pounce'], [35, 'dusk-crunch'],
       [42, 'stink-eye'],
     ),
-    baseXp: 85, coins: 14,
+    baseXp: 85, coins: 12,
     taunt: "Black, white and sneaky all over. Guess which side I'm on!",
     defeat: 'Even my good side is bruised now!',
     description:
@@ -343,15 +356,17 @@ const LIST: VillainDef[] = [
     id: 'baron-von-hiss', name: 'Baron Von Hiss', org: 'snakes', role: 'boss', types: ['MIND', 'SLIME'],
     // MIND 60 / SLIME 40 at 475, tilted towards SP. ATK.
     baseStats: stats(82, 58, 74, 102, 93, 66), ability: 'looming-aura',
-    // Weak to FLUFF, DARKNESS, EARTH, WINGED: frosty hypnosis for EARTH and WINGED, then sunbeams.
+    // Weak to FLUFF, DARKNESS, EARTH, WINGED: frosty hypnosis for EARTH and WINGED. (His sunbeams
+    // for DARKNESS come at level 36, past the campaign.)
     learnset: learn(
       [1, 'thought-bubble'], [1, 'flurry-puff'], [1, 'brain-fog'], [1, 'slime-spit'],
       [20, 'brainwave'], [24, 'polar-beam'], [29, 'counting-sheep'], [30, 'gloop-geyser'],
       [36, 'sunbeam'], [44, 'brain-freeze'],
     ),
-    baseXp: 260, coins: 100,
+    baseXp: 260, coins: 75,
     taunt: 'You are getting sleepy... very sleepy... and very, very defeated.',
     defeat: "Cursssesss! You haven't ssseen the lassst of me!",
+    caught: 'Cursssesss... sssuddenly I feel ssso... very... sleepy...',
     description:
       "A long, elegant snake in a magician's cape and a monocle (no relation to Chief Nibbles' monocle, they both insist). " +
       "He is the city's greatest hypnotist and its worst magician. With one swing of his pocket watch, whole zoos have handed him their keys.",
@@ -361,13 +376,14 @@ const LIST: VillainDef[] = [
     id: 'captain-croak', name: 'Captain Croak', org: 'snakes', role: 'lieutenant', types: ['SLIME', 'LEAF'],
     // SLIME 60 / LEAF 40 at 430, tilted towards ATTACK.
     baseStats: stats(77, 78, 73, 65, 83, 54), ability: 'tacky-coat',
-    // Weak to WINGED, MIND, FIRE, FROST, COOKING: a cannonball for FIRE and COOKING, crags for WINGED.
+    // Weak to WINGED, MIND, FIRE, FROST, COOKING: splashes, then a cannonball (level 22), for FIRE
+    // and COOKING. (His crags for WINGED come at level 36, past the campaign.)
     learnset: learn(
       [1, 'gooey-glomp'], [1, 'puddle-pounce'], [1, 'leech-lick'], [1, 'vine-flick'],
       [18, 'slurp'], [22, 'cannonball'], [27, 'soggy-socks'], [29, 'goo-hammer'],
       [36, 'crag-crash'], [44, 'thorn-swipe'],
     ),
-    baseXp: 175, coins: 55,
+    baseXp: 175, coins: 41,
     taunt: "Har! What be in me cheeks? Nothin' ye need to know about, matey!",
     defeat: 'Abandon ship! Every toad for himself! Ribbit!',
     description:
@@ -383,7 +399,7 @@ const LIST: VillainDef[] = [
       [21, 'slurp'], [26, 'leech-lick'], [31, 'goo-hammer'], [38, 'cannonball'],
       [45, 'sour-splat'],
     ),
-    baseXp: 98, coins: 16,
+    baseXp: 98, coins: 12,
     taunt: 'Mmf mmf! (Translation: nothing to see here!)',
     defeat: 'Bleh! Ptoo! There goes the loot!',
     description:
@@ -399,7 +415,7 @@ const LIST: VillainDef[] = [
       [20, 'sap-sip'], [25, 'sunsoak'], [30, 'blossom-blast'], [37, 'gloop-geyser'],
       [45, 'acorn-volley'],
     ),
-    baseXp: 100, coins: 16,
+    baseXp: 100, coins: 12,
     taunt: "Ssshh! You didn't sssee me in this hedge. Nobody ever doesss.",
     defeat: 'Ssso much for the perfect hiding ssspot.',
     description:
@@ -415,7 +431,7 @@ const LIST: VillainDef[] = [
       [24, 'brainwave'], [28, 'brain-fog'], [33, 'jinx'], [40, 'daydream'],
       [47, 'big-idea'],
     ),
-    baseXp: 102, coins: 17,
+    baseXp: 102, coins: 13,
     taunt: 'Watch the pendulum... back and forth... back and forth...',
     defeat: 'I got dizzy... from my own... pendulum...',
     description:
@@ -432,7 +448,7 @@ const LIST: VillainDef[] = [
       [21, 'sap-sip'], [26, 'snoozy-spores'], [31, 'brainwave'], [38, 'blossom-blast'],
       [45, 'dizzy-sparkle'],
     ),
-    baseXp: 106, coins: 18,
+    baseXp: 106, coins: 14,
     taunt: "Who, me? I'm just a very handsome potted plant.",
     defeat: 'Drat! I must have turned the wrong colour.',
     description:
@@ -446,15 +462,17 @@ const LIST: VillainDef[] = [
     id: 'don-whiskerino', name: 'Don Whiskerino', org: 'cats', role: 'boss', types: ['FIRE', 'BRAWL'],
     // FIRE 50 / BRAWL 50 at 575; a fat cat: +HP, -speed.
     baseStats: stats(106, 127, 86, 91, 86, 79), ability: 'velvet-cape',
-    // Weak to WATER, EARTH, WINGED, MIND: static-charged paws for WATER and WINGED, thorny claws later.
+    // Weak to WATER, EARTH, WINGED, MIND: static-charged paws for WATER and WINGED. (His thorny claws
+    // come at level 42, past the campaign.)
     learnset: learn(
       [1, 'paw-jab'], [1, 'fizz-nip'], [1, 'flex'], [1, 'ember-nip'],
       [24, 'haymaker'], [29, 'bolt-bonk'], [33, 'hot-potato'], [36, 'flare-dive'],
       [42, 'thorn-swipe'], [49, 'all-out-brawl'],
     ),
-    baseXp: 280, coins: 120,
+    baseXp: 280, coins: 78,
     taunt: "You got guts, coming into my alley. Let's see if you got nine lives.",
     defeat: 'Bah! I still got eight lives left! Scatter, cats!',
+    caught: "Bah! I'll squeeze out the cat flap- Ow! I'm stuck!",
     description:
       'The fattest cat in town, who wears a crown, a velvet cape and nine gold medals he awarded himself. ' +
       'He started out as a scrappy kitten fighting over fish heads and now owns every alley in the city. He is very ticklish under the chin, which is a closely guarded secret.',
@@ -470,7 +488,7 @@ const LIST: VillainDef[] = [
       [27, 'boulder-bonk'], [29, 'blaze-roll'], [32, 'flex'], [35, 'haymaker'],
       [41, 'flare-dive'], [48, 'crag-crash'],
     ),
-    baseXp: 188, coins: 68,
+    baseXp: 188, coins: 44,
     taunt: 'Arm-wrestle you? Nah. Headbutt you? Yeah!',
     defeat: "I'm not crying! I just got grit in my eye!",
     description:
@@ -486,7 +504,7 @@ const LIST: VillainDef[] = [
       [20, 'tough-it-out'], [26, 'stink-eye'], [30, 'whisker-swipe'], [34, 'haymaker'],
       [41, 'all-out-brawl'], [48, 'hammy-hoedown'],
     ),
-    baseXp: 118, coins: 20,
+    baseXp: 118, coins: 13,
     taunt: "You wanna go? You wanna GO? Let's go!",
     defeat: "That's it. I'm taking a nap. A long one.",
     description:
@@ -501,7 +519,7 @@ const LIST: VillainDef[] = [
       [1, 'gravel-gnaw'], [1, 'cold-shoulder'], [1, 'pebble-flick'], [1, 'stonewall'],
       [26, 'crag-crash'], [31, 'chilly-nip'], [35, 'boulder-bonk'], [42, 'flex'],
     ),
-    baseXp: 122, coins: 21,
+    baseXp: 122, coins: 14,
     taunt: "Chill out. You're about to get the cold shoulder.",
     defeat: 'Not cool, man. Not cool.',
     description:
@@ -516,7 +534,7 @@ const LIST: VillainDef[] = [
       [1, 'cinder-sneeze'], [1, 'battle-cry'], [1, 'kindle-dash'], [1, 'hot-potato'],
       [24, 'bonfire-burp'], [29, 'chi-blast'], [33, 'overtoast'], [40, 'sneaky-scheme'],
     ),
-    baseXp: 120, coins: 20,
+    baseXp: 120, coins: 13,
     taunt: "Hot, hot, HOT! Ow! Ow! Hot! Let's fight!",
     defeat: 'Finally! Somewhere cool to lie down!',
     description:
@@ -533,7 +551,7 @@ const LIST: VillainDef[] = [
       [23, 'blaze-roll'], [28, 'hot-potato'], [32, 'crag-crash'], [37, 'flare-dive'],
       [44, 'stonewall'],
     ),
-    baseXp: 126, coins: 22,
+    baseXp: 126, coins: 14,
     taunt: "Peekaboo! Bet you didn't expect me down the chimney!",
     defeat: "Achoo! Too much soot! I'm out!",
     description:
@@ -553,9 +571,10 @@ const LIST: VillainDef[] = [
       [30, 'thunder-squeak'], [33, 'chrome-cannon'], [36, 'hot-spring'], [43, 'static-cuddle'],
       [47, 'megawatt'],
     ),
-    baseXp: 300, coins: 150,
+    baseXp: 300, coins: 82,
     taunt: 'Behold my greatest invention: your defeat! Mwa-ha-ha!',
     defeat: 'Impossible! My calculations! To the escape pod!',
+    caught: 'Impossible! Even my escape pod is broken! I surrender!',
     description:
       'The maddest scientist in the city, a wiry ferret with wild white fur, singed goggles and a lab coat full of scorch marks. ' +
       'He invented the freeze ray, the lightning cannon and self-buttering toast, and only one of those works properly. He plans to rule the city with an army of robots.',
@@ -571,7 +590,7 @@ const LIST: VillainDef[] = [
       [28, 'glacier-slam'], [32, 'cannonball'], [36, 'shovel-swipe'], [42, 'tin-dome'],
       [48, 'tunnel-quake'],
     ),
-    baseXp: 200, coins: 80,
+    baseXp: 200, coins: 44,
     taunt: 'Yesss, master! Icegor will freeze the nosy agent!',
     defeat: 'Master! Icegor needs a hot water bottle!',
     description:
@@ -583,10 +602,10 @@ const LIST: VillainDef[] = [
     id: 'clankbot', name: 'Clankbot 3000', org: 'ferrets', role: 'minion', types: ['METAL'],
     baseStats: stats(60, 81, 113, 50, 78, 43), ability: 'shiny-plating',
     learnset: learn(
-      [1, 'cog-nip'], [1, 'tune-up'], [1, 'rivet-rap'], [1, 'squeaky-hinge'],
+      [1, 'cog-nip'], [1, 'tune-up'], [1, 'rivet-rap'], [1, 'gear-grind'],
       [26, 'scissor-snip'], [33, 'anvil-drop'], [38, 'bolt-bonk'], [43, 'tin-dome'],
     ),
-    baseXp: 138, coins: 25,
+    baseXp: 138, coins: 14,
     taunt: 'BEEP. INTRUDER DETECTED. PREPARE FOR TIDYING.',
     defeat: 'SYSTEM... ERROR... NEED... OIL...',
     description:
@@ -601,7 +620,7 @@ const LIST: VillainDef[] = [
       [1, 'tingle-zap'], [1, 'static-cuddle'], [1, 'magnet-hum'], [1, 'wheel-spin'],
       [30, 'thunder-squeak'], [38, 'sneaky-scheme'], [42, 'chrome-cannon'], [46, 'megawatt'],
     ),
-    baseXp: 140, coins: 26,
+    baseXp: 140, coins: 14,
     taunt: "Zzzap! I've been running on my wheel ALL day. I'm fully charged!",
     defeat: 'Bzzt... battery... low...',
     description:
@@ -616,7 +635,7 @@ const LIST: VillainDef[] = [
       [1, 'flurry-puff'], [1, 'cold-shoulder'], [1, 'frost-flick'], [1, 'freeze-frame'],
       [28, 'polar-beam'], [36, 'chrome-cannon'], [41, 'brain-freeze'], [47, 'tin-dome'],
     ),
-    baseXp: 142, coins: 26,
+    baseXp: 142, coins: 14,
     taunt: 'Hold still. This freeze ray only tickles. Mostly.',
     defeat: 'Brrr! Somebody turn the heater on!',
     description:
@@ -626,12 +645,12 @@ const LIST: VillainDef[] = [
   },
   {
     id: 'soaker-bot', name: 'Soaker Bot', org: 'ferrets', role: 'minion', types: ['WATER'],
-    baseStats: stats(81, 72, 83, 72, 76, 51), ability: 'sponge-cheeks',
+    baseStats: stats(81, 72, 83, 72, 76, 51), ability: 'damp-fur',
     learnset: learn(
       [1, 'splish-splash'], [1, 'soggy-socks'], [1, 'cog-nip'], [1, 'puddle-pounce'],
       [29, 'hot-spring'], [37, 'tune-up'], [40, 'anvil-drop'], [44, 'geyser-gush'],
     ),
-    baseXp: 145, coins: 27,
+    baseXp: 145, coins: 15,
     taunt: 'HOSE MODE ACTIVATED. YOU ARE DUE FOR A BATH.',
     defeat: 'GLUB. GLUB. SHORT... CIRCUIT...',
     description:

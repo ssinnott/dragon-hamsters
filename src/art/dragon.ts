@@ -1282,6 +1282,7 @@ function drawHead(g: CanvasRenderingContext2D, D: DC): void {
   if (st.eyes === 'dizzy' && D.fx && st.p < 0.75) drawDizzyStars(g, 0, -hr * 1.05, hr * 0.8, D.t, D.ow);
   if (ex.has('frostBreath') && D.fx && st.pose !== 'sleep' && st.pose !== 'faint') drawFrostBreath(g, D);
   if (st.zzz && D.fx) drawNoseBubble(g, D);
+  if (ex.has('fishbowl')) drawFishbowl(g, D);
   g.restore();
 }
 
@@ -1862,6 +1863,28 @@ function drawHalo(g: CanvasRenderingContext2D, D: DC): void {
   g.beginPath(); g.ellipse(0, y, hr * 0.62, hr * 0.2, 0, Math.PI * 1.1, Math.PI * 1.5); strokeLine(g, '#fff8d0', 0.8);
 }
 
+/** An upturned fishbowl worn as a helmet (head space): a glass dome over the head and ears, its lip at the neck. */
+function drawFishbowl(g: CanvasRenderingContext2D, D: DC): void {
+  const hr = D.G.hr;
+  const cx = 0.1 * hr, cy = -0.2 * hr, r = 1.34 * hr;
+  const lipY = 0.84 * hr;
+  const a = Math.asin(clamp((lipY - cy) / r, -1, 1));
+  const lx = Math.cos(a) * r;
+  const dome = (): void => { g.beginPath(); g.arc(cx, cy, r, a, Math.PI - a, true); g.closePath(); };
+  // the glass: a faint blue tint, a dark outline under a pale glassy edge
+  dome(); g.fillStyle = 'rgba(176,226,255,0.24)'; g.fill();
+  dome(); strokeLine(g, rgba(INK, 0.7), D.ow * 2 + 0.9);
+  dome(); strokeLine(g, '#d8f2ff', 0.9);
+  // the bowl's thick lip around the neck
+  g.beginPath(); addEll(g, cx, lipY, lx, Math.max(1.2, hr * 0.13));
+  ink(g, 'rgba(206,238,255,0.75)', D.ow * 0.8);
+  // shine: a long curved glint at the top left and a little dot
+  g.beginPath(); g.arc(cx, cy, r * 0.8, Math.PI * 1.08, Math.PI * 1.42);
+  strokeLine(g, 'rgba(255,255,255,0.9)', Math.max(1.1, hr * 0.12));
+  g.beginPath(); addCirc(g, cx + r * 0.42, cy - r * 0.6, Math.max(0.6, hr * 0.07));
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.fill();
+}
+
 function drawFrostBreath(g: CanvasRenderingContext2D, D: DC): void {
   const { G, t } = D;
   const hr = G.hr;
@@ -1993,4 +2016,6 @@ export const SAMPLE_DRAGONS: DragonVisual[] = [
   dv('#c8a070', '#f4e4c8', '#8a6440', '#e0c098', '#20140a', '#f09a8a', 0.85, 1, 'stubby', 'nubs', 'spike', 'speckles', ['goggles', 'tuft']),
   // FIRE / ROCK
   dv('#6a4a4a', '#c8a090', '#ff7a2a', '#9a3a2a', '#2a0a06', '#ff7a6a', 1.25, 0.7, 'bat', 'curved', 'club', 'spots', ['monocle']),
+  // MIND / WATER (fishbowl helmet)
+  dv('#9a7ae0', '#e8e0ff', '#3a7ad0', '#a8d0f8', '#1a1040', '#ff8ac8', 1.1, 0.5, 'cloud', 'nubs', 'fin', 'scales', ['fishbowl', 'bubbles']),
 ];

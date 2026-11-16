@@ -2,26 +2,27 @@
 // success line, the rewards (coins count up, food and items pop in), and the squad report (XP bars
 // fill, LEVEL UP! tags, new moves). CONTINUE then plays any evolutions one after another, and if a
 // new dragon joined, a big reveal card with its story. A loss: "MISSION FAILED", Chief Nibbles'
-// pep talk with concrete type advice from the case intel, a reminder to rest, and the XP the squad
-// kept anyway. CONTINUE goes home to the Burrow.
+// pep talk with concrete advice (game/advice.ts: which dragon to send, or train, or what type to
+// look for, agreeing with the briefing's stars and AUTO-PICK), a reminder to rest, and the XP the
+// squad kept anyway. CONTINUE goes home to the Burrow.
 //
 // Enter / Space / click on CONTINUE first fast-forwards whatever is still animating.
 import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.ts';
-import { getFood, getItem, getMission, getMove, getSpecies, getType } from '../../data/index.ts';
-import { FOOD_IDS, ITEM_IDS, type FoodId, type ItemId, type MoveId, type TypeId } from '../../data/schema.ts';
-import { intelTypes, type MissionRewards, type MissionRun } from '../../game/missions.ts';
+import { getFood, getItem, getMission, getMove, getSpecies } from '../../data/index.ts';
+import { FOOD_IDS, ITEM_IDS, type FoodId, type ItemId, type MoveId } from '../../data/schema.ts';
+import type { MissionRewards, MissionRun } from '../../game/missions.ts';
+import { adviceDragons, defeatAdvice } from '../../game/advice.ts';
 import { swapLines } from '../../game/habitat.ts';
 import { dragonName, findDragon, foldSwaps, pendingEvolution, type MoveSwap } from '../../game/dragons.ts';
 import { MAX_LEVEL, type OwnedDragon } from '../../game/types.ts';
 import { levelForXp, xpForLevel } from '../../battle/stats.ts';
-import { counterTypes } from '../../battle/matchup.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
 import { sfx, music } from '../../audio/index.ts';
 import { app } from '../app.ts';
 import type { Scene } from '../scene.ts';
 import {
-  ButtonGroup, Typewriter, UI, VIEW_H, VIEW_W, drawBar, drawInset, drawPanel, drawTypeBadges, drawTypewriter,
+  ButtonGroup, Typewriter, UI, VIEW_H, VIEW_W, drawBar, drawInset, drawPanel, drawStars, drawTypeBadges, drawTypewriter,
   fillRoundRect, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawCoinIcon, drawFoodIcon, drawItemIcon } from '../icons.ts';
@@ -102,22 +103,12 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     for (const id of ITEM_IDS) if (rewards.items[id] !== undefined) rewardRows.push({ kind: 'item', id, qty: rewards.items[id] ?? 0 });
   }
 
-  // --- defeat advice from the case intel ------------------------------------------------------
-  const intel = intelTypes(run.missionId);
-  const counts = new Map<TypeId, number>();
-  for (const set of intel) for (const t of set) counts.set(t, (counts.get(t) ?? 0) + 1);
-  const theirTypes = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([t]) => t);
-  const bring = counterTypes(intel.flat()).slice(0, 2);
-  const typeName = (t: TypeId): string => { try { return getType(t).name; } catch { return t; } };
-  const advice = (() => {
-    const crew = theirTypes.map(typeName).join(' and ');
-    const counter = bring.map(typeName).join(' or ');
-    const a = crew ? `Their crew is mostly ${crew}.` : 'That crew is a slippery bunch.';
-    const b = counter ? ` Try bringing ${counter} dragons!` : ' Try a different squad!';
-    return a + b;
-  })();
+  // --- defeat advice: the same stars and AUTO-PICK ranking the briefing uses (game/advice.ts) ---
+  const advice = defeatAdvice(app.state, run.missionId, run.squad);
+  const theirTypes = advice.crew;
+  const adviceNames = adviceDragons(app.state, advice).map((d) => dragonName(d).toUpperCase());
   const pep = PEP_TALKS[(def.index + run.squad.length + app.state.day) % PEP_TALKS.length];
-  const chiefText = `${pep} ${advice} And let everyone rest in the Cozy Nest before you try again.`;
+  const chiefText = `${pep} ${advice.text} And let everyone rest in the Cozy Nest before you try again.`;
   const tw = new Typewriter(app.state.settings?.fastText !== false ? 72 : 42);
   let blips = 0;
   tw.onChar = () => { blips++; if (blips % 3 === 0) sfx('click', { volume: 0.2, pitch: 0.62 }); };
@@ -591,8 +582,28 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     drawText(ctx, 'THEIR CREW IS MOSTLY:', r.x + 12, r.y + 12, { color: UI.text, shadow: false });
     drawTypeBadges(ctx, theirTypes, r.x + 12, r.y + 25);
     const bx = r.x + r.w / 2 + 10;
-    drawText(ctx, 'TRY BRINGING:', bx, r.y + 12, { color: '#3e7a32', shadow: false });
-    drawTypeBadges(ctx, bring, bx, r.y + 25);
+    const green = '#3e7a32';
+    switch (advice.kind) {
+      case 'send':
+      case 'train-pick': {
+        drawText(ctx, advice.kind === 'send' ? 'TRY SENDING:' : 'TRAIN UP:', bx, r.y + 12, { color: green, shadow: false });
+        // each name with its briefing stars, so the advice and the briefing read the same
+        let x = bx;
+        adviceNames.forEach((n, i) => {
+          x += drawText(ctx, n, x, r.y + 28, { color: UI.text, shadow: false }) + 4;
+          drawStars(ctx, advice.stars[i] ?? 2, 3, x, r.y + 26);
+          x += 40;
+        });
+        break;
+      }
+      case 'recruit':
+        drawText(ctx, 'A NEW DRAGON WOULD HELP:', bx, r.y + 12, { color: green, shadow: false });
+        drawTypeBadges(ctx, advice.types, bx, r.y + 25);
+        break;
+      default:
+        drawText(ctx, 'NEXT STEP:', bx, r.y + 12, { color: green, shadow: false });
+        drawText(ctx, 'MORE TRAINING! LEVEL UP THE SQUAD.', bx, r.y + 28, { color: UI.text, shadow: false });
+    }
     ctx.fillStyle = tint(UI.panel, -0.15);
     ctx.fillRect(r.x + r.w / 2, r.y + 8, 1, r.h - 16);
   }

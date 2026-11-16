@@ -48,6 +48,8 @@ export interface Nav {
   dialog(lines: string[], onDone?: () => void, speaker?: Speaker): void;
   /** Push a modal yes/no box. */
   confirm(text: string, onYes: () => void, onNo?: () => void): void;
+  /** Push the OPTIONS box (sound, music, fast text, save and back to the title). */
+  options(): void;
 }
 
 export interface AppContext {
@@ -96,6 +98,7 @@ export const app: AppContext = {
     evolve: () => unwired('evolve'),
     dialog: () => unwired('dialog'),
     confirm: () => unwired('confirm'),
+    options: () => unwired('options'),
   },
 };
 

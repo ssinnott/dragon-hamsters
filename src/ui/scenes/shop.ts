@@ -21,7 +21,7 @@ import { music, sfx } from '../../audio/index.ts';
 import { FOODS, ITEMS, isFood } from '../../data/index.ts';
 import type { DragonVisual, FoodId, ItemId } from '../../data/schema.ts';
 import { SHOP, buy, owned, shopName } from '../../game/shop.ts';
-import { BAG_MAX } from '../../game/habitat.ts';
+import { BAG_MAX, needsCarePackage } from '../../game/habitat.ts';
 
 type Ctx = CanvasRenderingContext2D;
 type ShopId = FoodId | ItemId;
@@ -136,7 +136,12 @@ export function createShopScene(): Scene {
     const cost = e.price * qty;
     if (cost > app.state.coins) {
       sfx('error'); shake = 0.3;
-      speak(`Oh dear, you are ${cost - app.state.coins} coins short. The Treasure Tunnels are full of shiny coins!`, 'hurt');
+      // a bare pantry and no coins: digging needs a fed dragon, so point at Chief Nibbles' care package
+      const short = cost - app.state.coins;
+      const lack = `Oh dear, you are ${short} ${short === 1 ? 'coin' : 'coins'} short.`;
+      speak(needsCarePackage(app.state)
+        ? `${lack} With the pantry bare, SLEEP: Chief Nibbles leaves free snacks by the door!`
+        : `${lack} The Treasure Tunnels are full of shiny coins!`, 'hurt');
       return;
     }
     const r = buy(app.state, e.id, qty);
