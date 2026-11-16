@@ -63,6 +63,13 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   const def = getMission(run.missionId);
   const won = !!rewards;
   const fx = createFx();
+  // The success text can run to five lines; the panels below make room for it.
+  const successLines = wrapText(def.success, VIEW_W - 44).slice(0, 5);
+  const SUCCESS_Y = 42;
+  const successH = 10 + successLines.length * 10;
+  const PANEL_Y = SUCCESS_Y + successH + 13;
+  const PANEL_H = VIEW_H - 42 - PANEL_Y;
+  const ROW_H = Math.min(62, Math.floor((PANEL_H - 16) / 3) - 3);
   let time = 0;
 
   // --- squad report data --------------------------------------------------------------------
@@ -277,7 +284,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       if (won) {
         drawSuccess(ctx);
         drawRewards(ctx);
-        drawSquad(ctx, { x: 230, y: 96, w: 402, h: 222 }, false);
+        drawSquad(ctx, { x: 230, y: PANEL_Y, w: 402, h: PANEL_H }, false);
       } else {
         drawChief(ctx);
         drawAdvice(ctx);
@@ -347,7 +354,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   }
 
   function squadRowRect(i: number): Rect {
-    if (won) return { x: 238, y: 112 + i * 66, w: 386, h: 62 };
+    if (won) return { x: 238, y: PANEL_Y + 12 + i * (ROW_H + 3), w: 386, h: ROW_H };
     return { x: 16, y: 228 + i * 29, w: 608, h: 27 };
   }
 
@@ -426,16 +433,13 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   }
 
   function drawSuccess(ctx: Ctx): void {
-    const lines = wrapText(def.success, 590).slice(0, 3);
-    const h = 12 + lines.length * 10;
-    const y = 44;
-    drawPanel(ctx, 8, y, VIEW_W - 16, h, { fill: UI.panelLight });
-    lines.forEach((l, i) => drawText(ctx, l, VIEW_W / 2, y + 7 + i * 10, { color: UI.text, shadow: false, align: 'center' }));
+    drawPanel(ctx, 8, SUCCESS_Y, VIEW_W - 16, successH, { fill: UI.panelLight });
+    successLines.forEach((l, i) => drawText(ctx, l, VIEW_W / 2, SUCCESS_Y + 6 + i * 10, { color: UI.text, shadow: false, align: 'center' }));
   }
 
   function drawRewards(ctx: Ctx): void {
     if (!rewards) return;
-    const r: Rect = { x: 8, y: 96, w: 214, h: 222 };
+    const r: Rect = { x: 8, y: PANEL_Y, w: 214, h: PANEL_H };
     drawPanel(ctx, r.x, r.y, r.w, r.h, { title: 'REWARDS' });
     // coins counting up
     const u = coinProgress();
@@ -460,7 +464,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     let y = r.y + 88;
     rewardRows.forEach((row, i) => {
       if (i >= itemsPopped) return;
-      if (y > r.y + r.h - 34) return;
+      if (y + 18 > r.y + r.h - (rewards.dragon ? 32 : 8)) return;
       const since = now() - (ITEMS_START + i * ITEM_STEP);
       const pop = since < 0.12 && !skipped ? Math.round((1 - since / 0.12) * 3) : 0;
       drawInset(ctx, r.x + 8, y, r.w - 16, 18, { fill: '#f7e8c6' });
