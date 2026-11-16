@@ -1,0 +1,19 @@
+{
+  // Type checking only -- esbuild does all emitting (tools/server.ts per request in development,
+  // tools/build.ts for the single-file dist/index.html). Same toolchain as the shared game-engine:
+  // imports name the real '.ts' file, which `allowImportingTsExtensions` permits only under noEmit.
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom"],
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "tools/**/*.ts", "types/**/*.d.ts"]
+}

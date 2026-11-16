@@ -1,0 +1,24 @@
+{
+  "name": "dragon-hamsters",
+  "version": "0.1.0",
+  "description": "Dragon Hamsters: raise a burrow of tiny dragons and send them on secret missions. TypeScript on the shared game-engine, no runtime dependencies.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node tools/server.ts",
+    "build": "node tools/build.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "contenttest": "node tools/contenttest.ts",
+    "battletest": "node tools/battletest.ts",
+    "gametest": "node tools/gametest.ts",
+    "smoke": "node tools/smoke.ts",
+    "test": "npm run contenttest && npm run battletest && npm run gametest",
+    "check": "npm run typecheck && npm run test && npm run smoke"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}
