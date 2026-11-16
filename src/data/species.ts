@@ -92,9 +92,9 @@ const RUMBLETUM_MOVES = extend(TUNNELTOT_MOVES, [22, 'belly-flop'], [37, 'sand-t
 // COOKING line: the healer and buffer; LEAF and EARTH coverage for what resists COOKING.
 const CRUMBKIN_MOVES = moves(
   [1, 'whisk-whack'], [1, 'squeak'], [5, 'pepper-puff'], [9, 'snack-time'], [13, 'sap-sip'], [18, 'warm-milk'],
-  [23, 'mud-pie'], [29, 'boiling-broth'], [34, 'secret-sauce'], [39, 'comfort-soup'], [45, 'kitchen-sink'],
+  [23, 'boiling-broth'], [29, 'mud-pie'], [34, 'secret-sauce'], [39, 'comfort-soup'], [45, 'kitchen-sink'],
 );
-const GRANDMUFFIN_MOVES = extend(CRUMBKIN_MOVES, [24, 'rolling-pin'], [42, 'mudslide']);
+const GRANDMUFFIN_MOVES = extend(CRUMBKIN_MOVES, [24, 'rolling-pin']);
 
 // WINGED line: fast physical hit-and-run; the final catches fire.
 const FLITTERBIT_MOVES = moves(
@@ -492,7 +492,7 @@ export const SPECIES: SpeciesDef[] = [
     backstory: 'Thinktank wears an old fishbowl as a helmet and claims it helps it think deep thoughts. It lives by the aquarium at the City Zoo and gives the goldfish advice about life. Its ideas come out as bubbles, and the best ones pop with a little ding.',
     fact: 'Nobody knows how it gets the fishbowl on and off.',
     height: '0.6 m', weight: '7.2 kg', favoriteFood: 'berries', rarity: 'rare', baseXp: 175,
-    visual: vis('#9a7ae0', '#e8e0ff', '#3a7ad0', '#a8d0f8', '#1a1040', '#ff8ac8', 1.15, 0.5, 'cloud', 'crystal', 'fin', 'swirl', ['bubbles', 'whiskersLong']),
+    visual: vis('#9a7ae0', '#e8e0ff', '#3a7ad0', '#a8d0f8', '#1a1040', '#ff8ac8', 1.15, 0.5, 'cloud', 'crystal', 'fin', 'scales', ['bubbles', 'whiskersLong']),
   },
 
   // ---- 26-27: BRAWL line (parallel: Tyrogue, Hitmonchan) ----------------------------------------
@@ -636,7 +636,7 @@ export const SPECIES: SpeciesDef[] = [
     backstory: 'Sunseedra is the legendary dragon hamster of the sun, with a mane of golden petals that shines like noon. Old burrow tales say it planted the very first sunflower, which is why every hamster loves seeds. It wakes the dawn each morning and naps through every cloudy day.',
     fact: 'Every sunflower in the field turns to watch it fly past.',
     height: '2.0 m', weight: '85.0 kg', favoriteFood: 'seeds', rarity: 'legendary', baseXp: 300,
-    visual: vis('#ffcf5a', '#fff4d8', '#f06aa8', '#ffb04a', '#5a2a10', '#ff8a6a', 1.5, 0.6, 'feather', 'flame', 'star', 'swirl', ['halo', 'aura', 'flowers']),
+    visual: vis('#ffcf5a', '#fff4d8', '#f06aa8', '#ffb04a', '#5a2a10', '#ff8a6a', 1.5, 0.6, 'feather', 'flame', 'star', 'none', ['halo', 'aura', 'flowers']),
   },
   {
     id: 'moonmunch', dex: 38, name: 'Moonmunch', category: 'Moon Hamster', types: ['MIND', 'DARKNESS'],

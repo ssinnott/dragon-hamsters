@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragon Hamsters - mission screens</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #1b1426; color: #e8dcc8; font: 13px/1.4 monospace; }
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  canvas#stage { display: block; margin-top: 8px; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; cursor: pointer; }
+  #caption { margin: 6px 0 2px; font-weight: bold; }
+  #help { opacity: 0.6; margin-bottom: 8px; }
+  #errors { position: fixed; left: 0; top: 0; max-width: 100%; margin: 0; padding: 6px 8px; box-sizing: border-box;
+            background: rgba(120, 0, 0, .9); color: #fff; white-space: pre-wrap; z-index: 10; display: none; }
+</style>
+</head>
+<body>
+<canvas id="stage" width="640" height="360" tabindex="0"></canvas>
+<pre id="errors"></pre>
+<script>
+  (function () {
+    var box = document.getElementById('errors');
+    window.__galleryErrors = [];
+    function record(msg) { window.__galleryErrors.push(String(msg)); box.style.display = 'block'; box.textContent = window.__galleryErrors.slice(-8).join('\n'); }
+    window.addEventListener('error', function (e) { record((e.message || 'error') + (e.filename ? ' (' + e.filename.replace(/^.*\//, '') + ':' + e.lineno + ')' : '')); });
+    window.addEventListener('unhandledrejection', function (e) { var r = e.reason; record('unhandled rejection: ' + (r && r.message ? r.message : r)); });
+  })();
+</script>
+<script type="module" src="../src/dev/missionsHarness.ts"></script>
+</body>
+</html>

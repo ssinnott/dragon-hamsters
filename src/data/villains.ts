@@ -6,7 +6,10 @@
 //     templates (60/40 for a clear primary type, 50/50 otherwise), then each villain gets a small
 //     personal tilt of +-0.1 to 0.15 on one or two stats (portly bosses are slow, thieves are fast).
 //   - BST by role and org order 1..5: minions about 290 / 325 / 360 / 395 / 430, lieutenants
-//     420 / 445 / 470 / 495 / 520, bosses 500 / 525 / 550 / 575 / 600.
+//     380 / 400 / 430 / 495 / 520, bosses 450 / 465 / 475 / 575 / 600. The lieutenant and boss
+//     numbers were tuned by simulating boss encounters with the real battle engine: a boss fights at
+//     +3 levels with x1.5 HP, and the player's dragons are still first stages until about level 16
+//     and middle stages until 32, so the first three bosses sit lower than the last two.
 //   - baseXp: minions 55-65 rising by about 20 per org to 135-145; lieutenants 150-200; bosses
 //     220-300. Coins rise the same way.
 //   - Learnsets: an enemy of level L knows the last four entries at or below L, so every learnset
@@ -15,7 +18,9 @@
 //     shows one move of each role. Weak moves come first; the 85-90 power moves arrive inside the
 //     org's own level band (cheese 4-17, crows 12-25, snakes 19-32, cats 26-39, ferrets 33-48).
 //   - Lieutenants and bosses always carry a coverage move that hits one of their own weaknesses
-//     super effectively, so the obvious counter is never a free win.
+//     super effectively, so the obvious counter is never a free win. The one exception is The Big
+//     Cheese in the very first showdown (level 8-9): there the starters' FIRE and WATER really are
+//     the answer, and his mud and garnish only arrive from mission 2.
 import type {
   Animal, MoveId, OrgDef, OrgId, Outfit, Stats, VillainDef, VillainId, VillainProp, VillainVisual,
 } from './schema.ts';
@@ -129,13 +134,15 @@ const LIST: VillainDef[] = [
   // ==== THE BIG CHEESE'S CREW (org 1: FLUFF / COOKING / EARTH) ================================
   {
     id: 'big-cheese', name: 'The Big Cheese', org: 'cheese', role: 'boss', types: ['COOKING', 'FLUFF'],
-    // COOKING 60 / FLUFF 40 at 500, tilted portly: +HP, -speed.
-    baseStats: stats(115, 72, 76, 78, 94, 65), ability: 'snack-stash',
-    // Weak to FIRE, WATER, WINGED, SLIME, BRAWL: mud flung at FIRE, parsley garnish at WATER.
+    // COOKING 60 / FLUFF 40 at 450, tilted portly: +HP, -speed.
+    baseStats: stats(104, 65, 68, 71, 84, 58), ability: 'second-helping',
+    // Weak to FIRE, WATER, WINGED, SLIME, BRAWL. His coverage starts at mission 2 (level 10): mud flung
+    // at FIRE, later parsley garnish (LEAF) at WATER. In the very first showdown (level 8) he only
+    // knows kitchen moves, so a FIRE or WATER starter really is the answer: the tutorial boss.
     learnset: learn(
-      [1, 'whisk-whack'], [1, 'mud-pie'], [1, 'squeak'], [1, 'petal-puff'],
-      [13, 'rolling-pin'], [20, 'mudslide'], [26, 'secret-sauce'], [32, 'sap-sip'],
-      [40, 'boiling-broth'], [47, 'kitchen-sink'],
+      [1, 'whisk-whack'], [1, 'pepper-puff'], [1, 'squeak'], [1, 'cheek-stuff'],
+      [10, 'mud-pie'], [12, 'seed-spit'], [14, 'rolling-pin'], [17, 'secret-sauce'],
+      [30, 'sap-sip'], [40, 'boiling-broth'],
     ),
     baseXp: 220, coins: 60,
     taunt: "Say cheese, agent! This omelette isn't going to cook itself.",
@@ -147,13 +154,14 @@ const LIST: VillainDef[] = [
   },
   {
     id: 'vinnie-grater', name: 'Vinnie Grater', org: 'cheese', role: 'lieutenant', types: ['EARTH', 'FLUFF'],
-    // EARTH 60 / FLUFF 40 at 420, tilted towards ATTACK.
-    baseStats: stats(83, 92, 74, 45, 67, 59), ability: 'puffball-coat',
-    // Weak to WATER, LEAF, FROST, COOKING, BRAWL: chews live wires for WATER, grates LEAF and FROST.
+    // EARTH 60 / FLUFF 40 at 380, tilted towards ATTACK.
+    baseStats: stats(75, 84, 67, 41, 60, 53), ability: 'dirt-snacker',
+    // Weak to WATER, LEAF, FROST, COOKING, BRAWL: he grates LEAF and FROST with his trusty grater
+    // (COOKING), and from mission 2 he also chews live wires (LIGHTNING) to zap WATER.
     learnset: learn(
-      [1, 'burrow-bump'], [1, 'fizz-nip'], [1, 'cheek-stuff'], [1, 'whisk-whack'],
-      [11, 'shovel-swipe'], [18, 'bolt-bonk'], [25, 'hammy-hoedown'], [33, 'rolling-pin'],
-      [41, 'tunnel-quake'], [48, 'wild-wheel'],
+      [1, 'nibble'], [1, 'whisk-whack'], [1, 'cheek-stuff'], [1, 'burrow-bump'],
+      [8, 'fizz-nip'], [11, 'shovel-swipe'], [14, 'dust-cloud'], [20, 'rolling-pin'],
+      [28, 'bolt-bonk'], [42, 'tunnel-quake'],
     ),
     baseXp: 150, coins: 30,
     taunt: "The boss says you're a problem. I solve problems. With a grater.",
@@ -231,13 +239,13 @@ const LIST: VillainDef[] = [
   // ==== CAW-SA NOSTRA (org 2: WINGED / DARKNESS / LIGHT) ======================================
   {
     id: 'godfeather', name: 'The Godfeather', org: 'crows', role: 'boss', types: ['DARKNESS', 'WINGED'],
-    // DARKNESS 60 / WINGED 40 at 525; an old bird: a little bulkier, a little slower.
-    baseStats: stats(92, 109, 81, 81, 74, 88), ability: 'spooky-glare',
+    // DARKNESS 60 / WINGED 40 at 465; an old bird: a little bulkier and slower, a softer peck.
+    baseStats: stats(81, 89, 72, 71, 74, 78), ability: 'spooky-glare',
     // Weak to FLUFF, LIGHT, LIGHTNING, ROCK, FROST: rivets and anvils for ROCK and FROST.
     learnset: learn(
-      [1, 'night-nibble'], [1, 'rivet-rap'], [1, 'sneaky-scheme'], [1, 'wing-slap'],
-      [18, 'dusk-crunch'], [21, 'anvil-drop'], [23, 'stink-eye'], [25, 'loop-de-loop'],
-      [36, 'comet-dive'], [45, 'crag-crash'],
+      [1, 'night-nibble'], [1, 'rivet-rap'], [1, 'fluster-flap'], [1, 'wing-slap'],
+      [20, 'dusk-crunch'], [22, 'anvil-drop'], [26, 'sneaky-scheme'], [30, 'loop-de-loop'],
+      [38, 'comet-dive'], [45, 'crag-crash'],
     ),
     baseXp: 240, coins: 80,
     taunt: 'Caw me old-fashioned, but I like my agents plucked.',
@@ -245,12 +253,12 @@ const LIST: VillainDef[] = [
     description:
       'The silver-beaked boss of Caw-sa Nostra, a big old crow in a dark suit and fedora who speaks so softly that everyone has to lean in. ' +
       'His nest is lined with stolen keys, spoons and lost earrings. He has never paid for a breadcrumb in his life.',
-    visual: look('crow', '#2b2838', '#5a5470', '#c4cad8', '#e0a020', 'suit', '#45404f', 'fedora', 1.5),
+    visual: look('crow', '#353148', '#625b7c', '#c4cad8', '#e0a020', 'suit', '#5a5468', 'fedora', 1.5),
   },
   {
     id: 'duchess-dazzle', name: 'Duchess Dazzle', org: 'crows', role: 'lieutenant', types: ['LIGHT', 'WINGED'],
-    // LIGHT 60 / WINGED 40 at 445, tilted towards SP. ATK.
-    baseStats: stats(70, 59, 70, 89, 83, 74), ability: 'glitterize',
+    // LIGHT 60 / WINGED 40 at 400, tilted towards SP. ATK.
+    baseStats: stats(63, 52, 63, 80, 75, 67), ability: 'glitterize',
     // Weak to DARKNESS, METAL, LIGHTNING, ROCK, FROST: polished chrome for ROCK and FROST.
     learnset: learn(
       [1, 'glimmer'], [1, 'magnet-hum'], [1, 'dizzy-sparkle'], [1, 'breezy-puff'],
@@ -294,7 +302,7 @@ const LIST: VillainDef[] = [
     description:
       'A crow safecracker who never goes anywhere without its trusty crowbar. ' +
       'It has opened bank vaults, treasure chests and, once, by accident, a tin of sardines. It still smells.',
-    visual: look('crow', '#2e2b3c', '#4e4964', '#d04040', '#e0a020', 'bandana', '#d04040', 'eyepatch', 1.0),
+    visual: look('crow', '#363246', '#58516e', '#d04040', '#e0a020', 'bandana', '#d04040', 'eyepatch', 1.0),
   },
   {
     id: 'disco-pigeon', name: 'Disco Pigeon', org: 'crows', role: 'minion', types: ['LIGHT'],
@@ -305,7 +313,7 @@ const LIST: VillainDef[] = [
       [43, 'rainbow-ray'],
     ),
     baseXp: 78, coins: 12,
-    taunt: 'Let me hear you coo! It is time to boogie!',
+    taunt: "Let me hear you coo! It's time to boogie!",
     defeat: 'The music... stopped... coo...',
     description:
       'A pigeon with shimmering neck feathers, mirrored sunglasses and the dance moves to match. ' +
@@ -322,7 +330,7 @@ const LIST: VillainDef[] = [
       [42, 'stink-eye'],
     ),
     baseXp: 85, coins: 14,
-    taunt: 'Black, white and sneaky all over. Guess which side I am on!',
+    taunt: "Black, white and sneaky all over. Guess which side I'm on!",
     defeat: 'Even my good side is bruised now!',
     description:
       'Half shadow and half sparkle, this magpie never quite decides whether it is good or bad, so it says sorry while it steals. ' +
@@ -333,12 +341,12 @@ const LIST: VillainDef[] = [
   // ==== THE SSSYNDICATE (org 3: SLIME / MIND / LEAF) ==========================================
   {
     id: 'baron-von-hiss', name: 'Baron Von Hiss', org: 'snakes', role: 'boss', types: ['MIND', 'SLIME'],
-    // MIND 60 / SLIME 40 at 550, tilted towards SP. ATK.
-    baseStats: stats(94, 67, 86, 119, 107, 77), ability: 'looming-aura',
+    // MIND 60 / SLIME 40 at 475, tilted towards SP. ATK.
+    baseStats: stats(82, 58, 74, 102, 93, 66), ability: 'looming-aura',
     // Weak to FLUFF, DARKNESS, EARTH, WINGED: frosty hypnosis for EARTH and WINGED, then sunbeams.
     learnset: learn(
       [1, 'thought-bubble'], [1, 'flurry-puff'], [1, 'brain-fog'], [1, 'slime-spit'],
-      [20, 'brainwave'], [24, 'polar-beam'], [26, 'counting-sheep'], [29, 'gloop-geyser'],
+      [20, 'brainwave'], [24, 'polar-beam'], [29, 'counting-sheep'], [30, 'gloop-geyser'],
       [36, 'sunbeam'], [44, 'brain-freeze'],
     ),
     baseXp: 260, coins: 100,
@@ -351,8 +359,8 @@ const LIST: VillainDef[] = [
   },
   {
     id: 'captain-croak', name: 'Captain Croak', org: 'snakes', role: 'lieutenant', types: ['SLIME', 'LEAF'],
-    // SLIME 60 / LEAF 40 at 470, tilted towards ATTACK.
-    baseStats: stats(84, 85, 80, 71, 91, 59), ability: 'tacky-coat',
+    // SLIME 60 / LEAF 40 at 430, tilted towards ATTACK.
+    baseStats: stats(77, 78, 73, 65, 83, 54), ability: 'tacky-coat',
     // Weak to WINGED, MIND, FIRE, FROST, COOKING: a cannonball for FIRE and COOKING, crags for WINGED.
     learnset: learn(
       [1, 'gooey-glomp'], [1, 'puddle-pounce'], [1, 'leech-lick'], [1, 'vine-flick'],
@@ -445,7 +453,7 @@ const LIST: VillainDef[] = [
       [42, 'thorn-swipe'], [49, 'all-out-brawl'],
     ),
     baseXp: 280, coins: 120,
-    taunt: 'You got guts, coming into my alley. Let us see if you got nine lives.',
+    taunt: "You got guts, coming into my alley. Let's see if you got nine lives.",
     defeat: 'Bah! I still got eight lives left! Scatter, cats!',
     description:
       'The fattest cat in town, who wears a crown, a velvet cape and nine gold medals he awarded himself. ' +
@@ -479,7 +487,7 @@ const LIST: VillainDef[] = [
       [41, 'all-out-brawl'], [48, 'hammy-hoedown'],
     ),
     baseXp: 118, coins: 20,
-    taunt: 'You wanna go? You wanna GO? Let us go!',
+    taunt: "You wanna go? You wanna GO? Let's go!",
     defeat: "That's it. I'm taking a nap. A long one.",
     description:
       'A scruffy alley cat who picks fights with bins, brooms and its own tail. ' +
@@ -509,7 +517,7 @@ const LIST: VillainDef[] = [
       [24, 'bonfire-burp'], [29, 'chi-blast'], [33, 'overtoast'], [40, 'sneaky-scheme'],
     ),
     baseXp: 120, coins: 20,
-    taunt: 'Hot, hot, HOT! Ow! Ow! Hot! Let us fight!',
+    taunt: "Hot, hot, HOT! Ow! Ow! Hot! Let's fight!",
     defeat: 'Finally! Somewhere cool to lie down!',
     description:
       'A jumpy ginger tom who spent so long dancing on hot tin roofs that his fur started to smoulder. ' +
@@ -531,7 +539,7 @@ const LIST: VillainDef[] = [
     description:
       'A soot-black cat burglar in a sweep\'s top hat who slips in and out of houses through the chimney. ' +
       'Its fur is full of glowing embers and brick dust, so it leaves a little cloud wherever it goes. It has never once wiped its paws.',
-    visual: look('cat', '#2a2630', '#5a5260', '#e86a2a', '#f2c335', 'suit', '#3a3440', 'tophat', 1.0),
+    visual: look('cat', '#34303c', '#625a6a', '#e86a2a', '#f2c335', 'suit', '#4a4252', 'tophat', 1.0),
   },
 
   // ==== F.E.R.R.E.T. (org 5: METAL / LIGHTNING / FROST / WATER) ===============================
