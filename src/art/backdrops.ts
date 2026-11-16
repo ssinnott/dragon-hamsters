@@ -763,7 +763,7 @@ function docksFront(c: Ctx, p: Pal): void {
   // stacked crates and barrels frame the scene
   crate(c, -4, 168, 58, 52, mix('#a8783e', wood, 0.35), 'FISH');
   crate(c, 50, 188, 44, 34, mix('#9a6a38', wood, 0.35), '');
-  crate(c, 4, 124, 44, 44, mix('#b4864a', wood, 0.35), 'DHA?');
+  crate(c, 4, 124, 44, 44, mix('#b4864a', wood, 0.35), 'CHEESE');
   barrel(c, 576, 150, 26, 36, mix('#8a5a34', wood, 0.3));
   barrel(c, 604, 156, 26, 36, mix('#7e5230', wood, 0.3));
   ellipse(c, 600, 196, 30, 4, rgba('#000000', 0.25));
@@ -1030,9 +1030,6 @@ function zooFront(c: Ctx, p: Pal): void {
     c.strokeStyle = rgba(INK, 0.6); c.lineWidth = 1; c.stroke();
   }
   rect(c, bx - 4, bTop, bw + 14, 5, shade(mix('#e04848', p.accent, 0.3), 0.7));
-  // a bench with a lost balloon string by the path
-  rect(c, 208, 150, 46, 4, col.wood); rect(c, 208, 144, 46, 3, col.wood);
-  rect(c, 212, 154, 3, 8, woodD); rect(c, 248, 154, 3, 8, woodD);
 }
 
 function balloon(c: Ctx, x: number, y: number, r: number, color: string, sx: number, sy: number): void {
@@ -1173,11 +1170,11 @@ function towerFront(c: Ctx, p: Pal): void {
   // helipad ring and H, worn paint in perspective
   const pad = mix(p.accent, '#ffd24a', 0.4);
   c.save();
-  c.translate(330, 205); c.scale(1, 0.24);
-  c.strokeStyle = rgba(pad, 0.55); c.lineWidth = 7;
-  c.beginPath(); c.arc(0, 0, 86, 0, TAU); c.stroke();
+  c.translate(330, 206); c.scale(1, 0.34);
+  c.strokeStyle = rgba(pad, 0.55); c.lineWidth = 6;
+  c.beginPath(); c.arc(0, 0, 80, 0, TAU); c.stroke();
   c.fillStyle = rgba('#f4f0e8', 0.45);
-  c.fillRect(-30, -42, 14, 84); c.fillRect(16, -42, 14, 84); c.fillRect(-16, -7, 32, 14);
+  c.fillRect(-30, -42, 13, 84); c.fillRect(17, -42, 13, 84); c.fillRect(-17, -8, 34, 16);
   c.restore();
   c.fillStyle = vg(c, HY, H, [0, rgba(col.horizon, 0.2)], [0.3, rgba(col.horizon, 0)], [1, rgba(INK, 0.35)]);
   c.fillRect(0, HY, W, H - HY);
@@ -1748,7 +1745,7 @@ function burrowStatic(c: Ctx): void {
   rect(c, 14, 41, 612, 2, B.woodL);
   for (let x = 30; x < 620; x += 60) { circle(c, x, 45.5, 1.5, B.woodD); }
   // a portrait of Chief Nibbles above the snack bar
-  const px = 72, py = 76;
+  const px = 72, py = 92;
   rrect(c, px - 20, py - 20, 40, 34, 2, '#c9a24a', '#6e4a1e', 1);
   rect(c, px - 16, py - 16, 32, 26, '#3a5a6a');
   ellipse(c, px, py + 6, 11, 8, '#8a8a92', INK, 1);
@@ -1761,7 +1758,7 @@ function burrowStatic(c: Ctx): void {
   circle(c, px, py + 2, 1.2, '#ff8a9a');
   rect(c, px - 12, py + 11, 24, 3, '#c9a24a');
   // a treasure map pinned above the tunnels
-  const mx = 448, my = 66;
+  const mx = 418, my = 86;
   poly(c, [mx - 24, my - 16, mx + 22, my - 18, mx + 25, my + 18, mx - 22, my + 20], '#ecd9a8', '#8a6a3a', 1);
   c.strokeStyle = '#a07a4a'; c.lineWidth = 1; c.setLineDash([2, 2]);
   c.beginPath(); c.moveTo(mx - 16, my + 10); c.quadraticCurveTo(mx - 4, my - 12, mx + 10, my + 4); c.stroke();
@@ -1778,8 +1775,9 @@ function burrowStatic(c: Ctx): void {
   line(c, 591, 100, 591, 88, '#4a8a3a', 2);
   ellipse(c, 586, 89, 5, 2.5, '#6ac04a'); ellipse(c, 596, 86, 5, 2.5, '#6ac04a');
   // DHA pennant
-  poly(c, [560, 58, 612, 62, 560, 72], '#3a6ab8', '#1e3a6e', 1);
-  drawText(c, 'DHA', 576, 62, { size: 1, color: '#ffe9a0', align: 'center', shadow: false });
+  line(c, 558, 70, 558, 92, '#6e4a1e', 2);
+  poly(c, [560, 72, 612, 77, 560, 86], '#3a6ab8', '#1e3a6e', 1);
+  drawText(c, 'DHA', 576, 76, { size: 1, color: '#ffe9a0', align: 'center', shadow: false });
   // mushrooms at the foot of the posts (their glow pulses in the animated pass)
   for (const x of [POSTS[0] + 10, POSTS[2] - 12, POSTS[3] + 10]) {
     for (const [dx, h, r] of [[0, 7, 4], [6, 5, 3]] as const) {
@@ -1830,7 +1828,7 @@ function burrowAnim(c: Ctx, t: number): void {
   for (let i = 0; i < anchors.length - 1; i++) {
     const x0 = anchors[i], x1 = anchors[i + 1];
     if (x0 === 255) continue; // leave the window clear
-    const sag = 16 + Math.sin(t * 0.9 + i) * 1.5;
+    const sag = 9 + Math.sin(t * 0.9 + i) * 1.2;
     c.strokeStyle = '#e8d8b0'; c.lineWidth = 1;
     c.beginPath(); c.moveTo(x0, 52); c.quadraticCurveTo((x0 + x1) / 2, 52 + sag * 2, x1, 52); c.stroke();
     const count = Math.floor((x1 - x0) / 16);
@@ -1891,16 +1889,21 @@ function stationFeed(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   rect(c, b.x + 6, sy, b.w - 12, 5, B.wood); rect(c, b.x + 6, sy, b.w - 12, 1, B.woodL);
   poly(c, [b.x + 14, sy + 5, b.x + 18, sy + 11, b.x + 22, sy + 5], B.woodD);
   poly(c, [b.x + b.w - 22, sy + 5, b.x + b.w - 18, sy + 11, b.x + b.w - 14, sy + 5], B.woodD);
-  jar(c, b.x + 12, sy - 26, 22, 26, '#d84a4a', (jx, jy) => {
+  jar(c, b.x + 10, sy - 26, 22, 26, '#d84a4a', (jx, jy) => {
     rect(c, jx - 12, jy + 8, 24, 20, '#e8d4a0');
     for (let i = 0; i < 10; i++) ellipse(c, jx - 8 + (i % 4) * 5, jy + 11 + Math.floor(i / 4) * 5, 1.6, 2.4, i % 2 ? '#3a2a1e' : '#f4ecd8');
   });
-  jar(c, b.x + 40, sy - 30, 24, 30, '#4a8ad8', (jx, jy) => {
+  jar(c, b.x + 37, sy - 30, 24, 30, '#4a8ad8', (jx, jy) => {
     for (let i = 0; i < 14; i++) circle(c, jx - 9 + (i % 4) * 6, jy + 12 + Math.floor(i / 4) * 5, 2.6, i % 3 ? '#4a5ad0' : '#6a7ae8');
   });
-  jar(c, b.x + 70, sy - 24, 22, 24, '#6ac04a', (jx, jy) => {
+  jar(c, b.x + 66, sy - 24, 20, 24, '#6ac04a', (jx, jy) => {
     for (let i = 0; i < 4; i++) poly(c, [jx - 8 + i * 5, jy + 26, jx - 6 + i * 5, jy + 8, jx - 4 + i * 5, jy + 26], '#ff8a2a', '#c05a1a', 0.5);
   });
+  // a dragonfruit, the fanciest snack in the burrow
+  const dfx = b.x + 95, dfy = sy - 8;
+  for (const [dx, dy] of [[-6, -4], [6, -4], [-4, -9], [4, -9], [0, -11]] as const) poly(c, [dfx + dx * 0.6, dfy + dy * 0.4, dfx + dx, dfy + dy, dfx + dx * 0.3, dfy + dy * 0.8], '#6ac04a');
+  ellipse(c, dfx, dfy, 7, 8, '#ff4a8a', '#a02a5a', 1);
+  ellipse(c, dfx - 2, dfy - 3, 2, 2.5, rgba('#ffffff', 0.5));
   // trough full of seeds on little legs
   const ty = base - 30;
   rect(c, b.x + 14, ty + 14, 4, 16, B.woodD); rect(c, b.x + b.w - 18, ty + 14, 4, 16, B.woodD);
@@ -1915,10 +1918,9 @@ function stationFeed(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   poly(c, [cx + 18, ty - 2, cx + 30, ty - 16, cx + 23, ty], '#ff8a2a', '#c05a1a', 0.5);
   line(c, cx + 30, ty - 16, cx + 33, ty - 22, '#4a9a3a', 2); line(c, cx + 30, ty - 16, cx + 35, ty - 18, '#4a9a3a', 2);
   circle(c, cx - 22, ty - 3, 3, '#4a5ad0'); circle(c, cx - 17, ty - 4, 3, '#5a6ae0'); circle(c, cx - 20, ty - 7, 3, '#4a5ad0');
-  // a chalkboard menu
-  rrect(c, b.x + 6, b.y + 20, 26, 20, 1, '#2e3a32', B.woodD, 1);
-  drawText(c, 'YUM', b.x + 19, b.y + 23, { size: 1, color: '#e8e8d8', align: 'center', shadow: false });
-  drawText(c, '♥', b.x + 19, b.y + 31, { size: 1, color: '#ff8a9a', align: 'center', shadow: false });
+  // a cheese cube on the end of the trough
+  poly(c, [b.x + 16, ty - 1, b.x + 28, ty - 1, b.x + 28, ty - 9, b.x + 20, ty - 12, b.x + 16, ty - 9], '#ffd24a', '#b88a1a', 1);
+  circle(c, b.x + 20, ty - 5, 1.3, '#d8a82a'); circle(c, b.x + 25, ty - 7, 1, '#d8a82a');
   stationSign(c, cx, b.y + 4, ACTIVITIES.feed.name);
   if (busy) {
     for (let i = 0; i < 5; i++) {
@@ -2200,16 +2202,17 @@ function titleSky(c: Ctx): void {
     c.fillStyle = rgba('#ffffff', 0.15 + rnd(i, 303) * 0.25);
     c.fillRect(Math.round(x), Math.round(y), 1, 1);
   }
-  // crescent moon
-  glow(c, 572, 54, 60, '#fff2c0', 0.18);
+  // crescent moon (the bite is sky, then the halo lights both alike)
   circle(c, 572, 54, 19, '#fff4cc');
   c.fillStyle = titleSkyGradient(c);
   c.beginPath(); c.arc(581, 48, 17, 0, TAU); c.fill();
-  // low clouds along the horizon
-  for (let i = 0; i < 5; i++) {
-    const x = 40 + i * 140, y = 196 + (i % 2) * 8;
-    capsule(c, x, y, x + 80, y, 5, rgba('#6a4a8a', 0.5));
-    capsule(c, x + 10, y - 3, x + 60, y - 3, 2, rgba('#b88ab8', 0.35));
+  glow(c, 572, 54, 64, '#fff2c0', 0.16);
+  // soft clouds low on the horizon
+  for (let i = 0; i < 6; i++) {
+    const x = 40 + i * 118 + rnd(i, 341) * 30, y = 196 + (i % 2) * 9;
+    cloud(c, x, y, 64 + rnd(i, 342) * 34, '#54417c', '#47366c');
+    c.fillStyle = rgba('#b08ac0', 0.35);
+    c.beginPath(); c.ellipse(x - 6, y - 8, 14, 2, 0, 0, TAU); c.fill();
   }
 }
 
@@ -2386,12 +2389,12 @@ function mapStatic(c: Ctx, loc: LocationDef, p: Pal): void {
   c.strokeRect(10.5, 10.5, W - 21, H - 21);
   for (let x = 20; x < W - 10; x += 20) { c.beginPath(); c.moveTo(x + 0.5, 6); c.lineTo(x + 0.5, x % 100 === 0 ? 14 : 10); c.moveTo(x + 0.5, H - 6); c.lineTo(x + 0.5, x % 100 === 0 ? H - 14 : H - 10); c.stroke(); }
   // compass rose
-  const cx = 604, cy = 44;
+  const cx = 606, cy = 36;
   c.strokeStyle = m.faint; c.lineWidth = 1;
-  c.beginPath(); c.arc(cx, cy, 16, 0, TAU); c.stroke();
-  poly(c, [cx, cy - 22, cx + 4, cy, cx, cy + 4, cx - 4, cy], m.ink);
-  poly(c, [cx, cy + 22, cx + 4, cy, cx, cy - 4, cx - 4, cy], m.faint);
-  drawText(c, 'N', cx, cy - 34, { size: 1, color: m.ink, align: 'center', shadow: false });
+  c.beginPath(); c.arc(cx, cy, 11, 0, TAU); c.stroke();
+  poly(c, [cx, cy - 17, cx + 3.5, cy, cx, cy + 3, cx - 3.5, cy], m.accent);
+  poly(c, [cx, cy + 17, cx + 3.5, cy, cx, cy - 3, cx - 3.5, cy], m.faint);
+  drawText(c, 'N', cx - 18, cy - 17, { size: 1, color: m.ink, align: 'center', shadow: false });
   // stamp
   c.save(); c.translate(70, 330); c.rotate(-0.12);
   rrect(c, -50, -10, 100, 18, 2, null, rgba('#ff6a6a', 0.55), 1);
@@ -2476,7 +2479,7 @@ function mapDocks(c: Ctx, m: MapInk): void {
   room(c, m, 300, 30, 120, 70); hatch(c, m, 300, 30, 120, 70, 10);
   room(c, m, 450, 40, 80, 50);
   // cranes as X-marks on rails
-  for (const x of [200, 380]) { c.strokeStyle = m.ink; c.lineWidth = 1.5; c.strokeRect(x - 10, 112, 20, 20); c.beginPath(); c.moveTo(x - 10, 112); c.lineTo(x + 10, 132); c.moveTo(x + 10, 112); c.lineTo(x - 10, 132); c.stroke(); }
+  for (const x of [240, 460]) { c.strokeStyle = m.ink; c.lineWidth = 1.5; c.strokeRect(x - 10, 112, 20, 20); c.beginPath(); c.moveTo(x - 10, 112); c.lineTo(x + 10, 132); c.moveTo(x + 10, 112); c.lineTo(x - 10, 132); c.stroke(); }
   // ships moored at the piers
   for (const [x, y] of [[140, 220], [310, 250], [480, 200]] as const) {
     c.beginPath(); c.moveTo(x - 24, y - 10); c.lineTo(x + 16, y - 10); c.quadraticCurveTo(x + 30, y, x + 16, y + 10); c.lineTo(x - 24, y + 10); c.closePath();
@@ -2485,10 +2488,10 @@ function mapDocks(c: Ctx, m: MapInk): void {
   // lighthouse
   c.beginPath(); c.arc(600, 300, 10, 0, TAU); c.strokeStyle = m.ink; c.stroke();
   c.beginPath(); c.arc(600, 300, 3, 0, TAU); c.fillStyle = m.accent; c.fill();
-  label(c, m, 'WAREHOUSE 7', 360, 108);
+  label(c, m, 'WAREHOUSE 7', 360, 105);
   label(c, m, 'CONTAINERS', 115, 80);
   label(c, m, 'HARBOUR', 360, 324);
-  label(c, m, 'PIER 3', 250, 288);
+  label(c, m, 'PIER 3', 250, 306);
 }
 
 function mapZoo(c: Ctx, m: MapInk): void {
@@ -2510,7 +2513,7 @@ function mapZoo(c: Ctx, m: MapInk): void {
   };
   encl([40, 40, 170, 30, 190, 120, 70, 140], 'LIONS', 115, 84);
   encl([230, 30, 400, 30, 410, 100, 240, 104], 'GIRAFFES', 320, 62);
-  encl([450, 40, 600, 50, 590, 150, 470, 140], 'PANDAS', 528, 92);
+  encl([450, 44, 576, 52, 568, 150, 470, 140], 'PANDAS', 516, 94);
   encl([240, 200, 420, 210, 400, 300, 260, 300], 'PENGUINS', 330, 260);
   // pond
   c.beginPath(); c.ellipse(330, 240, 40, 16, 0, 0, TAU); c.strokeStyle = m.faint; c.lineWidth = 1; c.stroke();
@@ -2592,5 +2595,5 @@ function mapAnim(c: Ctx, p: Pal, t: number): void {
   c.restore();
   // compass needle wobble glint
   const g = 0.5 + 0.5 * Math.sin(t * 2);
-  circle(c, 604, 44, 2, rgba(m.accent, 0.5 + 0.5 * g));
+  circle(c, 606, 36, 2, rgba('#ffffff', 0.3 + 0.5 * g));
 }

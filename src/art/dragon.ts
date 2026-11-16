@@ -13,7 +13,7 @@
 // particle helpers are exported for src/art/villain.ts, which shares them.
 
 import type { DragonVisual, DragonExtra } from '../data/schema.ts';
-import { shade, mix, rgba } from '../lib/art/palettes.ts';
+import { hexToRgb, shade, mix, rgba } from '../lib/art/palettes.ts';
 import { pathStar, pathGear, pathTaperedCapsule } from '../lib/art/shapes.ts';
 import { clamp, ease } from '../lib/engine/math.ts';
 
@@ -409,6 +409,11 @@ export function addLeaf(g: CanvasRenderingContext2D, x: number, y: number, a: nu
   g.closePath();
 }
 
+/** Perceived brightness of a hex colour, 0..1. */
+export function luma(hex: string): number {
+  const [r, g, b] = hexToRgb(hex);
+  return (r * 0.3 + g * 0.59 + b * 0.11) / 255;
+}
 /** Darker, slightly cooler tone (cel shadow). */
 export function dark(hex: string, f: number): string { return mix(shade(hex, f), '#2c2358', 0.14); }
 /** Lighter, slightly warmer tone (cel highlight). */
@@ -454,9 +459,9 @@ export function drawSweat(g: CanvasRenderingContext2D, x: number, y: number, r: 
 export function drawZzz(g: CanvasRenderingContext2D, x: number, y: number, u: number, t: number, facing: 1 | -1): void {
   for (let i = 0; i < 3; i++) {
     const k = (t * 0.45 + i / 3) % 1;
-    const zx = x + facing * (2 + k * 9) * u + Math.sin(k * 6 + i) * 1.2 * u;
-    const zy = y - (k * 16) * u;
-    const r = (1.8 + k * 2.2) * u;
+    const zx = x + facing * (2 + k * 10) * u + Math.sin(k * 6 + i) * 1.2 * u;
+    const zy = y - (k * 18) * u;
+    const r = (2.4 + k * 2.4) * u;
     const a = k < 0.15 ? k / 0.15 : 1 - Math.max(0, (k - 0.6) / 0.4);
     g.save();
     g.globalAlpha *= a;
@@ -514,7 +519,7 @@ interface DPal {
   belly: string; bellySh: string;
   accent: string; accentSh: string; accentHi: string; accentFar: string;
   wing: string; wingSh: string; wingHi: string; wingFar: string; wingFarSh: string;
-  eye: string; eyeLow: string; cheek: string; earIn: string; nose: string;
+  eye: string; eyeLow: string; eyeLight: boolean; cheek: string; earIn: string; nose: string;
   paw: string; pawSh: string;
 }
 
@@ -542,7 +547,7 @@ function dpal(v: DragonVisual): DPal {
     belly: v.belly, bellySh: dark(v.belly, 0.86),
     accent: v.accent, accentSh: dark(v.accent, 0.74), accentHi: light(v.accent, 0.4), accentFar: dark(v.accent, farK),
     wing: v.wing, wingSh: dark(v.wing, 0.78), wingHi: light(v.wing, 0.4), wingFar: dark(v.wing, farK), wingFarSh: dark(v.wing, farK * 0.8),
-    eye: v.eye, eyeLow: mix(v.eye, '#ffffff', 0.32), cheek: v.cheek,
+    eye: v.eye, eyeLow: mix(v.eye, '#ffffff', 0.32), eyeLight: luma(v.eye) > 0.55, cheek: v.cheek,
     earIn: mix(v.cheek, v.belly, 0.45), nose: mix(v.cheek, INK, 0.35),
     paw: mix(v.belly, v.cheek, 0.22), pawSh: dark(mix(v.belly, v.cheek, 0.22), 0.82),
   };
@@ -554,13 +559,13 @@ function dgeo(v: DragonVisual): DGeo {
   let G = geoCache.get(v);
   if (G) return G;
   const b = clamp(v.build, 0, 1), f = clamp((v.size - 0.7) / 0.8, 0, 1);
-  const brx = 12.6 + 2.6 * f + 4.6 * b;
-  const bry = 11.6 + 1.0 * f - 2.2 * b;
+  const brx = 12.6 + 2.6 * f + 4.0 * b;
+  const bry = 11.6 + 1.0 * f - 1.6 * b;
   const bx = -2 - 1.6 * b;
-  const by = -(bry + 1.3);
-  const hr = 11.3 - 1.3 * f;
-  const hx = bx + brx * 0.56 + 1.4 * b;
-  const hy = by - bry * 0.6 - hr * 0.48;
+  const by = -(bry + 1.3 + 0.9 * b);
+  const hr = 11.3 - 1.3 * f - 0.4 * b;
+  const hx = bx + brx * 0.56 + 1.6 * b;
+  const hy = by - bry * 0.6 - hr * 0.48 - 1.6 * b;
   const earR = hr * (0.36 - 0.04 * f);
   G = {
     b, f, bx, by, brx, bry, hx, hy, hr, earR,
@@ -1093,6 +1098,7 @@ function drawEye(g: CanvasRenderingContext2D, D: DC, ex: number, ey: number, rx:
   g.beginPath(); addEll(g, ex, ey, rx, ryy); g.clip();
   g.beginPath(); addEll(g, ex + rx * 0.1, ey + ryy * 0.62, rx * 0.8, ryy * 0.45);
   g.fillStyle = P.eyeLow; g.fill();
+  if (P.eyeLight) { g.beginPath(); addEll(g, ex + rx * 0.08, ey + ryy * 0.05, rx * 0.5, ryy * 0.6); g.fillStyle = INK; g.fill(); }
   if (fierce) {
     // Angled lid: lower toward the middle of the face.
     const d = near ? 1 : -1;

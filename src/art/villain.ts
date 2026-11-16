@@ -10,12 +10,12 @@
 // skull, face), head prop, near arm and held item, particles.
 
 import type { Animal, VillainVisual } from '../data/schema.ts';
-import { hexToRgb, mix, shade } from '../lib/art/palettes.ts';
+import { mix, shade } from '../lib/art/palettes.ts';
 import { pathTaperedCapsule, pathRoundedPoly } from '../lib/art/shapes.ts';
 import {
   INK, poseState, hash01, drawCreatureFrame, enterLocal, localToGround, outlinePx,
   addEll, addCirc, ink, strokeLine, addTaperQuad, addLeaf, dark, light,
-  drawTwinkle, drawSweat, drawZzz, drawDirt, drawSpiral, drawDizzyStars,
+  drawTwinkle, drawSweat, drawZzz, drawDirt, drawSpiral, drawDizzyStars, luma,
 } from './dragon.ts';
 import type { CreatureOpts, CreatureFrame, PoseState } from './dragon.ts';
 
@@ -164,14 +164,12 @@ const palCache = new WeakMap<VillainVisual, VPal>();
 
 /** Highlight tone that still reads on near-black fur and cloth. */
 function hiTone(hex: string, k: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  const lum = (r * 0.3 + g * 0.59 + b * 0.11) / 255;
+  const lum = luma(hex);
   return lum < 0.28 ? mix(hex, '#9a9ad0', 0.2 + (0.28 - lum) * 0.9) : light(hex, k);
 }
 /** Base tone for very dark colours: lifted a touch so the ink outline and shadow still separate from it. */
 function liftDark(hex: string): string {
-  const [r, g, b] = hexToRgb(hex);
-  const lum = (r * 0.3 + g * 0.59 + b * 0.11) / 255;
+  const lum = luma(hex);
   return lum < 0.17 ? mix(hex, '#6a6a90', (0.17 - lum) * 1.6) : hex;
 }
 

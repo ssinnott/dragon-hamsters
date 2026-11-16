@@ -1139,6 +1139,9 @@ export function createFx(): Fx {
         break;
       case 'plus': {
         const w = s * 0.42;
+        c.globalCompositeOperation = 'lighter';
+        c.fillStyle = rgba(col, 0.3);
+        c.beginPath(); c.arc(q.x, q.y, s * 1.6, 0, TAU); c.fill();
         c.globalCompositeOperation = 'source-over';
         c.fillStyle = INK;
         c.fillRect(q.x - s - 1, q.y - w / 2 - 1, s * 2 + 2, w + 2); c.fillRect(q.x - w / 2 - 1, q.y - s - 1, w + 2, s * 2 + 2);
