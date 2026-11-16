@@ -91,15 +91,15 @@ const RUMBLETUM_MOVES = extend(TUNNELTOT_MOVES, [22, 'belly-flop'], [37, 'sand-t
 
 // COOKING line: the healer and buffer; LEAF and EARTH coverage for what resists COOKING.
 const CRUMBKIN_MOVES = moves(
-  [1, 'whisk-whack'], [1, 'pepper-puff'], [5, 'squeak'], [9, 'snack-time'], [14, 'warm-milk'],
-  [19, 'sap-sip'], [25, 'secret-sauce'], [31, 'boiling-broth'], [38, 'comfort-soup'], [45, 'kitchen-sink'],
+  [1, 'whisk-whack'], [1, 'squeak'], [5, 'pepper-puff'], [9, 'snack-time'], [13, 'sap-sip'], [18, 'warm-milk'],
+  [23, 'mud-pie'], [29, 'boiling-broth'], [34, 'secret-sauce'], [39, 'comfort-soup'], [45, 'kitchen-sink'],
 );
-const GRANDMUFFIN_MOVES = extend(CRUMBKIN_MOVES, [24, 'rolling-pin'], [34, 'food-coma'], [41, 'mudslide']);
+const GRANDMUFFIN_MOVES = extend(CRUMBKIN_MOVES, [24, 'rolling-pin'], [42, 'mudslide']);
 
 // WINGED line: fast physical hit-and-run; the final catches fire.
 const FLITTERBIT_MOVES = moves(
   [1, 'scurry'], [1, 'wing-slap'], [6, 'fluster-flap'], [10, 'homing-swoop'], [14, 'preen'],
-  [19, 'swoop-swap'], [24, 'night-nibble'], [30, 'loop-de-loop'], [38, 'clear-skies'], [45, 'comet-dive'],
+  [19, 'swoop-swap'], [24, 'night-nibble'], [30, 'loop-de-loop'], [39, 'comet-dive'], [45, 'clear-skies'],
 );
 const SWOOPERNOVA_MOVES = extend(FLITTERBIT_MOVES, [18, 'kindle-dash'], [36, 'flare-dive']);
 
@@ -113,13 +113,13 @@ const GRIMSTER_MOVES = extend(SPOOKUMS_MOVES, [26, 'fluster-flap'], [44, 'loop-d
 // LIGHT single: special wall and healer; MIND coverage for the SLIME types that threaten it.
 const HAMICORN_MOVES = moves(
   [1, 'twinkle-tap'], [1, 'glimmer'], [6, 'dizzy-sparkle'], [11, 'stardust'], [16, 'warm-glow'],
-  [22, 'lullaby'], [28, 'glow-up'], [34, 'sunbeam'], [40, 'brainwave'], [46, 'rainbow-ray'],
+  [22, 'thought-bubble'], [28, 'glow-up'], [34, 'sunbeam'], [40, 'brainwave'], [46, 'rainbow-ray'],
 );
 
 // LIGHT/WINGED single: speedy special support with a LIGHTNING pivot.
 const GLIMMERWING_MOVES = moves(
   [1, 'wing-slap'], [1, 'glimmer'], [5, 'breezy-puff'], [10, 'stardust'], [15, 'fluster-flap'],
-  [21, 'preen'], [24, 'zip-zap'], [28, 'glow-up'], [33, 'sunbeam'], [39, 'tornado-twirl'], [45, 'clear-skies'],
+  [20, 'zip-zap'], [25, 'preen'], [30, 'sunbeam'], [35, 'glow-up'], [40, 'tornado-twirl'], [46, 'clear-skies'],
 );
 
 // SLIME line: sticky status wall (goop, seeding, hex); the final soaks up WATER.
@@ -129,10 +129,11 @@ const BLOBBIT_MOVES = moves(
 );
 const GOOLIATH_MOVES = extend(BLOBBIT_MOVES, [20, 'hot-spring'], [39, 'goo-hammer']);
 
-// MIND single: special sweeper; BRAWL coverage for the DARKNESS and METAL types MIND cannot dent.
+// MIND single: special sweeper; LIGHT and BRAWL coverage for the DARKNESS and METAL types MIND
+// cannot dent.
 const SMARTYPAWS_MOVES = moves(
-  [1, 'brain-bonk'], [1, 'thought-bubble'], [5, 'squeak'], [9, 'brain-fog'], [14, 'think-fast'],
-  [19, 'daydream'], [25, 'counting-sheep'], [31, 'deep-thought'], [36, 'brainwave'], [43, 'chi-blast'],
+  [1, 'brain-bonk'], [1, 'thought-bubble'], [6, 'brain-fog'], [11, 'think-fast'], [16, 'daydream'],
+  [21, 'stardust'], [26, 'counting-sheep'], [31, 'brainwave'], [36, 'deep-thought'], [42, 'chi-blast'],
 );
 
 // MIND/WATER single: slow, bulky special attacker with FROST coverage.
@@ -178,9 +179,9 @@ const GLACIATOR_MOVES = extend(BRRRITO_MOVES, [28, 'splash-n-dash'], [38, 'polar
 // Fossil line (ROCK/EARTH): slow physical wall with two strong STABs; big jaws for MIND and LIGHT.
 const TRICERATOT_MOVES = moves(
   [1, 'nibble'], [1, 'gravel-gnaw'], [5, 'burrow-bump'], [9, 'stonewall'], [13, 'pebble-pelt'],
-  [18, 'shovel-swipe'], [24, 'curl-up'], [33, 'crag-crash'], [41, 'tunnel-quake'],
+  [18, 'shovel-swipe'], [24, 'curl-up'], [33, 'crag-crash'], [37, 'dusk-crunch'], [41, 'tunnel-quake'],
 );
-const TRICERAMPAGE_MOVES = extend(TRICERATOT_MOVES, [30, 'boulder-bonk'], [37, 'dusk-crunch']);
+const TRICERAMPAGE_MOVES = extend(TRICERATOT_MOVES, [30, 'boulder-bonk'], [46, 'flex']);
 
 // Legendaries.
 const SUNSEEDRA_MOVES = moves(
@@ -575,7 +576,7 @@ export const SPECIES: SpeciesDef[] = [
     backstory: 'Mechamster rebuilt its plates into a full suit of armour with rocket-powered fists. It guards scrapyards at night and runs on engine oil and sunflower seeds, but mostly sunflower seeds. Inside all that steel is the same little Clanklet that loves polishing things.',
     fact: 'It can punch straight through a tin can, then it puts the can in the recycling.',
     height: '1.1 m', weight: '95.0 kg', favoriteFood: 'seeds', rarity: 'uncommon', baseXp: 245,
-    visual: vis('#8494a8', '#d8e0ea', '#c03040', '#b8c4d0', '#101820', '#f0a0a8', 1.38, 0.5, 'gear', 'antenna', 'club', 'scales', ['shell']),
+    visual: vis('#8494a8', '#d8e0ea', '#c03040', '#b8c4d0', '#101820', '#f0a0a8', 1.38, 0.5, 'gear', 'antenna', 'club', 'stripes', ['shell']),
   },
 
   // ---- 33-34: FROST line; the final takes to the sea (parallel: Spheal, Walrein) ------------------
