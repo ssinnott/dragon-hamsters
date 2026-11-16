@@ -105,7 +105,7 @@ function drawMissionTypeIcon(ctx: Ctx, type: MissionTypeId, cx: number, cy: numb
 }
 
 const TARGET_ROWS = ['..rrrrr..', '.rwwwwwr.', 'rwrrrrrwr', 'rwrwwwrwr', 'rwrwrwrwr', 'rwrwwwrwr', 'rwrrrrrwr', '.rwwwwwr.', '..rrrrr..'];
-const BOLT_ROWS = ['..yy', '.yy.', 'yyyy', '.yy.', 'yy..'];
+const BOLT_ROWS = ['..yyy', '.yyy.', '.yy..', 'yyyyy', '..yy.', '.yy..', '.y...'];
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
@@ -564,6 +564,12 @@ export function createBriefingScene(missionId: MissionId): Scene {
         gx += bw + 4;
       }
       cy += 20;
+      // who runs the show (no levels: only an INFILTRATE scouts those)
+      const boss = bossOf();
+      if (boss && cy + 9 < y + h - 28) {
+        drawPixelText(ctx, 'LOOK OUT FOR:', x + 10, cy, UI.textDim);
+        drawPixelText(ctx, boss.name.toUpperCase(), x + 10 + measureText('LOOK OUT FOR:') + 6, cy, '#a8282e');
+      }
     }
     // BRING:
     const by = y + h - 24;
@@ -577,6 +583,19 @@ export function createBriefingScene(missionId: MissionId): Scene {
       bx += bw + 3;
     }
     if (!counters.length) drawPixelText(ctx, 'ANYONE BRAVE!', bx, by + 3, UI.textDim);
+  }
+
+  function bossOf(): ReturnType<typeof getVillain> | null {
+    const walk = (nodes: readonly MissionNode[]): string | null => {
+      for (const n of nodes) {
+        if (n.kind === 'boss') return n.encounter.enemies[n.encounter.enemies.length - 1]?.villain ?? null;
+        if (n.kind === 'branch') for (const o of n.options) { const b = walk(o.nodes); if (b) return b; }
+      }
+      return null;
+    };
+    const id = walk(def.nodes);
+    if (!id) return null;
+    try { return getVillain(id); } catch { return null; }
   }
 
   function badgeW(t: TypeId, small: boolean): number {
@@ -603,7 +622,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
       } else {
         drawText(ctx, '?', pr.x + pr.w / 2, pr.y + 11, { color: '#c4ab80', shadow: false, align: 'center' });
       }
-      drawOrderTag(ctx, i + 1, pr.x + 4, pr.y + 4, !!d, 0);
+      drawOrderTag(ctx, i + 1, pr.x + 5, pr.y + 5, !!d, 0);
     }
     // hint / status text
     const hx = padRect(2).x + 38, hw = r.x + r.w - 8 - hx;
@@ -622,10 +641,19 @@ export function createBriefingScene(missionId: MissionId): Scene {
   }
 
   function drawOrderTag(ctx: Ctx, n: number, cx: number, cy: number, filled: boolean, pop: number): void {
-    const r = 5 + pop;
-    fillRoundRect(ctx, cx - r, cy - r, r * 2 + 1, r * 2 + 1, Math.min(5, r), INK);
-    fillRoundRect(ctx, cx - r + 1, cy - r + 1, r * 2 - 1, r * 2 - 1, Math.min(4, r - 1), filled ? UI.accent : '#cdb48a');
-    drawText(ctx, String(n), cx - 2, cy - 3, { color: filled ? '#ffffff' : '#8f7656', shadow: false });
+    const r = 6 + pop;
+    disc(ctx, cx, cy, r, INK);
+    disc(ctx, cx, cy, r - 1, filled ? tint(UI.accent, -0.2) : '#b89c70');
+    disc(ctx, cx, cy - 1, r - 2, filled ? UI.accent : '#cdb48a');
+    drawText(ctx, String(n), cx - 2, cy - 3, { color: filled ? '#ffffff' : '#8f7656', shadow: filled, shadowColor: tint(UI.accent, -0.5) });
+  }
+
+  function disc(ctx: Ctx, cx: number, cy: number, r: number, color: string): void {
+    ctx.fillStyle = color;
+    for (let dy = -r; dy <= r; dy++) {
+      const hw = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8));
+      ctx.fillRect(cx - hw, cy + dy, hw * 2 + 1, 1);
+    }
   }
 
   function drawRow(ctx: Ctx, d: OwnedDragon, r: Rect, selected: boolean, hovered: boolean): void {
@@ -671,7 +699,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
     const max = dragonStats(d).hp;
     const ex = x + r.w - 44;
     drawHpBar(ctx, ex - 58, row.y + 16, 54, d.hp, max);
-    blitSprite(ctx, pixelSprite('bolt', BOLT_ROWS, { y: '#ffd84a' }), ex + 3, row.y + 20);
+    blitSprite(ctx, pixelSprite('bolt', BOLT_ROWS, { y: '#ffd84a' }), ex + 2, row.y + 20);
     const en = Math.max(0, Math.min(100, d.needs.energy)) / 100;
     drawBar(ctx, ex + 8, row.y + 17, 34, 7, en, d.needs.energy < MISSION_ENERGY ? UI.hpRed : '#f6d04a');
   }

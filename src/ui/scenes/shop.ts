@@ -31,7 +31,7 @@ interface Entry { id: ShopId; price: number }
 const SHOPKEEPER: DragonVisual = {
   body: '#f2c48a', belly: '#fff1dc', accent: '#e8734a', wing: '#ffd9b0', eye: '#2a1a1a', cheek: '#ff8f9a',
   size: 1.1, build: 0.12, wings: 'stubby', horns: 'nubs', tail: 'whisk', pattern: 'patches',
-  extras: ['chefHat', 'apron', 'whiskersLong'],
+  extras: ['chefHat', 'apron', 'bowtie'],
 };
 const KEEPER_NAME = 'AUNTIE SPRINKLES';
 
@@ -238,8 +238,8 @@ export function createShopScene(): Scene {
       ctx.fillStyle = '#a8703c'; ctx.fillRect(b.x + 8, y, b.w - 16, 1);
       ctx.fillStyle = '#5a341c'; ctx.fillRect(b.x + 14, y + 5, 3, 4); ctx.fillRect(b.x + b.w - 17, y + 5, 3, 4);
     };
-    shelf(b.y + 132, foods);
-    shelf(b.y + 168, items);
+    shelf(b.y + 52, foods);
+    shelf(b.y + 86, items);
     // awning
     for (let i = 0; i < 10; i++) {
       ctx.fillStyle = i % 2 ? '#fff1dc' : '#e8574c';
@@ -253,9 +253,9 @@ export function createShopScene(): Scene {
     if (poseName === 'happy' && poseTime > 1.1) pose = poseName = 'idle';
     if (poseName === 'hurt') { poseT = Math.min(1, poseTime / 0.6); if (poseTime > 0.8) poseName = 'idle'; }
     if (poseName === 'idle' && !say.done) pose = 'idle';
-    drawDragon(ctx, SHOPKEEPER, b.x + 104, b.y + 286, { scale: 1.55, facing: 1, t, pose, poseT });
+    drawDragon(ctx, SHOPKEEPER, b.x + 100, b.y + 294, { scale: 2, facing: 1, t, pose, poseT });
     // counter
-    const cy = b.y + 262;
+    const cy = b.y + 270;
     ctx.fillStyle = UI.ink; ctx.fillRect(b.x, cy - 1, b.w, b.h - (cy - b.y) + 1);
     ctx.fillStyle = '#9a6440'; ctx.fillRect(b.x, cy + 6, b.w, b.h);
     ctx.fillStyle = '#c38a58'; ctx.fillRect(b.x, cy, b.w, 7);
@@ -275,11 +275,11 @@ export function createShopScene(): Scene {
     drawPlaque(ctx, KEEPER_NAME, b.x + Math.round((b.w - pw) / 2), cy + 18);
     drawInsetFrame(ctx, b);
     // speech bubble
-    const sb: Rect = { x: b.x + 8, y: b.y + 28, w: b.w - 16, h: 60 };
+    const sb: Rect = { x: b.x + 8, y: b.y + 104, w: b.w - 16, h: 56 };
     fillRoundRect(ctx, sb.x, sb.y + 2, sb.w, sb.h, 5, 'rgba(27,20,38,0.2)');
     fillRoundRect(ctx, sb.x, sb.y, sb.w, sb.h, 5, UI.ink);
     fillRoundRect(ctx, sb.x + 1, sb.y + 1, sb.w - 2, sb.h - 2, 4, '#ffffff');
-    const tx = b.x + 112;
+    const tx = b.x + 120;
     for (let i = 0; i < 7; i++) {
       ctx.fillStyle = UI.ink; ctx.fillRect(tx - 7 + i, sb.y + sb.h - 1 + i, 14 - i * 2 + 1, 1);
       if (i < 6) { ctx.fillStyle = '#ffffff'; ctx.fillRect(tx - 6 + i, sb.y + sb.h - 2 + i, 13 - i * 2, 1); }
@@ -351,7 +351,7 @@ export function createShopScene(): Scene {
         if (Math.sign(app.state.coins - shownCoins) !== Math.sign(diff)) shownCoins = app.state.coins;
       }
       // a click on the speech bubble finishes the sentence
-      if (input.pointer.pressed && hit({ x: BOOTH.x, y: BOOTH.y, w: BOOTH.w, h: 100 }, input.pointer.x, input.pointer.y)) say.skip();
+      if (input.pointer.pressed && hit({ x: BOOTH.x, y: BOOTH.y + 100, w: BOOTH.w, h: 64 }, input.pointer.x, input.pointer.y)) say.skip();
       // poking a disabled BUY still answers (with a polite no)
       const p = input.pointer;
       for (const [b, qty] of [[buy1, 1], [buy5, 5]] as [Button, number][]) {

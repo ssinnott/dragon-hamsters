@@ -87,7 +87,7 @@ function mockCampaign(): void {
       const story: MissionNode = { kind: 'story', label: 'Arrival', text: 'Chief Nibbles crackles over the radio: "Stay sharp, agents. And no snacking on the job!"' };
       let nodes: MissionNode[];
       switch (type) {
-        case 'retrieve': nodes = [story, fight('Front door', 0), fight('Gift shop', 1), fight('Back stairs', 2), rest, bossNode()]; break;
+        case 'retrieve': nodes = [story, fight('Guards at the front door', 0), fight('Gift shop ambush', 1), fight('Back stairs', 2), rest, bossNode()]; break;
         case 'rescue': nodes = [fight('The gate', 1), fight('Feeding time', 2, 3), rest, fight('Cage block', 0), bossNode()]; break;
         case 'sabotage': nodes = [fight('Loading bay', 3), {
           kind: 'branch', label: 'The power switch', text: 'The cannon is humming. You can hear it charging up!',
@@ -97,7 +97,7 @@ function mockCampaign(): void {
           ],
         }]; break;
         case 'infiltrate': nodes = [fight('Coat check', 0, 1), fight('Velvet rope', 2), bossNode()]; break;
-        default: nodes = [fight('Wave 1', 0), fight('Wave 2', 1, 2), rest, fight('Wave 3', 3), fight('Wave 4', 0, 1), bossNode()]; break;
+        default: nodes = [story, fight('Wave 1: the scouts', 0), fight('Wave 2: the muscle', 1, 2), rest, fight('Wave 3', 3), fight('Wave 4: everybody!', 0, 1), bossNode()]; break;
       }
       const id = `${org}-${i + 1}`;
       const def: MissionDef = {

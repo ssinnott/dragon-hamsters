@@ -1,13 +1,15 @@
 // Dev harness for the Burrow hub, the Pantry Shop and the Bag (dev/burrow.html).
 // URL: ?scene=burrow|shop|bag   &many=1 gives the burrow 15 dragons   &tutorial=1 shows the first-visit
 // tutorial   &cleared=1 marks the first case cleared (no MISSIONS nag)   &poor=1 leaves 12 coins
-// &empty=1 empties the pantry and bag.
+// &empty=1 empties the pantry and bag   &evo=1 puts the first dragon one activity away from evolving.
 // The test save has a hungry, a tired, a fainted, a burned and an overjoyed dragon so every mood shows.
 import { bootHarness } from './harness.ts';
 import { app } from '../ui/app.ts';
 import { SPECIES_BY_DEX } from '../data/index.ts';
 import { FOOD_IDS, ITEM_IDS } from '../data/schema.ts';
 import { addDragon, createDragon, dragonStats } from '../game/dragons.ts';
+import { xpForLevel } from '../battle/stats.ts';
+import { getSpecies } from '../data/index.ts';
 import type { GameState } from '../game/types.ts';
 import { createBurrowScene } from '../ui/scenes/burrow.ts';
 import { createShopScene } from '../ui/scenes/shop.ts';
@@ -31,6 +33,14 @@ function setup(s: GameState): void {
     s.dragons[7].needs.fullness = 0;
     s.dragons[9].needs.happiness = 95;
     s.dragons[11].needs.energy = 20;
+  }
+  if (params.get('evo') && a) {
+    // one wheel session away from levelling into its evolution
+    const lv = (getSpecies(a.speciesId).evolvesTo?.level ?? 16) - 1;
+    a.level = lv;
+    a.xp = xpForLevel(lv + 1) - 3;
+    a.hp = dragonStats(a).hp;
+    a.needs.fullness = 70;
   }
   if (params.get('tutorial')) s.flags.burrowTutorial = false;
   if (params.get('cleared')) s.missions['cheese-1'] = { clears: 1, firstClearDay: 1 };

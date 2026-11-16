@@ -129,7 +129,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   // --- buttons --------------------------------------------------------------------------------
   const group = new ButtonGroup();
   const contBtn = group.add({
-    label: 'CONTINUE ▶', rect: { x: VIEW_W - 136, y: VIEW_H - 32, w: 126, h: 24 }, color: won ? UI.accent : UI.info,
+    label: 'CONTINUE ▶', rect: { x: VIEW_W - 136, y: VIEW_H - 32, w: 126, h: 24 }, color: won ? UI.accent : UI.info, hotkey: 'Escape',
     onClick: () => onContinue(),
   });
 
@@ -215,7 +215,10 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       fx.update(dt);
       if (stage === 'reveal') revealT += dt;
       if (!won && time > 1.8 && time - dt <= 1.8) music('burrow');
-      if (!won && time > 0.7) tw.update(dt);
+      if (!won && time > 0.7) {
+        if (!tw.text) tw.set(chiefText);
+        tw.update(dt);
+      }
 
       // confetti physics
       for (const c of confetti) {
@@ -262,7 +265,6 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
         drawAdvice(ctx);
         drawSquad(ctx, { x: 8, y: 214, w: 624, h: 104 }, true);
       }
-      contBtn.spec.label = stage === 'report' && !animating() && evoQueue.length ? 'CONTINUE ▶' : 'CONTINUE ▶';
       contBtn.draw(ctx, true);
       fx.draw(ctx);
       drawConfetti(ctx, true);
@@ -545,10 +547,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     drawPanel(ctx, r.x, r.y, r.w, r.h, { fill: UI.panelLight, title: 'CHIEF NIBBLES' });
     drawChiefPortrait(ctx, r.x + 10, r.y + 14, time, !tw.done && time > 0.7);
     const tx = r.x + 20 + CHIEF_PORTRAIT_SIZE;
-    if (time > 0.7) {
-      if (!tw.text) tw.set(chiefText);
-      drawTypewriter(ctx, tw, tx, r.y + 14, r.x + r.w - 14 - tx, { color: UI.text, shadow: false });
-    }
+    drawTypewriter(ctx, tw, tx, r.y + 14, r.x + r.w - 14 - tx, { color: UI.text, shadow: false });
   }
 
   function drawAdvice(ctx: Ctx): void {
@@ -561,7 +560,6 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     drawTypeBadges(ctx, bring, bx, r.y + 25);
     ctx.fillStyle = tint(UI.panel, -0.15);
     ctx.fillRect(r.x + r.w / 2, r.y + 8, 1, r.h - 16);
-    drawText(ctx, '→', r.x + r.w / 2 - 3, r.y + 27, { color: UI.textDim, shadow: false });
   }
 
   function drawReveal(ctx: Ctx): void {

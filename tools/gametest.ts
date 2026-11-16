@@ -1037,9 +1037,33 @@ test('syncFromBattle: training from defeated foes, statuses, levels', () => {
 const SIM_MAX_ATTEMPTS = 6;
 const SIM_MAX_DAYS = 600;
 
+/**
+ * The keeper's loadout editor: the four best attacks the dragon knows (power x STAB x accuracy, a
+ * second move of an already covered type counts for less), topped up with other moves if it knows
+ * fewer than four attacks. Learned moves only auto-equip into free slots, so a real player does
+ * this on the DRAGONS screen.
+ */
+function bestLoadout(d: OwnedDragon): string[] {
+  const types = dragonTypes(d);
+  const scored = d.knownMoves.map((id) => {
+    const m = getMove(id);
+    const acc = m.effects.some((e) => e.kind === 'sureHit') ? 100 : Math.min(100, m.accuracy);
+    return { id, type: m.type, score: m.power * (types.includes(m.type) ? 1.5 : 1) * (acc / 100) };
+  });
+  const out: { id: string; type: string; score: number }[] = [];
+  const pool = scored.filter((x) => x.score > 0);
+  while (out.length < 4 && pool.length) {
+    pool.sort((a, b) => (b.score * (out.some((o) => o.type === b.type) ? 0.6 : 1)) - (a.score * (out.some((o) => o.type === a.type) ? 0.6 : 1)));
+    out.push(pool.shift() as { id: string; type: string; score: number });
+  }
+  for (const x of scored) if (out.length < 4 && !out.includes(x)) out.push(x);
+  return out.map((x) => x.id);
+}
+
 /** Daily care: feed up to good fullness (favourite food first, buying seeds if the pantry is bare), wheel, play. */
 function dailyCare(s: GameState): void {
   for (const d of s.dragons) {
+    setLoadout(d, bestLoadout(d));
     for (let k = 0; k < 3 && d.needs.fullness < 75 && d.hp > 0; k++) {
       const fav = getSpecies(d.speciesId).favoriteFood;
       let food: FoodId | undefined = s.food[fav] > 0 ? fav : FOOD_IDS.filter((f) => s.food[f] > 0 && FOODS[f].xp === 0)

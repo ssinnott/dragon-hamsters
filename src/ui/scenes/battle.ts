@@ -269,7 +269,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         }
         const next = queue[0];
         const long = !next || next.t === 'text' || next.t === 'levelUp' || next.t === 'end';
-        const hold = (long ? 0.7 + 0.022 * e.text.length : 0.22) * pace();
+        const hold = (long ? 0.55 + 0.02 * e.text.length : 0.18) * pace();
         return mkStep(hold, () => tw.done, { text: true, skippable: true });
       }
 
@@ -327,7 +327,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const foeUid = slots[foe].uid;
         lastMoveFx = { at: selfFx ? (onFoe ? foeUid ?? '' : e.uid) : foeUid ?? '', kind: mv.fx };
         sfx(moveSfx(mv.type));
-        return mkStep(0.45);
+        return mkStep(0.42);
       }
 
       case 'damage': {
@@ -365,7 +365,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         } else {
           sfx('hit', { volume: 0.6, pitch: 0.9 });
         }
-        return mkStep(dur + 0.08, () => hpSettled(v));
+        // The bar keeps draining under the next line of text; only a knockout (or another hit) waits for it.
+        const nextT = queue[0]?.t;
+        const wait = e.hp <= 0 || nextT === 'damage' || nextT === 'faint' || nextT === 'heal';
+        return wait ? mkStep(dur + 0.05, () => hpSettled(v)) : mkStep(Math.min(dur, 0.3));
       }
 
       case 'heal': {
@@ -424,7 +427,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
           }
           sfx('sparkle');
         }
-        return mkStep(0.35);
+        return mkStep(0.3);
       }
 
       case 'confuse': {
@@ -810,6 +813,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   function idle(): void {
     if (finished || ended) return;
     if (menu !== null && !autoplay()) return;
+    // let the bars finish filling or draining before the turn is handed over
+    for (const v of views.values()) if (!hpSettled(v) || !xpSettled(v)) return;
     const drift = syncViews(views, battle);
     if (drift.length) console.warn('[battle] display resynced to the engine for', drift.join(', '));
     if (battle.phase === 'over') {
@@ -1072,6 +1077,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         levelCard: () => (levelCard ? levelCard.age : -1),
         outro: () => (outro ? outro.age : -1),
         banners: () => banners.length,
+        time: () => time,
       };
       for (const m of [...battle.player.team, ...battle.enemy.team]) views.set(m.uid, makeView(m));
       playerTeam = battle.player.team.map((m) => view(m.uid));
