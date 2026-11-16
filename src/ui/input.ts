@@ -100,6 +100,8 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
   const heldKeys = new Set<string>();
   let wheel = 0;
   let activePointerId: number | null = null;
+  /** A finger lifted last update: it stops hovering now (after its release was seen in place). */
+  let liftPending = false;
 
   const bounds = (): { w: number; h: number } => {
     const c = target as HTMLCanvasElement;
@@ -190,8 +192,9 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
       case 'up':
         setPos(e.x, e.y);
         if (pointer.down) { pointer.down = false; pointer.released = true; }
-        // A finger that lifted is no longer hovering anywhere.
-        if (e.touch) pointer.inside = false;
+        // A lifted finger hovers nowhere, but only from the next update: this one must still see
+        // the release over whatever it lifted from, or a tap could never click.
+        if (e.touch) liftPending = true;
         break;
       case 'cancel':
         pointer.down = false;
@@ -223,6 +226,7 @@ export function createInput(target: HTMLElement, toInternal: (cx: number, cy: nu
     anyPressed: () => pressedKeys.size > 0 || pointer.pressed,
     beginUpdate() {
       clearFlags();
+      if (liftPending) { liftPending = false; pointer.inside = false; }
       let pointerEdges = 0;
       while (queue.length) {
         const e = queue[0];

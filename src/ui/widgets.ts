@@ -237,6 +237,8 @@ export interface ButtonSpec {
   visible?: () => boolean;
   /** Content alignment; default 'center'. */
   align?: 'center' | 'left';
+  /** Extra drawing on the face after the label (tags, counters); `face` sinks with the press. */
+  decorate?: (ctx: Ctx, face: Rect, enabled: boolean) => void;
 }
 
 /** Height of the raised lip under a button face; the face sinks by this much when pressed. */
@@ -256,6 +258,8 @@ export class Button {
   }
 
   get isEnabled(): boolean { return this.spec.enabled ? this.spec.enabled() : true; }
+  /** Pixels the face is pushed down right now (0, or 2 while pressed). */
+  get sink(): number { return this.isEnabled && (this.pressT > 0 || (this.down && this.hovered)) ? LIP : 0; }
   get isVisible(): boolean { return this.spec.visible ? this.spec.visible() : true; }
 
   draw(ctx: Ctx, focused = false): void {
@@ -264,7 +268,7 @@ export class Button {
     const enabled = this.isEnabled;
     const x = Math.round(s.rect.x), y = Math.round(s.rect.y), w = Math.round(s.rect.w), h = Math.round(s.rect.h);
     const base = enabled ? (s.color ?? UI.button) : UI.disabled;
-    const pressed = enabled && (this.pressT > 0 || (this.down && this.hovered));
+    const pressed = this.sink > 0;
     const hot = enabled && (this.hovered || focused) && !pressed;
     const face = hot ? tint(base, 0.2) : base;
     const top = pressed ? y + LIP : y;
@@ -290,7 +294,8 @@ export class Button {
 
     // content
     const size = Math.max(1, Math.round(s.size ?? 1));
-    const textColor = enabled ? (s.textColor ?? textOn(face)) : UI.disabledText;
+    // contrast is judged on the base colour so the text never flips colour on hover
+    const textColor = enabled ? (s.textColor ?? textOn(base)) : UI.disabledText;
     const darkText = luma(textColor) < 0.5;
     const shadowColor = darkText ? tint(face, 0.4) : tint(base, -0.5);
     const fx = x + 1, fy = top + 1, fw = w - 2;
@@ -320,6 +325,7 @@ export class Button {
       const sx = left ? tx : tx + Math.floor((textW - subW) / 2);
       drawText(ctx, s.sub, sx, sy, { color: subColor, shadow: false });
     }
+    s.decorate?.(ctx, { x: fx, y: fy, w: fw, h: fh }, enabled);
   }
 }
 
@@ -556,7 +562,7 @@ export function drawHpBar(ctx: Ctx, x: number, y: number, w: number, hp: number,
 // Badges and tags
 // ---------------------------------------------------------------------------------------------
 
-/** Generic pill: ink outline, coloured face with highlight and shade rows, centred text. */
+/** Generic pill: ink outline, coloured face with a highlight row and a shade row. */
 function drawPill(ctx: Ctx, x: number, y: number, w: number, h: number, fill: string): void {
   const r = h >= 12 ? 4 : 3;
   fillRoundRect(ctx, x, y, w, h, r, UI.ink);
@@ -579,7 +585,7 @@ export function drawTypeBadge(ctx: Ctx, type: TypeId, x: number, y: number, opts
   const small = !!opts.small;
   const h = badgeHeight(small);
   const iconBox = small ? 7 : 9;
-  const padL = small ? 2 : 2, gap = small ? 2 : 3, padR = small ? 4 : 5;
+  const padL = 2, gap = small ? 2 : 3, padR = small ? 4 : 5;
   const tw = measureText(name);
   const w = 1 + padL + iconBox + gap + tw + padR + 1;
   drawPill(ctx, x, y, w, h, color);

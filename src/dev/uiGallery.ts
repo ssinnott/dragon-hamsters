@@ -255,11 +255,11 @@ function typesPage(): Scene {
       drawPanel(g, 8, 202, 624, 140, { title: 'TYPE CHART HEADERS' });
       TYPE_IDS.forEach((t, i) => {
         const x = 30 + i * 37;
-        drawTypeIcon(g, t, x, 230, 9);
-        drawTypeIcon(g, t, x, 254, 6, { plain: true });
-        drawText(g, (TYPES[t]?.name ?? t).slice(0, 5), x, 266, { color: UI.text, shadow: false, align: 'center' });
-        drawTypeIcon(g, t, x, 292, 12);
-        drawTypeIcon(g, t, x, 322, 5);
+        drawTypeIcon(g, t, x, 228, 9);
+        drawTypeIcon(g, t, x, 251, 6, { plain: true });
+        drawText(g, TYPES[t]?.name ?? t, x, i % 2 ? 272 : 262, { color: i % 2 ? UI.textDim : UI.text, shadow: false, align: 'center' });
+        drawTypeIcon(g, t, x, 298, 12);
+        drawTypeIcon(g, t, x, 327, 5);
       });
       group.draw(g);
       drawChrome(g);
@@ -386,14 +386,15 @@ function listsPage(): Scene {
     { name: 'CHEEK STUFF', type: 'FLUFF', pp: 10, mult: 1 },
     { name: 'BOLT NIBBLE', type: 'LIGHTNING', pp: 0, mult: 0 },
   ];
-  const moveRects: Rect[] = [];
   moves.forEach((mv, i) => {
     const r: Rect = { x: 298 + (i % 2) * 166, y: 66 + Math.floor(i / 2) * 44, w: 158, h: 38 };
-    moveRects.push(r);
     group.add({
-      label: mv.name, sub: `PP ${mv.pp}/25`, rect: r, align: 'left', hotkey: String.fromCharCode(113 + i * 6),
+      label: mv.name, sub: `PP ${mv.pp}/25`, rect: r, align: 'left', hotkey: 'qwer'[i],
       color: TYPES[mv.type]?.color, enabled: () => mv.pp > 0,
       icon: (g, cx, cy) => drawTypeIcon(g, mv.type, cx, cy, 6),
+      decorate: (g, face, enabled) => {
+        if (enabled) drawEffectTag(g, mv.mult, face.x + face.w - 4 - measureTag(mv.mult), face.y + face.h - 14, { small: true });
+      },
       onClick: () => act(`USED ${mv.name}!`),
     });
   });
@@ -416,12 +417,6 @@ function listsPage(): Scene {
       list.draw(g);
       drawPanel(g, 290, 40, 342, 194, { title: 'MOVES (Q W E R)' });
       group.draw(g);
-      moves.forEach((mv, i) => {
-        const r = moveRects[i];
-        const b = group.buttons[PAGES.length + i];
-        const sink = b.pressT > 0 || (b.down && b.hovered) ? 2 : 0;
-        if (mv.pp > 0) drawEffectTag(g, mv.mult, r.x + r.w - 6 - measureTag(mv.mult), r.y + 20 + sink, { small: true });
-      });
       drawPanel(g, 290, 242, 342, 88, { title: 'STATUS' });
       drawWrapped(g, listFocus ? 'THE LIST HAS THE ARROW KEYS. ESC GIVES THEM BACK.' : 'HOVER, CLICK, OR USE ARROWS + ENTER. HOTKEYS Q/W/E/R FIRE MOVES. DOUBLE-CLICK A ROW.', 302, 256, 318, { color: UI.text, shadow: false });
       drawText(g, `SELECTED: ${list.selected >= 0 ? mons[list.selected].name : '-'}`, 302, 300, { color: UI.textDim, shadow: false });
