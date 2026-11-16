@@ -225,12 +225,12 @@ export function createFx(): Fx {
     });
   }
 
-  function debris(x: number, y: number, color: string, n: number, speed: number, delay = 0): void {
+  function debris(x: number, y: number, color: string, n: number, speed: number, delay = 0, life = 0.55): void {
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, TAU), v = rng.range(0.4, 1) * speed;
       spawn({
         x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * 0.3, ay: 420, drag: 1.2, delay,
-        max: rng.range(0.35, 0.6), size: rng.range(2.5, 4.5), color, shape: 'square', rot: a, vr: rng.range(-12, 12),
+        max: rng.range(life * 0.6, life), size: rng.range(2.5, 4.5), color, shape: 'square', rot: a, vr: rng.range(-12, 12),
       });
     }
   }
@@ -242,12 +242,12 @@ export function createFx(): Fx {
     }
   }
 
-  function stars(x: number, y: number, color: string, n: number, speed: number, delay = 0, spread = 0): void {
+  function stars(x: number, y: number, color: string, n: number, speed: number, delay = 0, spread = 0, life = 0.5): void {
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, TAU), v = rng.range(0.3, 1) * speed;
       spawn({
         x: x + rng.range(-spread, spread), y: y + rng.range(-spread, spread), vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-        drag: 3, delay, max: rng.range(0.35, 0.6), size: rng.range(2.5, 4), grow: 0.3, color, shape: 'star', glow: true, rot: rng.range(0, TAU), vr: rng.range(-4, 4),
+        drag: 3, delay, max: rng.range(life * 0.65, life), size: rng.range(2.5, 4), grow: 0.3, color, shape: 'star', glow: true, rot: rng.range(0, TAU), vr: rng.range(-4, 4),
       });
     }
   }
@@ -494,10 +494,10 @@ export function createFx(): Fx {
             for (let n = 0; n < 9; n++) {
               spawn({
                 x: x + rng.range(-12, 12), y: y + rng.range(-6, 10), vx: rng.range(-50, 50), vy: rng.range(-140, -60), drag: 1.5,
-                max: rng.range(0.3, 0.5), size: rng.range(4, 7), grow: 0.2, color: '#fff0a0', color2: k.c, shape: 'flame', glow: true,
+                max: rng.range(0.22, 0.34), size: rng.range(4, 7), grow: 0.2, color: '#fff0a0', color2: k.c, shape: 'flame', glow: true,
               });
             }
-            for (let n = 0; n < 3; n++) spawn({ x, y: y - 6, vx: rng.range(-20, 20), vy: rng.range(-50, -30), max: 0.5, size: 4, grow: 2.2, alpha: 0.45, color: shade(k.dark, 0.6), shape: 'smoke' });
+            for (let n = 0; n < 3; n++) spawn({ x, y: y - 6, vx: rng.range(-20, 20), vy: rng.range(-60, -35), max: 0.34, size: 4, grow: 2.2, alpha: 0.45, color: shade(k.dark, 0.6), shape: 'smoke' });
             flash(x, y, 30, k.c, 0.25);
             if (last) { shake(2); ring(x, y, 8, 40, k.light, 0.3, 2); }
           },
@@ -510,23 +510,23 @@ export function createFx(): Fx {
       for (let i = 0; i < N; i++) {
         const r = i % 3 ? 4.2 : 5.2;
         projectile(a, b, {
-          delay: i * 0.018, dur: 0.32, arc: 34, jitter: 10,
+          delay: i * 0.014, dur: 0.3, arc: 34, jitter: 10,
           head: (c, x, y, ang) => drop(c, x, y, ang, r, i % 2 ? k.light : k.c),
           hit: (x, y) => {
             for (let n = 0; n < 2; n++) {
-              spawn({ x, y, vx: rng.range(-80, 80), vy: rng.range(-150, -70), ay: 480, max: rng.range(0.3, 0.45), size: 2.4, color: k.light, shape: 'drop' });
+              spawn({ x, y, vx: rng.range(-80, 80), vy: rng.range(-150, -70), ay: 480, max: rng.range(0.22, 0.32), size: 2.6, color: k.light, shape: 'drop' });
             }
           },
         });
       }
-      later(N * 0.018 + 0.3, () => {
+      later(N * 0.014 + 0.28, () => {
         shake(2);
-        ring(b.x, b.y + 8, 6, 44, k.light, 0.4, 2, 0, 0.4);
-        ring(b.x, b.y + 8, 4, 30, '#ffffff', 0.35, 1.5, 0.08, 0.4);
+        ring(b.x, b.y + 8, 6, 44, k.light, 0.32, 2, 0, 0.4);
+        ring(b.x, b.y + 8, 4, 30, '#ffffff', 0.28, 1.5, 0.05, 0.4);
         flash(b.x, b.y, 28, k.light, 0.2);
         for (let n = 0; n < 10; n++) {
           const a2 = -Math.PI / 2 + rng.range(-1, 1);
-          spawn({ x: b.x, y: b.y, vx: Math.cos(a2) * rng.range(80, 170), vy: Math.sin(a2) * rng.range(120, 220), ay: 520, max: 0.5, size: 3.4, color: k.light, shape: 'drop' });
+          spawn({ x: b.x, y: b.y, vx: Math.cos(a2) * rng.range(90, 180), vy: Math.sin(a2) * rng.range(140, 240), ay: 620, max: 0.34, size: 3.4, color: k.light, shape: 'drop' });
         }
       });
     },
@@ -535,15 +535,14 @@ export function createFx(): Fx {
       for (let i = 0; i < 6; i++) {
         const spin = rng.range(10, 16) * (i % 2 ? 1 : -1);
         projectile(a, b, {
-          delay: i * 0.055, dur: 0.42, arc: rng.range(-10, 30), wobble: rng.range(10, 24) * (i % 2 ? 1 : -1), wobbleFreq: 1.5, jitter: 10,
+          delay: i * 0.045, dur: 0.34, arc: rng.range(-10, 30), wobble: rng.range(10, 24) * (i % 2 ? 1 : -1), wobbleFreq: 1.5, jitter: 10,
           head: (c, x, y, _ang, _u, age) => leafShape(c, x, y, age * spin + i, 9, k),
           hit: (x, y) => {
-            for (let n = 0; n < 2; n++) spawn({ x, y, vx: rng.range(-90, 90), vy: rng.range(-80, 10), ay: 160, drag: 1.5, max: 0.5, size: 6, color: k.c, shape: 'leaf', rot: rng.range(0, TAU), vr: rng.range(-10, 10) });
-            sparks(x, y, k.light, 2, 120);
+            for (let n = 0; n < 2; n++) spawn({ x, y, vx: rng.range(-110, 110), vy: rng.range(-90, 10), ay: 160, drag: 1.5, max: 0.28, size: 6, color: k.c, shape: 'leaf', rot: rng.range(0, TAU), vr: rng.range(-10, 10) });
           },
         });
       }
-      later(0.055 * 5 + 0.42, () => { shake(2); flash(b.x, b.y, 26, k.light, 0.2); });
+      later(0.045 * 5 + 0.34, () => { shake(2); flash(b.x, b.y, 26, k.light, 0.2); });
     },
 
     spark: (a, b, k) => {
@@ -621,10 +620,10 @@ export function createFx(): Fx {
         ring(b.x, b.y, 8, 42, '#ffffff', 0.35, 2);
         for (let i = 0; i < 8; i++) {
           const ang = (i / 8) * TAU + rng.range(-0.2, 0.2), v = rng.range(110, 190);
-          spawn({ x: b.x, y: b.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, drag: 4, max: 0.45, size: 8, grow: 0.5, color: k.light, shape: 'shard', rot: ang });
+          spawn({ x: b.x, y: b.y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, drag: 4, max: 0.36, size: 8, grow: 0.5, color: k.light, shape: 'shard', rot: ang });
         }
         for (let i = 0; i < 8; i++) {
-          spawn({ x: b.x + rng.range(-30, 30), y: b.y + rng.range(-30, 10), vx: rng.range(-10, 10), vy: rng.range(10, 35), max: rng.range(0.5, 0.75), size: 2.5, color: '#ffffff', shape: 'star', glow: true, vr: rng.range(-3, 3) });
+          spawn({ x: b.x + rng.range(-30, 30), y: b.y + rng.range(-30, 10), vx: rng.range(-10, 10), vy: rng.range(20, 45), max: rng.range(0.3, 0.42), size: 2.5, color: '#ffffff', shape: 'star', glow: true, vr: rng.range(-3, 3) });
         }
       });
     },
@@ -633,13 +632,13 @@ export function createFx(): Fx {
       for (let i = 0; i < 3; i++) {
         const last = i === 2;
         projectile(a, b, {
-          delay: i * 0.1, dur: 0.4, arc: 46, jitter: 10,
+          delay: i * 0.08, dur: 0.36, arc: 46, jitter: 10,
           head: (c, x, y, ang, _u, age) => blob(c, x, y, ang, age, 9, k),
           trail: (x, y) => spawn({ x, y, vy: rng.range(0, 20), ay: 320, max: 0.32, size: 2, color: k.c }),
           trailEvery: 0.05,
           hit: (x, y) => {
             add({
-              dur: 0.45,
+              dur: 0.34,
               draw: (c, u) => {
                 c.globalAlpha = fade(u, 0.5) * 0.9;
                 c.fillStyle = k.c;
@@ -648,7 +647,7 @@ export function createFx(): Fx {
                 c.fillStyle = rgba(k.light, 0.8); c.beginPath(); c.arc(x - 4, y - 3, 3, 0, TAU); c.fill();
               },
             });
-            for (let n = 0; n < 6; n++) spawn({ x, y, vx: rng.range(-110, 110), vy: rng.range(-140, -30), ay: 460, max: 0.5, size: rng.range(2.5, 4.5), color: k.c });
+            for (let n = 0; n < 6; n++) spawn({ x, y, vx: rng.range(-120, 120), vy: rng.range(-150, -40), ay: 520, max: 0.32, size: rng.range(2.5, 4.5), color: k.c });
             if (last) shake(2);
           },
         });
@@ -658,7 +657,7 @@ export function createFx(): Fx {
     shadow: (a, b, k) => {
       const core = mix(k.dark, INK, 0.6);
       projectile(a, b, {
-        delay: 0.05, dur: 0.42, arc: 10,
+        delay: 0.04, dur: 0.38, arc: 10,
         head: (c, x, y, _ang, _u, age) => {
           const g = c.createRadialGradient(x, y, 2, x, y, 26);
           g.addColorStop(0, rgba(k.c, 0.7)); g.addColorStop(1, rgba(k.c, 0));
@@ -710,32 +709,32 @@ export function createFx(): Fx {
       for (let i = 0; i < 10; i++) {
         const sz = rng.range(5, 8);
         projectile(a, b, {
-          delay: i * 0.03, dur: 0.36, wobble: rng.range(-16, 16), wobbleFreq: 2, jitter: 10,
+          delay: i * 0.024, dur: 0.32, wobble: rng.range(-16, 16), wobbleFreq: 2, jitter: 10,
           head: (c, x, y, _ang, _u, age) => twinkle(c, x, y, sz + Math.sin(age * 30) * 1.5, i % 2 ? k.light : '#ffffff'),
           trail: (x, y) => spawn({ x, y, max: 0.3, size: 1.5, color: k.light, glow: true, vy: rng.range(-10, 10), vx: rng.range(-10, 10) }),
           trailEvery: 0.03,
         });
       }
-      later(0.27 + 0.36, () => {
+      later(0.216 + 0.32, () => {
         flash(b.x, b.y, 38, k.light, 0.3);
         ring(b.x, b.y, 8, 40, '#ffffff', 0.3, 1.5);
-        stars(b.x, b.y, k.light, 7, 150);
-        stars(b.x, b.y, '#ffffff', 5, 120);
+        stars(b.x, b.y, k.light, 7, 170, 0, 0, 0.32);
+        stars(b.x, b.y, '#ffffff', 5, 140, 0, 0, 0.32);
         shake(1);
       });
     },
 
     food: (a, b, k) => {
       projectile(a, b, {
-        dur: 0.46, arc: 64,
+        dur: 0.42, arc: 64,
         head: (c, x, y, _ang, _u, age) => pie(c, x, y, age * 9, k),
         hit: (x, y) => {
           shake(2);
           starburst(x, y, 20, '#fff8ec', k.c, 9, 0.3);
-          for (let n = 0; n < 10; n++) spawn({ x, y, vx: rng.range(-130, 130), vy: rng.range(-170, -40), ay: 480, max: 0.5, size: rng.range(2.5, 4), color: '#fff4e0' });
-          for (let n = 0; n < 8; n++) spawn({ x, y, vx: rng.range(-120, 120), vy: rng.range(-150, -30), ay: 480, max: 0.5, size: 2.2, color: '#d89a50', shape: 'square', vr: rng.range(-10, 10) });
-          for (let n = 0; n < 3; n++) spawn({ x, y, vx: rng.range(-80, 80), vy: rng.range(-130, -60), ay: 420, max: 0.5, size: 2.6, color: k.c });
-          for (let n = 0; n < 2; n++) spawn({ x: x + rng.range(-10, 10), y: y - 10, vy: rng.range(-60, -40), max: 0.6, size: 4, color: k.light, shape: 'heart', delay: 0.05 * n });
+          for (let n = 0; n < 10; n++) spawn({ x, y, vx: rng.range(-140, 140), vy: rng.range(-180, -40), ay: 560, max: 0.36, size: rng.range(2.5, 4), color: '#fff4e0' });
+          for (let n = 0; n < 8; n++) spawn({ x, y, vx: rng.range(-130, 130), vy: rng.range(-160, -30), ay: 560, max: 0.36, size: 2.2, color: '#d89a50', shape: 'square', vr: rng.range(-10, 10) });
+          for (let n = 0; n < 3; n++) spawn({ x, y, vx: rng.range(-90, 90), vy: rng.range(-140, -60), ay: 520, max: 0.36, size: 2.6, color: k.c });
+          for (let n = 0; n < 2; n++) spawn({ x: x + rng.range(-10, 10), y: y - 10, vy: rng.range(-80, -60), max: 0.4, size: 4, color: k.light, shape: 'heart', delay: 0.04 * n });
         },
       });
     },
@@ -780,12 +779,12 @@ export function createFx(): Fx {
           },
         });
       }
-      later(0.5, () => {
+      later(0.46, () => {
         shake(1.5);
         flash(b.x, b.y, 32, k.light, 0.25);
         for (let j = 0; j < 3; j++) {
           add({
-            delay: j * 0.06, dur: 0.3,
+            delay: j * 0.05, dur: 0.26,
             draw: (c, u, age) => {
               const r = 12 + 38 * outQuad(u);
               c.globalAlpha = 1 - u;
@@ -800,7 +799,7 @@ export function createFx(): Fx {
             },
           });
         }
-        stars(b.x, b.y, k.light, 6, 90, 0, 10);
+        stars(b.x, b.y, k.light, 6, 110, 0, 10, 0.3);
       });
     },
 
@@ -813,12 +812,12 @@ export function createFx(): Fx {
         for (let s = 0; s < 7; s++) { const an = (s / 7) * TAU; const rr = r * rng.range(0.72, 1); pts.push(Math.cos(an) * rr, Math.sin(an) * rr); }
         const spin = rng.range(-6, 6);
         projectile({ x: b.x + ox * 1.3, y: b.y - 150 - i * 10 }, { x: b.x + ox * 0.6, y: b.y + rng.range(-6, 12) }, {
-          delay: i * 0.08, dur: 0.26, easing: inQuad,
+          delay: i * 0.065, dur: 0.26, easing: inQuad,
           head: (c, x, y, _ang, _u, age) => rockShape(c, x, y, age * spin, pts, fill),
           hit: (x, y) => {
             shake(3);
-            for (let n = 0; n < 5; n++) spawn({ x, y: y + 4, vx: rng.range(-70, 70), vy: rng.range(-50, -15), drag: 2, max: 0.45, size: 7, grow: 2.2, alpha: 0.65, color: mix(fill, '#e8dcc8', 0.4), shape: 'smoke' });
-            debris(x, y, fill, 4, 130);
+            for (let n = 0; n < 5; n++) spawn({ x, y: y + 4, vx: rng.range(-80, 80), vy: rng.range(-60, -15), drag: 2, max: 0.34, size: 7, grow: 2.2, alpha: 0.65, color: mix(fill, '#e8dcc8', 0.4), shape: 'smoke' });
+            debris(x, y, fill, 4, 130, 0, 0.36);
             flash(x, y, 18, k.light, 0.15);
           },
         });
@@ -897,14 +896,13 @@ export function createFx(): Fx {
             c.strokeStyle = col; c.lineWidth = lw;
             c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(ex, ey); c.stroke();
           }
-          const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+          const dx = b.x - a.x, dy = b.y - a.y;
           c.strokeStyle = rgba('#ffffff', 0.6); c.lineWidth = 1.5;
           for (let j = 0; j < 4; j++) {
             const s = (age * 3 + j / 4) % 1;
             if (s > ext) continue;
             c.beginPath(); c.ellipse(a.x + dx * s, a.y + dy * s, 2.5, w * 0.9 + 2, Math.atan2(dy, dx), 0, TAU); c.stroke();
           }
-          void len;
           const g = c.createRadialGradient(ex, ey, 0, ex, ey, w * 2 + 6);
           g.addColorStop(0, rgba('#ffffff', 0.9)); g.addColorStop(1, rgba(k.c, 0));
           c.fillStyle = g; c.beginPath(); c.arc(ex, ey, w * 2 + 6, 0, TAU); c.fill();
@@ -1013,9 +1011,9 @@ export function createFx(): Fx {
         },
       });
       for (let i = 0; i < 9; i++) {
-        spawn({ x: a.x + rng.range(-32, 32), y: a.y + rng.range(0, 30), vx: rng.range(-10, 10), vy: rng.range(-90, -55), delay: i * 0.05, max: 0.55, size: 6.5, color: k.light, shape: 'plus' });
+        spawn({ x: a.x + rng.range(-32, 32), y: a.y + rng.range(0, 30), vx: rng.range(-10, 10), vy: rng.range(-100, -65), delay: i * 0.035, max: 0.48, size: 6.5, color: k.light, shape: 'plus' });
       }
-      stars(a.x, a.y, '#ffffff', 5, 40, 0.15, 24);
+      stars(a.x, a.y, '#ffffff', 5, 40, 0.15, 24, 0.4);
     },
 
     shield: (a, _b, k) => {

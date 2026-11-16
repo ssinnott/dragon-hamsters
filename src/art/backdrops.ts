@@ -822,7 +822,7 @@ function drawZoo(c: Ctx, p: Pal, t: number): void {
   layer(c, k + 'a', 0, 0, W, 120, (g) => zooSky(g, p));
   zooClouds(c, p, t);
   layer(c, k + 'b', 0, 30, W, 112, (g) => zooBack(g, p));
-  zooMidAnim(c, p, t);
+  zooMidAnim(c, t);
   layer(c, k + 'c', 0, 40, W, H - 40, (g) => zooFront(g, p));
   zooFrontAnim(c, p, t);
 }
@@ -928,8 +928,7 @@ function giraffe(c: Ctx, x: number, base: number, t: number): void {
   line(c, hx - 12, hy + 5 + chew, hx - 6, hy + 5 + chew * 0.6, out, 1);
 }
 
-function zooMidAnim(c: Ctx, p: Pal, t: number): void {
-  const col = zooColors(p);
+function zooMidAnim(c: Ctx, t: number): void {
   // waterfall stripes and splash
   c.save(); c.beginPath(); c.rect(56, 62, 14, 66); c.clip();
   for (let i = 0; i < 8; i++) {
@@ -947,7 +946,6 @@ function zooMidAnim(c: Ctx, p: Pal, t: number): void {
     c.beginPath(); c.ellipse(64, 132, 6 + u * 20, 1 + u * 3, 0, 0, TAU); c.stroke();
   }
   giraffe(c, 250, 128, t);
-  void col;
 }
 
 function signArrow(c: Ctx, x: number, y: number, w: number, dir: 1 | -1, text: string, fill: string): void {
@@ -1233,12 +1231,6 @@ function towerAnim(c: Ctx, p: Pal, t: number): void {
   if (on) glow(c, 54, 6, 16, '#ff4a4a', 0.5, true);
   // air-con fan
   const a = t * 8;
-  c.save(); c.translate(564, 185);
-  for (let k = 0; k < 3; k++) {
-    c.rotate(TAU / 3);
-    ellipse(c, 0, -5.5 + Math.sin(a) * 0, 3, 5.5, mix('#c8c4cc', col.concrete, 0.2));
-  }
-  c.restore();
   c.save(); c.translate(564, 185); c.rotate(a);
   for (let k = 0; k < 3; k++) { c.rotate(TAU / 3); ellipse(c, 0, -6, 3, 6, rgba('#e8e4ec', 0.9)); }
   c.restore();
@@ -1259,9 +1251,8 @@ function towerAnim(c: Ctx, p: Pal, t: number): void {
   // a few window lights in the city flick on and off
   for (let i = 0; i < 6; i++) {
     const on2 = Math.sin(t * 0.5 + i * 2.3) > 0.2;
-    if (on2) rect(c, 30 + i * 103 + Math.floor(rnd(i, 98) * 30), 124 + Math.floor(rnd(i, 99) * 10), 2, 3, '#ffe9a0');
+    if (on2) rect(c, 30 + i * 103 + Math.floor(rnd(i, 98) * 30), 124 + Math.floor(rnd(i, 99) * 10), 2, 3, mix('#ffe9a0', col.horizon, 0.2));
   }
-  void p;
 }
 
 // --- lab -------------------------------------------------------------------------------------
@@ -1758,7 +1749,7 @@ function burrowStatic(c: Ctx): void {
   circle(c, px, py + 2, 1.2, '#ff8a9a');
   rect(c, px - 12, py + 11, 24, 3, '#c9a24a');
   // a treasure map pinned above the tunnels
-  const mx = 418, my = 86;
+  const mx = 412, my = 86;
   poly(c, [mx - 24, my - 16, mx + 22, my - 18, mx + 25, my + 18, mx - 22, my + 20], '#ecd9a8', '#8a6a3a', 1);
   c.strokeStyle = '#a07a4a'; c.lineWidth = 1; c.setLineDash([2, 2]);
   c.beginPath(); c.moveTo(mx - 16, my + 10); c.quadraticCurveTo(mx - 4, my - 12, mx + 10, my + 4); c.stroke();
@@ -1859,6 +1850,15 @@ function burrowAnim(c: Ctx, t: number): void {
 
 // --- stations --------------------------------------------------------------------------------
 
+const STATION_NAMES: Record<ActivityId, string> = {
+  feed: 'Snack Bar', wheel: 'Hamster Wheel', dig: 'Treasure Tunnels', nap: 'Cozy Nest', play: 'Ball Pit',
+};
+/** The station's sign text: the activity's name from content, read at draw time. */
+function stationName(id: ActivityId): string {
+  const def = (ACTIVITIES as Partial<Record<ActivityId, { name?: string }>>)[id];
+  return def && def.name ? def.name : STATION_NAMES[id];
+}
+
 function stationSign(c: Ctx, cx: number, y: number, text: string): void {
   const B = BURROW;
   const w = text.length * 6 + 7;
@@ -1921,7 +1921,7 @@ function stationFeed(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   // a cheese cube on the end of the trough
   poly(c, [b.x + 16, ty - 1, b.x + 28, ty - 1, b.x + 28, ty - 9, b.x + 20, ty - 12, b.x + 16, ty - 9], '#ffd24a', '#b88a1a', 1);
   circle(c, b.x + 20, ty - 5, 1.3, '#d8a82a'); circle(c, b.x + 25, ty - 7, 1, '#d8a82a');
-  stationSign(c, cx, b.y + 4, ACTIVITIES.feed.name);
+  stationSign(c, cx, b.y + 4, stationName('feed'));
   if (busy) {
     for (let i = 0; i < 5; i++) {
       const u = (t * 1.8 + i / 5) % 1;
@@ -1980,7 +1980,7 @@ function stationWheel(c: Ctx, b: { x: number; y: number; w: number; h: number },
       c.beginPath(); c.arc(cx, wy, R + 6, a, a + 0.6); c.stroke();
     }
   }
-  stationSign(c, cx, b.y + 4, ACTIVITIES.wheel.name);
+  stationSign(c, cx, b.y + 4, stationName('wheel'));
 }
 
 function stationDig(c: Ctx, b: { x: number; y: number; w: number; h: number }, t: number, busy: boolean): void {
@@ -2021,7 +2021,7 @@ function stationDig(c: Ctx, b: { x: number; y: number; w: number; h: number }, t
     c.fillStyle = rgba('#ffffff', (tw - 0.6) * 2.5);
     pathStar(c, gx + 2, gy - 4, 6, 1.2, 4, 0); c.fill();
   }
-  stationSign(c, cx, b.y + 4, ACTIVITIES.dig.name);
+  stationSign(c, cx, b.y + 4, stationName('dig'));
   if (busy) {
     for (let i = 0; i < 6; i++) {
       const u = (t * 1.6 + i / 6) % 1;
@@ -2078,7 +2078,7 @@ function stationNap(c: Ctx, b: { x: number; y: number; w: number; h: number }, t
     c.fillStyle = k ? '#ffd84a' : '#bfe0ff';
     pathStar(c, sx, my + 12 + k * 4, 4.5, 2, 5, -Math.PI / 2); c.fill();
   }
-  stationSign(c, cx - 14, b.y + 4, ACTIVITIES.nap.name);
+  stationSign(c, cx - 14, b.y + 4, stationName('nap'));
   if (busy) {
     for (let i = 0; i < 3; i++) {
       const u = (t * 0.5 + i / 3) % 1;
@@ -2115,7 +2115,7 @@ function stationPlay(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   // a little ladder at the side
   line(c, cx + 50, base, cx + 46, top - 6, '#c88a52', 2); line(c, cx + 58, base, cx + 54, top - 6, '#c88a52', 2);
   for (let k = 0; k < 4; k++) { const y = base - 6 - k * 11; line(c, cx + 49 - k, y, cx + 57 - k, y, '#c88a52', 1.5); }
-  stationSign(c, cx - 4, b.y + 4, ACTIVITIES.play.name);
+  stationSign(c, cx - 4, b.y + 4, stationName('play'));
   const n = busy ? 5 : 1;
   for (let i = 0; i < n; i++) {
     const u = ((busy ? t * 1.4 : t * 0.25) + i / n) % 1;
@@ -2190,6 +2190,10 @@ function titleSkyGradient(c: Ctx): CanvasGradient {
 function titleSky(c: Ctx): void {
   c.fillStyle = titleSkyGradient(c);
   c.fillRect(0, 0, W, 260);
+  // crescent moon: the bite is plain sky, so it goes in before the haze and stars
+  circle(c, 572, 54, 19, '#fff4cc');
+  c.fillStyle = titleSkyGradient(c);
+  c.beginPath(); c.arc(581, 48, 17, 0, TAU); c.fill();
   // a faint band of the galaxy
   c.save();
   c.translate(320, 120); c.rotate(-0.35);
@@ -2199,20 +2203,15 @@ function titleSky(c: Ctx): void {
   c.restore();
   for (let i = 0; i < 160; i++) {
     const x = rnd(i, 301) * W, y = rnd(i, 302) * 200;
+    if (Math.hypot(x - 572, y - 54) < 21) continue;
     c.fillStyle = rgba('#ffffff', 0.15 + rnd(i, 303) * 0.25);
     c.fillRect(Math.round(x), Math.round(y), 1, 1);
   }
-  // crescent moon (the bite is sky, then the halo lights both alike)
-  circle(c, 572, 54, 19, '#fff4cc');
-  c.fillStyle = titleSkyGradient(c);
-  c.beginPath(); c.arc(581, 48, 17, 0, TAU); c.fill();
   glow(c, 572, 54, 64, '#fff2c0', 0.16);
   // soft clouds low on the horizon
   for (let i = 0; i < 6; i++) {
     const x = 40 + i * 118 + rnd(i, 341) * 30, y = 196 + (i % 2) * 9;
     cloud(c, x, y, 64 + rnd(i, 342) * 34, '#54417c', '#47366c');
-    c.fillStyle = rgba('#b08ac0', 0.35);
-    c.beginPath(); c.ellipse(x - 6, y - 8, 14, 2, 0, 0, TAU); c.fill();
   }
 }
 
@@ -2558,28 +2557,28 @@ function mapTower(c: Ctx, m: MapInk): void {
 }
 
 function mapLab(c: Ctx, m: MapInk): void {
-  room(c, m, 40, 40, 560, 280);
+  room(c, m, 40, 56, 536, 264);
   c.strokeStyle = m.ink; c.lineWidth = 2;
   c.beginPath();
-  c.moveTo(200, 40); c.lineTo(200, 140); c.moveTo(200, 170); c.lineTo(200, 320);
-  c.moveTo(440, 40); c.lineTo(440, 200); c.moveTo(440, 230); c.lineTo(440, 320);
+  c.moveTo(200, 56); c.lineTo(200, 140); c.moveTo(200, 170); c.lineTo(200, 320);
+  c.moveTo(440, 56); c.lineTo(440, 200); c.moveTo(440, 230); c.lineTo(440, 320);
   c.moveTo(200, 200); c.lineTo(300, 200); c.moveTo(330, 200); c.lineTo(440, 200);
   c.stroke();
   // tanks
-  for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(240 + i * 50, 100, 16, 0, TAU); c.fillStyle = m.fill; c.fill(); c.strokeStyle = m.ink; c.lineWidth = 1.5; c.stroke(); c.beginPath(); c.arc(240 + i * 50, 100, 6, 0, TAU); c.strokeStyle = m.faint; c.stroke(); }
+  for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(240 + i * 50, 106, 16, 0, TAU); c.fillStyle = m.fill; c.fill(); c.strokeStyle = m.ink; c.lineWidth = 1.5; c.stroke(); c.beginPath(); c.arc(240 + i * 50, 106, 6, 0, TAU); c.strokeStyle = m.faint; c.stroke(); }
   // pipe runs
   c.strokeStyle = m.faint; c.lineWidth = 3;
-  c.beginPath(); c.moveTo(40, 160); c.lineTo(180, 160); c.lineTo(180, 100); c.lineTo(224, 100); c.moveTo(356, 100); c.lineTo(520, 100); c.lineTo(520, 300); c.stroke();
+  c.beginPath(); c.moveTo(40, 160); c.lineTo(180, 160); c.lineTo(180, 106); c.lineTo(224, 106); c.moveTo(356, 106); c.lineTo(520, 106); c.lineTo(520, 244); c.stroke();
   // server racks
-  for (let i = 0; i < 5; i++) room(c, m, 460 + i * 26, 250, 18, 50);
+  for (let i = 0; i < 5; i++) room(c, m, 452 + i * 24, 250, 16, 50);
   // hazard zone
   hatch(c, m, 60, 220, 120, 80, 6);
   c.strokeStyle = m.accent; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.strokeRect(60, 220, 120, 80); c.setLineDash([]);
   label(c, m, 'TANK ROOM', 290, 150);
   label(c, m, 'HAZARD', 120, 210);
-  label(c, m, 'SERVERS', 528, 236);
+  label(c, m, 'SERVERS', 508, 236);
   label(c, m, 'ROBOT BAY', 320, 270);
-  label(c, m, 'LOADING', 120, 60);
+  label(c, m, 'LOADING', 120, 74);
 }
 
 function mapAnim(c: Ctx, p: Pal, t: number): void {
