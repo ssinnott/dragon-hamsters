@@ -11,13 +11,13 @@
 // briefing, T type chart, Esc back.
 import { drawText, measureText } from '../../lib/engine/text.ts';
 import {
-  getMission, getMissionType, getOrg, getSpecies, getType, getVillain, isFood,
+  getMission, getMissionType, getOrg, getSpecies, getVillain, isFood,
 } from '../../data/index.ts';
-import type { MissionId, MissionNode, MissionTypeId, TypeId, VillainId } from '../../data/schema.ts';
+import type { MissionId, MissionNode, TypeId, VillainId } from '../../data/schema.ts';
 import { canLaunch, intelTypes, startMission } from '../../game/missions.ts';
 import { dragonName, dragonStats, dragonTypes, findDragon } from '../../game/dragons.ts';
 import { MISSION_ENERGY, SQUAD_SIZE, type OwnedDragon } from '../../game/types.ts';
-import { counterTypes, intelGrade } from '../../battle/matchup.ts';
+import { GRADE_LABELS, counterTypes, intelGrade } from '../../battle/matchup.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { sfx, music } from '../../audio/index.ts';
 import { app } from '../app.ts';
@@ -25,9 +25,12 @@ import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import {
   ButtonGroup, ScrollList, Typewriter, UI, VIEW_W, drawBar, drawHpBar, drawInset, drawPanel, drawSelection, drawStars,
-  drawTypeBadge, drawTypeBadges, drawTypewriter, fillRoundRect, hit, tint, wrapText, type Button, type Rect,
+  drawTypeBadge, drawTypeBadges, drawTypewriter, fillRoundRect, hit, tint, typeBadgeWidth, typeBadgesWidth, wrapText,
+  type Button, type Rect,
 } from '../widgets.ts';
-import { drawCoinIcon, drawFoodIcon, drawItemIcon, drawOrgEmblem } from '../icons.ts';
+import {
+  MISSION_TYPE_COLOR, blitSprite, drawCoinIcon, drawFoodIcon, drawItemIcon, drawMissionTypeIcon, drawOrgEmblem, pixelSprite,
+} from '../icons.ts';
 import { CHIEF_PORTRAIT_SIZE, drawChiefPortrait } from '../chief.ts';
 
 type Ctx = CanvasRenderingContext2D;
@@ -36,73 +39,6 @@ const INK = UI.ink;
 // ---------------------------------------------------------------------------------------------
 // Pixel icons (fill masks; an ink outline is added around each)
 // ---------------------------------------------------------------------------------------------
-
-const spriteCache = new Map<string, HTMLCanvasElement>();
-
-function pixelSprite(key: string, rows: readonly string[], pal: Record<string, string>): HTMLCanvasElement {
-  const hitC = spriteCache.get(key);
-  if (hitC) return hitC;
-  const h = rows.length;
-  const w = Math.max(...rows.map((r) => r.length));
-  const c = document.createElement('canvas');
-  c.width = w + 2; c.height = h + 2;
-  const g = c.getContext('2d') as Ctx;
-  const on = (x: number, y: number): boolean => y >= 0 && y < h && x >= 0 && x < rows[y].length && rows[y][x] !== '.';
-  g.fillStyle = INK;
-  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
-    if (on(x, y)) continue;
-    if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < rows[y].length; x++) {
-    const ch = rows[y][x];
-    if (ch === '.') continue;
-    g.fillStyle = pal[ch] ?? INK;
-    g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  spriteCache.set(key, c);
-  return c;
-}
-
-function blitSprite(ctx: Ctx, s: HTMLCanvasElement, cx: number, cy: number, scale = 1): void {
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(s, Math.round(cx - (s.width * scale) / 2), Math.round(cy - (s.height * scale) / 2), s.width * scale, s.height * scale);
-}
-
-const TYPE_ICONS: Record<MissionTypeId, { rows: string[]; pal: Record<string, string>; color: string }> = {
-  retrieve: {
-    rows: ['..lllllll..', '.wllllllcb.', 'wwlllllllcb', 'ddddddddddd', '.lllllcccb.', '..llllccb..', '...lllcb...', '....lcb....', '.....b.....'],
-    pal: { w: '#ffffff', l: '#a8ecff', c: '#52bde8', b: '#2f7cc0', d: '#2a5f9e' },
-    color: '#2a6aa8',
-  },
-  rescue: {
-    rows: ['.rrr...rrr.', 'rwwrr.rrrrr', 'rwrrrrrrrrr', 'rrrrrrrrrrd', '.rrrrrrrrd.', '..rrrrrrd..', '...rrrrd...', '....rrd....', '.....d.....'],
-    pal: { r: '#ef5a6f', w: '#ffd0d8', d: '#b8344a' },
-    color: '#c23a52',
-  },
-  sabotage: {
-    rows: ['.........y.', '........yoy', '.......f.y.', '......cc...', '...ddddd...', '..ddddddd..', '.dhhdddddd.', '.dhddddddd.',
-      '.ddddddddd.', '.ddddddddd.', '.ddddddddd.', '..ddddddd..', '...ddddd...'],
-    pal: { d: '#4a4262', h: '#a49ec0', c: '#9a9aa8', f: '#c89a5a', y: '#ffd84a', o: '#ff7a2a' },
-    color: '#c45a1c',
-  },
-  infiltrate: {
-    rows: ['.hhmm...hhmm.', 'mmmmmmmmmmmmm', 'mm..mmmmm..mm', 'mm..mmmmm..mm', 'mmmmmm.mmmmmm', '.mmmm...mmmm.'],
-    pal: { m: '#5a4a80', h: '#9584c0' },
-    color: '#5a3f8a',
-  },
-  defend: {
-    rows: ['ggggggggggg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'ggggggggggg', 'gbbbbgwwwwg', 'gbbbbgwwwwg', '.gbbbgwwwg.',
-      '..gbbgwwg..', '...ggggg...', '....ggg....', '.....g.....'],
-    pal: { g: '#e8b83a', w: '#f4f0e8', b: '#4f8fe0' },
-    color: '#2f8a3e',
-  },
-};
-
-function drawMissionTypeIcon(ctx: Ctx, type: MissionTypeId, cx: number, cy: number, scale = 1): void {
-  const ic = TYPE_ICONS[type];
-  if (!ic) return;
-  blitSprite(ctx, pixelSprite('mt|' + type, ic.rows, ic.pal), cx, cy, scale);
-}
 
 const TARGET_ROWS = ['..rrrrr..', '.rwwwwwr.', 'rwrrrrrwr', 'rwrwwwrwr', 'rwrwrwrwr', 'rwrwwwrwr', 'rwrrrrrwr', '.rwwwwwr.', '..rrrrr..'];
 const BOLT_ROWS = ['..yyy', '.yyy.', '.yy..', 'yyyyy', '..yy.', '.yy..', '.y...'];
@@ -224,7 +160,6 @@ export function createBriefingScene(missionId: MissionId): Scene {
   const addedAt = new Map<string, number>();
   let shake = { id: '', t: 0 };
   let launched = false;
-  let pressRow = -1, pressScroll = 0;
 
   // --- Chief's briefing, paged to fit the box -----------------------------------------------
   const fast = app.state.settings?.fastText !== false;
@@ -269,6 +204,8 @@ export function createBriefingScene(missionId: MissionId): Scene {
     rowH: ROW_H,
     items: () => dragons,
     drawRow: (ctx, d, r, selected, hovered) => drawRow(ctx, d, r, selected, hovered),
+    // a click (not a drag) toggles the dragon in or out of the squad
+    onClick: (d) => { zone = 'list'; toggle(d); },
     empty: 'No dragons in the burrow yet!',
   });
   list.keyboard = false;
@@ -338,7 +275,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
     addedAt.set(d.id, time);
     sfx('select');
     const g = gradeOf.get(d.id) ?? 2;
-    say(g === 3 ? `${name} is a great pick for this case!` : g === 1 ? `${name} joins in, but this gang could give them trouble.` : `${name} is ready to go!`);
+    say(g === 3 ? `${GRADE_LABELS[3]} ${name} is a great pick for this case!` : g === 1 ? `${GRADE_LABELS[1]}: ${name} joins in, but this gang could give them trouble.` : `${GRADE_LABELS[2]}: ${name} is ready to go!`);
   }
 
   function autoPick(): void {
@@ -364,13 +301,6 @@ export function createBriefingScene(missionId: MissionId): Scene {
   }
 
   // --- input --------------------------------------------------------------------------------
-  function rowAt(px: number, py: number): number {
-    const bar = dragons.length * ROW_H > LIST.h;
-    if (!hit(LIST, px, py) || px >= LIST.x + LIST.w - (bar ? 9 : 0)) return -1;
-    const i = Math.floor((py - LIST.y + list.scroll) / ROW_H);
-    return i >= 0 && i < dragons.length ? i : -1;
-  }
-
   function handleList(input: Input): void {
     const n = dragons.length;
     if (!n) { zone = 'buttons'; return; }
@@ -422,23 +352,9 @@ export function createBriefingScene(missionId: MissionId): Scene {
         }
       }
 
-      // list rows: a click (not a drag) toggles the dragon
-      if (p.pressed) {
-        pressRow = rowAt(p.x, p.y);
-        pressScroll = list.scroll;
-        if (pressRow >= 0) zone = 'list';
-      }
+      // list rows: a click (not a drag) toggles the dragon (the list's onClick)
+      if (p.pressed && hit(LIST, p.x, p.y)) zone = 'list';
       list.update(input);
-      if (p.released) {
-        const row = rowAt(p.x, p.y);
-        if (pressRow >= 0 && row === pressRow && Math.abs(list.scroll - pressScroll) < 3) {
-          list.selected = row;
-          toggle(dragons[row]);
-        }
-        pressRow = -1;
-      } else if (!p.down) {
-        pressRow = -1;
-      }
 
       // keyboard zones
       let groupKeys = zone === 'buttons';
@@ -534,7 +450,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
     drawInset(ctx, x + 6, y + 6, 36, h - 12, { fill: '#fff2d2' });
     drawMissionTypeIcon(ctx, def.type, x + 24, y + Math.floor(h / 2) - 1, 2);
     const name = `${mtype.name.toUpperCase()} MISSION`;
-    drawPixelText(ctx, name, x + 50, y + 7, TYPE_ICONS[def.type]?.color ?? UI.text);
+    drawPixelText(ctx, name, x + 50, y + 7, MISSION_TYPE_COLOR[def.type] ?? UI.text);
     const lines = twistLines.slice(0, 3);
     lines.forEach((l, i) => drawPixelText(ctx, l, x + 50, y + 19 + i * 10, UI.text));
   }
@@ -577,7 +493,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
       let gx = x + 10;
       const maxX = x + w - 10;
       for (const set of intel) {
-        const bw = set.reduce((a, t) => a + badgeW(t, true), 0) + (set.length - 1) * 2 + 6;
+        const bw = typeBadgesWidth(set, { small: true }) + 6;
         if (gx + bw > maxX) { gx = x + 10; cy += 16; }
         if (cy > y + h - 46) break;
         drawInset(ctx, gx, cy, bw, 15, { fill: '#ead6b0' });
@@ -598,7 +514,7 @@ export function createBriefingScene(missionId: MissionId): Scene {
     drawText(ctx, 'BRING:', x + 12, by + 3, { color: '#3e7a32', shadow: false });
     let bx = x + 12 + measureText('BRING:') + 6;
     for (const t of counters) {
-      const bw = badgeW(t, false);
+      const bw = typeBadgeWidth(t);
       if (bx + bw > x + w - 10) break;
       drawTypeBadge(ctx, t, bx, by);
       bx += bw + 3;
@@ -619,12 +535,6 @@ export function createBriefingScene(missionId: MissionId): Scene {
     try { return getVillain(id); } catch { return null; }
   }
 
-  function badgeW(t: TypeId, small: boolean): number {
-    // drawTypeBadge's width formula, without drawing
-    const iconBox = small ? 7 : 9, gap = small ? 2 : 3, padR = small ? 4 : 5;
-    const nm = typeName(t);
-    return 1 + 2 + iconBox + gap + measureText(nm) + padR + 1;
-  }
 
   function drawSquadPanel(ctx: Ctx): void {
     const r = SQUAD_PANEL;
@@ -774,6 +684,3 @@ export function createBriefingScene(missionId: MissionId): Scene {
   }
 }
 
-function typeName(t: TypeId): string {
-  try { return getType(t).name; } catch { return t; }
-}

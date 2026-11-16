@@ -371,6 +371,38 @@ test('matchup grades, intel and counter types', () => {
   eq(M.intelGrade(['FIRE'], ['test-flame'], [['LEAF'], ['FROST'], ['FLUFF']]), 3, 'intel average (3, 3, 2) rounds to 3');
   eq(M.intelGrade(['FIRE'], ['test-flame'], [['LEAF'], ['FROST'], ['WATER']]), 2, 'intel average (3, 3, 1) rounds to 2');
   eq(M.intelGrade(['FIRE'], ['test-flame'], []), 2, 'no intel');
+  // Resisted both ways is even, whatever neutral coverage it carries (battle-03-swap: Puddlepaw vs Soaker Bot).
+  eq(M.matchupGrade(['WATER'], ['test-water'], ['WATER']), 2, 'WATER vs WATER: STAB only');
+  eq(M.matchupGrade(['WATER'], ['test-tackle', 'test-water'], ['WATER']), 2, 'WATER vs WATER: neutral coverage is not enough');
+  eq(M.matchupGrade(['WATER'], ['test-tackle', 'test-water', 'test-drain'], ['WATER']), 3, 'WATER vs WATER with a super-effective LEAF move');
+  eq(M.matchupGrade(['FIRE'], ['test-flame'], ['FIRE']), 2, 'mirror match');
+  // Resisting their STAB while your own STAB lands neutrally is favourable.
+  eq(M.matchupGrade(['METAL'], [], ['FLUFF']), 3, 'METAL resists FLUFF and hits it neutrally');
+  eq(M.matchupGrade(['FLUFF'], [], ['METAL']), 2, '...and the other way round is only even');
+  // Hit super-effectively with nothing super-effective back: 1, even with a neutral STAB.
+  eq(M.matchupGrade(['EARTH'], [], ['WATER']), 1, 'EARTH vs WATER');
+  // Two-way super-effective is even.
+  eq(M.matchupGrade(['FIRE'], ['test-flame'], ['LEAF', 'EARTH']), 2, 'SE both ways');
+  // Can't touch them at all.
+  eq(M.matchupGrade(['FLUFF'], ['test-spark'], ['EARTH']), 1, 'only immune moves');
+  eq(M.matchupGrade(['FLUFF'], ['test-fixed-level'], ['FLUFF']), 2, 'fixed damage counts as neutral');
+  const parts = M.matchupParts(['WATER'], ['test-tackle', 'test-water'], ['WATER']);
+  eq(parts, { offence: 1, stab: 0.5, defence: 0.5 }, 'matchupParts');
+  // Over every pair of single types (STAB only): never 3 stars both ways, and 3 vs 1 mirror each other.
+  for (const a of TYPE_IDS) {
+    for (const b of TYPE_IDS) {
+      const ab = M.matchupGrade([a], [], [b]);
+      const ba = M.matchupGrade([b], [], [a]);
+      check(!(ab === 3 && ba === 3), `${a} and ${b} are not both 3 stars`);
+      if (M.typeEffectiveness(b, [a]) < 1 && M.typeEffectiveness(a, [b]) < 1) check(ab === 2 && ba === 2, `${a}/${b} resist each other: even`);
+      if (ab === 1) check(ba !== 1, `${a}/${b}: not both 1 star`);
+    }
+  }
+  // intelGrade of one set is that set's grade.
+  for (const foe of [['LEAF'], ['WATER'], ['FLUFF'], ['FROST', 'ROCK']] as TypeId[][]) {
+    eq(M.intelGrade(['FIRE'], ['test-flame'], [foe]), M.matchupGrade(['FIRE'], ['test-flame'], foe), `intel of one set: ${foe}`);
+  }
+  eq(M.GRADE_LABELS[3], 'GREAT MATCHUP!', 'grade label');
   const c = M.counterTypes(['FIRE']);
   check(c.length > 0 && c.length <= 4, 'counter list size');
   check(c.every((t) => M.typeEffectiveness(t, ['FIRE']) > 1), `counters hit FIRE super-effectively: ${c}`);
@@ -874,6 +906,10 @@ test('trap: STUCK until the trapper leaves', () => {
   check(has(evs, "TESTBLOB CAN'T ESCAPE NOW!"), 'trap line');
   // The trapper fainted right after (the player's tackle), which frees the player.
   eq(P(st).volatile.stuck, false, 'freed when the trapper faints');
+  const vol = evs.filter((e) => e.t === 'volatile' && e.uid === 'p0') as Extract<BattleEvent, { t: 'volatile' }>[];
+  eq(vol.map((e) => e.stuck), [true, false], 'volatile events: stuck, then released');
+  const faintAt = evs.findIndex((e) => e.t === 'faint' && e.uid === 'e0');
+  check(faintAt >= 0 && evs.indexOf(vol[1]) > faintAt, 'released after the trapper faints');
   const st2 = mk({ p: [{ moves: ['test-wait'] }, {}], e: [{ moves: ['test-trap'] }, {}], setup: slow });
   evs = submitTurn(st2, mvA());
   eq(P(st2).volatile.stuck, true, 'stuck');
@@ -939,6 +975,7 @@ test('seed: 1/8 drain to the opposing active; LEAF is immune', () => {
   let st = mk({ p: [{ moves: ['test-seed'] }], setup: (s) => { fast(s); s.player.team[0].hp = 10; } });
   const evs = submitTurn(st, mvA());
   eq(E(st).volatile.seeded, true, 'seeded');
+  check(evs.some((e) => e.t === 'volatile' && e.uid === 'e0' && e.seeded && !e.stuck), 'volatile event for SEEDED');
   const sap = dmgTo(evs, 'e0').find((d) => d.source === 'seed');
   eq(sap?.amount, Math.floor(E(st).stats.hp / 8), '1/8');
   const gain = evs.find((e) => e.t === 'heal' && e.uid === 'p0') as Extract<BattleEvent, { t: 'heal' }>;
@@ -1416,6 +1453,24 @@ test('every MoveEffect and AbilityEffect kind is exercised', () => {
 // ---------------------------------------------------------------------------------------------
 
 setChart(REAL_CHART);
+
+test('matchup grades on the real chart and content', () => {
+  // The screenshot case: Puddlepaw (WATER) at LV10 against a Soaker Bot (WATER).
+  const pud = getSpecies('puddlepaw');
+  const soaker = VILLAINS['soaker-bot'];
+  check(!!pud && !!soaker, 'puddlepaw and soaker-bot exist');
+  const g = M.matchupGrade(pud.types, defaultMoves(pud.learnset, 10), soaker.types);
+  check(g <= 2, `Puddlepaw vs Soaker Bot is at most 2 stars (got ${g})`);
+  // Every starter: STAB-only against the starter it beats is 3, against the one that beats it 1.
+  const tri: TypeId[] = ['FIRE', 'LEAF', 'WATER'];
+  tri.forEach((t, i) => {
+    const prey = tri[(i + 1) % 3];
+    const pred = tri[(i + 2) % 3];
+    eq(M.matchupGrade([t], [], [prey]), 3, `${t} vs ${prey}`);
+    eq(M.matchupGrade([t], [], [pred]), 1, `${t} vs ${pred}`);
+    eq(M.matchupGrade([t], [], [t]), 2, `${t} mirror`);
+  });
+});
 
 const FONT_OK = /^[A-Z0-9 .,:;!?'"\-+/()%><&=*[\]#@$_▶♥←→↑↓★]+$/;
 

@@ -11,7 +11,7 @@ import { drawText, measureText } from '../../lib/engine/text.ts';
 import { getLocation, getMission, getSpecies, getVillain } from '../../data/index.ts';
 import type { MissionNode, VillainDef } from '../../data/schema.ts';
 import {
-  abandonMission, advance, applyRest, chooseBranch, completeMission, currentNode, type MissionRun,
+  abandonMission, advance, applyRest, bossSupercharge, chooseBranch, completeMission, currentNode, type MissionRun,
 } from '../../game/missions.ts';
 import { dragonName, dragonStats, findDragon } from '../../game/dragons.ts';
 import { drawMapBackdrop } from '../../art/backdrops.ts';
@@ -24,7 +24,9 @@ import {
   ButtonGroup, UI, VIEW_W, drawHpBar, drawPanel, drawStatusBadge, drawTypeBadges, fillRoundRect, tint, wrapText,
   type Button, type Rect,
 } from '../widgets.ts';
-import { drawOrgEmblem } from '../icons.ts';
+import {
+  MISSION_NODE_FILL, blitSprite, drawOrgEmblem, drawTickIcon, missionNodeSprite, type MissionNodeKind,
+} from '../icons.ts';
 
 type Ctx = CanvasRenderingContext2D;
 const INK = UI.ink;
@@ -33,72 +35,7 @@ const INK = UI.ink;
 // Pixel icons (fill masks; an ink outline is added around each)
 // ---------------------------------------------------------------------------------------------
 
-const spriteCache = new Map<string, HTMLCanvasElement>();
-
-function pixelSprite(key: string, rows: readonly string[], pal: Record<string, string>): HTMLCanvasElement {
-  const hitC = spriteCache.get(key);
-  if (hitC) return hitC;
-  const h = rows.length;
-  const w = Math.max(...rows.map((r) => r.length));
-  const c = document.createElement('canvas');
-  c.width = w + 2; c.height = h + 2;
-  const g = c.getContext('2d') as Ctx;
-  const on = (x: number, y: number): boolean => y >= 0 && y < h && x >= 0 && x < rows[y].length && rows[y][x] !== '.';
-  g.fillStyle = INK;
-  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
-    if (on(x, y)) continue;
-    if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < rows[y].length; x++) {
-    const ch = rows[y][x];
-    if (ch === '.') continue;
-    g.fillStyle = pal[ch] ?? INK;
-    g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  spriteCache.set(key, c);
-  return c;
-}
-
-function blitSprite(ctx: Ctx, s: HTMLCanvasElement, cx: number, cy: number, scale = 1): void {
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(s, Math.round(cx - (s.width * scale) / 2), Math.round(cy - (s.height * scale) / 2), s.width * scale, s.height * scale);
-}
-
-type NodeKind = MissionNode['kind'];
-
-const CLAWS = ['c...........c', 'cc.........cc', '.cc.......cc.', '.scc.....ccs.', '..scc...ccs..', '...scc.ccs...', '....sckcs....',
-  '...ccs.scc...', '..ccs...scc..', '.bbb.....bbb.', 'bbbb.....bbbb', '.bb.......bb.'];
-const CROWN = ['y.....y.....y', 'yy...yyy...yy', 'yyy.yyyyy.yyy', 'yhhyyyyyyyyyy', 'yyyyyyyyyyyyy', 'yyryyybyyyryy', 'yyyyyyyyyyyyy', 'ddddddddddddd'];
-const FIRE_A = ['......o......', '.....oo......', '.....ooo.....', '....ooyo.....', '....oyyoo....', '...ooyyyo....', '...oyywyoo...',
-  '...oywwyyo...', '....owwyo....', 'll.lllllll.ll', 'llllLLLLLllll', '.ll.......ll.'];
-const FIRE_B = ['.......o.....', '......oo.....', '.....ooo.....', '.....oyoo....', '....ooyyo....', '....oyyyoo...', '...ooyywyo...',
-  '...oyywwyo...', '....oywwo....', 'll.lllllll.ll', 'llllLLLLLllll', '.ll.......ll.'];
-const SIGN = ['......p......', '.wwwwwwwwww..', 'wwwwwwwwwww..', '.wwwwwwwwww..', '......p......', '..wwwwwwwwww.', '..wwwwwwwwwww',
-  '..wwwwwwwwww.', '......p......', '......p......', '......p......', '.....ppp.....'];
-const SCROLL = ['.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.', '..ppppppppp..', '..plllllllp..', '..ppppppppp..', '..pllllllpp..',
-  '..ppppppppp..', '.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.'];
-const TICK = ['......g', '.....gg', 'g...gg.', 'gg.gg..', '.ggg...', '..g....'];
-
-const ICON_PAL: Record<string, string> = {
-  c: '#fff0d6', s: '#c8b49a', b: '#8a5a3c', k: INK,
-  y: '#f6c63c', h: '#fff0a0', r: '#e04f45', d: '#b8781e',
-  o: '#f0702a', w: '#fff3c8', l: '#8a5a3c', L: '#5e3a24',
-  p: '#8a5a3c', g: '#5cd34f', f: '#e04f45',
-};
-
-function nodeIcon(kind: NodeKind, t: number): HTMLCanvasElement {
-  switch (kind) {
-    case 'battle': return pixelSprite('n|claws', CLAWS, ICON_PAL);
-    case 'boss': return pixelSprite('n|crown', CROWN, { ...ICON_PAL, b: '#4f9be0' });
-    case 'rest': return Math.floor(t * 5) % 2 ? pixelSprite('n|fireA', FIRE_A, { ...ICON_PAL, y: '#ffd84a', w: '#fffbe8' }) : pixelSprite('n|fireB', FIRE_B, { ...ICON_PAL, y: '#ffd84a', w: '#fffbe8' });
-    case 'branch': return pixelSprite('n|sign', SIGN, { ...ICON_PAL, w: '#f0cc84' });
-    default: return pixelSprite('n|scroll', SCROLL, { ...ICON_PAL, r: '#d8b07a', R: '#9a6e44', p: '#fff2d2', l: '#b0947a' });
-  }
-}
-
-const NODE_FILL: Record<NodeKind, string> = {
-  battle: '#e8603c', boss: '#9a3fb8', rest: '#4f9a5a', branch: '#4f8fe0', story: '#c89a4a',
-};
+type NodeKind = MissionNodeKind;
 
 // ---------------------------------------------------------------------------------------------
 // Layout
@@ -107,6 +44,8 @@ const NODE_FILL: Record<NodeKind, string> = {
 const TRAIL_X0 = 74, TRAIL_X1 = 584;
 const UP_Y = 104, DOWN_Y = 152;
 const ACTION: Rect = { x: 112, y: 214, w: 416, h: 46 };
+/** Each enemy line in the action panel; a panel with more than two grows upwards by this much per line. */
+const ENEMY_LINE_H = 13;
 const SQUAD_Y = 270;
 const cardRect = (i: number): Rect => ({ x: 10 + i * 210, y: SQUAD_Y, w: 200, h: 80 });
 
@@ -146,17 +85,15 @@ export function createMissionRunScene(run: MissionRun): Scene {
   // the trail's layout, animated when a branch splices in new stops
   let layoutFrom: Pt[] = [];
   let layoutT = 1;
-  const target = (): Pt[] => computeLayout(run.nodes.length, hasOpenBranch());
+  const target = (): Pt[] => computeLayout(run.nodes.length);
   let layout: Pt[] = target();
   walkTo = standAt(run.index);
 
   function hasOpenBranch(): boolean { return run.nodes.some((n) => n.kind === 'branch'); }
 
-  function computeLayout(n: number, open: boolean): Pt[] {
-    // with an unchosen branch the trail stops short and fades into a question mark
-    const slots = open ? n + 0.6 : n;
+  function computeLayout(n: number): Pt[] {
     const span = TRAIL_X1 - TRAIL_X0;
-    const step = slots > 1 ? span / (slots - 1) : 0;
+    const step = n > 1 ? span / (n - 1) : 0;
     const pts: Pt[] = [];
     for (let i = 0; i < n; i++) pts.push({ x: Math.round(n === 1 ? (TRAIL_X0 + TRAIL_X1) / 2 : TRAIL_X0 + i * step), y: i % 2 ? DOWN_Y : UP_Y });
     return pts;
@@ -467,7 +404,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
       }
       if (phase === 'rest') drawRestPanel(ctx);
       if (phase === 'branch') drawBranchPanel(ctx);
-      for (const b of group.buttons) b.draw(ctx, group.focused === b);
+      group.draw(ctx);
       fx.draw(ctx);
     },
   };
@@ -502,14 +439,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
     for (let i = 0; i + 1 < n; i++) drawSegment(ctx, nodePos(i), nodePos(i + 1), i + 1 <= run.index);
     // the lead-in from the left edge
     drawSegment(ctx, leadIn(), nodePos(0), true);
-    // an unchosen branch trails off into the unknown
-    if (hasOpenBranch() && n) {
-      const last = nodePos(n - 1);
-      const end = { x: Math.min(VIEW_W - 26, last.x + 56), y: last.y === UP_Y ? DOWN_Y : UP_Y };
-      drawSegment(ctx, last, end, false);
-      drawText(ctx, '?', end.x + 3, end.y - 7, { size: 2, color: UI.goldLight });
-    }
-    // nodes and labels
+    // nodes and labels (an unchosen branch carries its own '?')
     for (let i = 0; i < n; i++) drawNode(ctx, i);
   }
 
@@ -550,16 +480,18 @@ export function createMissionRunScene(run: MissionRun): Scene {
       ctx.strokeStyle = UI.focus; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, y, pr, 0, Math.PI * 2); ctx.stroke();
     }
-    const fill = done ? '#7a7088' : NODE_FILL[node.kind];
+    const fill = done ? '#7a7088' : MISSION_NODE_FILL[node.kind];
     disc(ctx, x, y, r + 1, INK);
     disc(ctx, x, y, r, tint(fill, -0.25));
     disc(ctx, x, y - 1, r - 1, fill);
     disc(ctx, x - 3, y - 4, Math.max(2, r - 9), tint(fill, 0.25));
     ctx.save();
     if (done) ctx.globalAlpha = 0.6;
-    blitSprite(ctx, nodeIcon(node.kind, time), x, y - 1);
+    blitSprite(ctx, missionNodeSprite(node.kind, time), x, y - 1);
     ctx.restore();
-    if (done) blitSprite(ctx, pixelSprite('tick', TICK, ICON_PAL), x + r - 3, y + r - 5);
+    if (done) drawTickIcon(ctx, x + r - 3, y + r - 5);
+    // an unchosen crossroads: the route ahead is a mystery until the squad picks one
+    if (node.kind === 'branch') drawQuestionBubble(ctx, x + r - 1, y - r + 1 + Math.round(Math.sin(time * 3 + i) * 1.5));
     // label: above for the high stops, below for the low ones
     const above = p.y <= (UP_Y + DOWN_Y) / 2;
     const maxW = Math.min(150, Math.max(60, spacing() * 2 - 14));
@@ -572,6 +504,13 @@ export function createMissionRunScene(run: MissionRun): Scene {
     lines.forEach((l, k) => drawText(ctx, l, lx + lw / 2, ly + 2 + k * 9, {
       color: current ? UI.goldLight : done ? '#a8a0b8' : UI.textLight, shadow: false, align: 'center',
     }));
+  }
+
+  function drawQuestionBubble(ctx: Ctx, cx: number, cy: number): void {
+    disc(ctx, cx, cy, 8, INK);
+    disc(ctx, cx, cy, 7, UI.gold);
+    disc(ctx, cx - 2, cy - 2, 2, UI.goldLight);
+    drawText(ctx, '?', cx, cy - 3, { color: INK, shadow: false, align: 'center' });
   }
 
   function spacing(): number {
@@ -610,15 +549,24 @@ export function createMissionRunScene(run: MissionRun): Scene {
     return Math.round(Math.sin(u * Math.PI) * 6);
   }
 
+  /** The action panel: taller (growing upwards) when more than two enemies wait at the stop. */
+  function actionRect(node: MissionNode): Rect {
+    const n = node.kind === 'battle' || node.kind === 'boss' ? node.encounter.enemies.length : 0;
+    const extra = Math.max(0, n - 2) * ENEMY_LINE_H;
+    return { x: ACTION.x, y: ACTION.y - extra, w: ACTION.w, h: ACTION.h + extra };
+  }
+
   function drawAction(ctx: Ctx): void {
     const node = currentNode(run);
     if (!node) return;
-    const r = ACTION;
+    const r = actionRect(node);
+    goBtn.spec.rect = { ...goBtn.spec.rect, y: Math.round(r.y + (r.h - goBtn.spec.rect.h) / 2) };
     drawPanel(ctx, r.x, r.y, r.w, r.h);
     // node token
-    disc(ctx, r.x + 23, r.y + 23, 15, INK);
-    disc(ctx, r.x + 23, r.y + 23, 14, NODE_FILL[node.kind]);
-    blitSprite(ctx, nodeIcon(node.kind, time), r.x + 23, r.y + 22);
+    const ty = Math.round(r.y + r.h / 2);
+    disc(ctx, r.x + 23, ty, 15, INK);
+    disc(ctx, r.x + 23, ty, 14, MISSION_NODE_FILL[node.kind]);
+    blitSprite(ctx, missionNodeSprite(node.kind, time), r.x + 23, ty - 1);
     const tx = r.x + 46;
     const head: Record<NodeKind, string> = {
       battle: 'NEXT: ', boss: 'SHOWDOWN: ', rest: 'REST STOP: ', branch: 'CROSSROADS: ', story: 'NEXT: ',
@@ -626,20 +574,27 @@ export function createMissionRunScene(run: MissionRun): Scene {
     const maxW = goBtn.spec.rect.x - tx - 8;
     const headTxt = wrapText(head[node.kind] + node.label.toUpperCase(), maxW)[0] ?? '';
     drawText(ctx, headTxt, tx, r.y + 9, { color: node.kind === 'boss' ? '#9a2f9a' : UI.text, shadow: false });
+    // a rushed sabotage: the gadget has powered the boss up (shown on the header line, where it fits)
+    const stages = bossSupercharge(run, node);
+    if (stages) {
+      const px = tx + measureText(headTxt) + 8;
+      const tag = ['BOSS POWERED UP!', 'POWERED UP!', '↑'].find((t) => px + measureText(t) <= tx + maxW) ?? '';
+      drawText(ctx, tag, px, r.y + 9, { color: '#c45a1c', shadow: false });
+    }
     let detail = '';
     if (node.kind === 'battle' || node.kind === 'boss') {
-      // who is waiting there, one per line with their types: pick your lead accordingly
-      const enemies = node.encounter.enemies.slice(0, 2);
+      // who is waiting there, one per line with their types: pick your lead accordingly (every one
+      // of them: a boss fight's boss comes last, so it must never be cut off)
+      const enemies = node.encounter.enemies;
       enemies.forEach((e, k) => {
         const v = villainOf(e.villain);
         if (!v) return;
-        const y = r.y + 19 + k * 13;
+        const y = r.y + 19 + k * ENEMY_LINE_H;
         const isBoss = node.kind === 'boss' && k === enemies.length - 1;
         const nm = `${v.name.toUpperCase()} LV${e.level}`;
         drawText(ctx, nm, tx, y + 2, { color: isBoss ? '#9a2f9a' : UI.textDim, shadow: false });
-        let bx = tx + measureText(nm) + 4;
-        bx += drawTypeBadges(ctx, v.types, bx, y, { small: true }) + 4;
-        if (isBoss && node.supercharge) drawText(ctx, 'POWERED UP!', bx, y + 2, { color: '#c45a1c', shadow: false });
+        const bx = tx + measureText(nm) + 4;
+        drawTypeBadges(ctx, v.types, bx, y, { small: true });
       });
     } else if (node.kind === 'rest') {
       detail = `A cosy spot to heal up (${Math.round(Math.min(1, node.heal) * 100)}% HP).`;
@@ -700,7 +655,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
   function drawRestPanel(ctx: Ctx): void {
     const r = restPanelRect();
     drawPanel(ctx, r.x, r.y, r.w, r.h, { title: 'REST STOP', fill: UI.panelLight });
-    const ic = nodeIcon('rest', time);
+    const ic = missionNodeSprite('rest', time);
     blitSprite(ctx, ic, r.x + 22, r.y + 22, 2);
     const node = currentNode(run);
     drawText(ctx, (node?.label ?? 'REST').toUpperCase(), r.x + 44, r.y + 14, { size: 1, color: UI.text, shadow: false });
@@ -712,7 +667,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
     if (!node) return;
     const r = branchPanelRect();
     drawPanel(ctx, r.x, r.y, r.w, r.h, { title: 'CHOOSE YOUR ROUTE', fill: UI.panelLight });
-    blitSprite(ctx, nodeIcon('branch', time), r.x + 22, r.y + 26, 2);
+    blitSprite(ctx, missionNodeSprite('branch', time), r.x + 22, r.y + 26, 2);
     drawText(ctx, node.label.toUpperCase(), r.x + 46, r.y + 12, { color: UI.text, shadow: false });
     wrapText(node.text.toUpperCase(), r.w - 60).slice(0, 2).forEach((l, k) => drawText(ctx, l, r.x + 46, r.y + 25 + k * 10, { color: UI.textDim, shadow: false }));
     drawText(ctx, 'PRESS 1 OR 2, OR TAP A ROUTE', r.x + r.w / 2, r.y + r.h - 15, { color: UI.textDim, shadow: false, align: 'center' });

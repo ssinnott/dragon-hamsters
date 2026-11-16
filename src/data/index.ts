@@ -11,7 +11,7 @@ import { ABILITIES } from './abilities.ts';
 import { PERSONALITIES } from './personalities.ts';
 import { FOODS, ITEMS } from './items.ts';
 import { ACTIVITIES } from './activities.ts';
-import { SPECIES } from './species.ts';
+import { SPECIES, STARTERS } from './species.ts';
 import { ORGS, VILLAINS } from './villains.ts';
 import { MISSION_TYPES, LOCATIONS, MISSIONS } from './missions.ts';
 
@@ -50,6 +50,6 @@ export const MISSIONS_IN_ORDER: readonly MissionDef[] = [...MISSIONS].sort(
 
 export {
   CHART, effectiveness, TYPE_CYCLES, TYPE_CYCLE_NAMES,
-  TYPES, MOVES, ABILITIES, PERSONALITIES, FOODS, ITEMS, ACTIVITIES, SPECIES, ORGS, VILLAINS,
+  TYPES, MOVES, ABILITIES, PERSONALITIES, FOODS, ITEMS, ACTIVITIES, SPECIES, STARTERS, ORGS, VILLAINS,
   MISSION_TYPES, LOCATIONS, MISSIONS,
 };

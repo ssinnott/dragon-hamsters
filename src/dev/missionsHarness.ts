@@ -11,7 +11,7 @@ import { MISSIONS_IN_ORDER, getMission } from '../data/index.ts';
 import * as missions from '../game/missions.ts';
 import * as dragons from '../game/dragons.ts';
 import { app } from '../ui/app.ts';
-import type { GameState } from '../game/types.ts';
+import { TUTORIAL_FLAGS, type GameState } from '../game/types.ts';
 
 const q = new URLSearchParams(location.search);
 const sceneName = q.get('scene') ?? 'board';
@@ -25,7 +25,7 @@ const missionId = q.get('mission') ?? MISSIONS_IN_ORDER[Math.min(progress, MISSI
 
 function setup(s: GameState): void {
   MISSIONS_IN_ORDER.slice(0, progress).forEach((m, i) => { s.missions[m.id] = { clears: i === 0 ? 3 : 1, firstClearDay: 1 }; });
-  if (q.get('tutorial') === '1') s.flags.boardTutorial = false;
+  if (q.get('tutorial') === '1') s.flags[TUTORIAL_FLAGS.board] = false;
   const sq = q.get('squad');
   if (sq === 'tired') {
     s.dragons[1].needs.energy = 10;

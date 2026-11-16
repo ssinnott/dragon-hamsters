@@ -9,7 +9,7 @@
 // head-and-shoulders crop for dialog boxes.
 import type { DragonVisual } from '../data/schema.ts';
 import {
-  INK, addCirc, addEll, drawDragon, enterLocal, hash01, ink, outlinePx, poseState, strokeLine,
+  INK, addCirc, addEll, dragonHeadGeo, drawDragon, enterLocal, ink, outlinePx, poseState, strokeLine,
   type CreatureFrame, type Pose,
 } from '../art/dragon.ts';
 import { UI, fillRoundRect, tint } from './widgets.ts';
@@ -39,32 +39,6 @@ export const CHIEF_PORTRAIT_SIZE = 64;
 const PATCH = '#2a2232';
 const STRAP = '#3a3044';
 
-// The renderer's head geometry for a visual (mirrors dgeo() in src/art/dragon.ts, which is not
-// exported). Only the numbers the overlay needs.
-interface HeadGeo { hx: number; hy: number; hr: number; eyeRy: number; phase: number }
-
-let geoCache: HeadGeo | null = null;
-
-function headGeo(v: DragonVisual): HeadGeo {
-  if (geoCache && v === CHIEF_VISUAL) return geoCache;
-  const b = Math.max(0, Math.min(1, v.build));
-  const f = Math.max(0, Math.min(1, (v.size - 0.7) / 0.8));
-  const brx = 12.6 + 2.6 * f + 4.0 * b;
-  const bry = 11.6 + 1.0 * f - 1.6 * b;
-  const bx = -2 - 1.6 * b;
-  const by = -(bry + 1.3 + 0.9 * b);
-  const hr = 11.3 - 1.3 * f - 0.4 * b;
-  const g: HeadGeo = {
-    hx: bx + brx * 0.56 + 1.6 * b,
-    hy: by - bry * 0.6 - hr * 0.48 - 1.6 * b,
-    hr,
-    eyeRy: hr * (0.31 - 0.05 * f),
-    phase: hash01([v.body, v.belly, v.accent, v.wing, v.size, v.build, v.wings, v.horns, v.tail]),
-  };
-  if (v === CHIEF_VISUAL) geoCache = g;
-  return g;
-}
-
 export interface ChiefOpts {
   /** 1 faces right (default), -1 faces left. */
   facing?: 1 | -1;
@@ -86,7 +60,7 @@ export function drawChief(ctx: Ctx, x: number, y: number, scale: number, t: numb
   const alpha = opts.alpha ?? 1;
   drawDragon(ctx, v, x, y, { scale, t, facing, pose, poseT, alpha });
 
-  const G = headGeo(v);
+  const G = dragonHeadGeo(v);
   const st = poseState(pose, t, poseT, G.phase);
   if (st.fade * alpha <= 0.004) return;
   const S = scale * v.size;
@@ -179,7 +153,7 @@ export function drawChiefPortrait(ctx: Ctx, x: number, y: number, t: number, tal
   ctx.fillStyle = 'rgba(160, 90, 40, 0.13)';
   for (let sx = ix + 3; sx < ix + iw; sx += 8) ctx.fillRect(sx, iy, 3, ih);
   const scale = 1.2;
-  const G = headGeo(CHIEF_VISUAL);
+  const G = dragonHeadGeo(CHIEF_VISUAL);
   const headX = G.hx * CHIEF_VISUAL.size * scale;
   const headY = G.hy * CHIEF_VISUAL.size * scale;
   drawChief(ctx, Math.round(ix + iw / 2 - headX - 5), Math.round(iy + ih * 0.6 - headY), scale, t, talking);

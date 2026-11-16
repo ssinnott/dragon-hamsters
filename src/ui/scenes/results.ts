@@ -10,7 +10,8 @@ import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.t
 import { getFood, getItem, getMission, getMove, getSpecies, getType } from '../../data/index.ts';
 import { FOOD_IDS, ITEM_IDS, type FoodId, type ItemId, type MoveId, type TypeId } from '../../data/schema.ts';
 import { intelTypes, type MissionRewards, type MissionRun } from '../../game/missions.ts';
-import { dragonName, findDragon, pendingEvolution } from '../../game/dragons.ts';
+import { swapLines } from '../../game/habitat.ts';
+import { dragonName, findDragon, foldSwaps, pendingEvolution, type MoveSwap } from '../../game/dragons.ts';
 import { MAX_LEVEL, type OwnedDragon } from '../../game/types.ts';
 import { levelForXp, xpForLevel } from '../../battle/stats.ts';
 import { counterTypes } from '../../battle/matchup.ts';
@@ -35,6 +36,8 @@ interface SquadLine {
   startXp: number;
   levels: number[];
   learned: MoveId[];
+  /** Automatic loadout swaps across the mission's reports ("SWAPPED X FOR Y"). */
+  swapped: MoveSwap[];
   evolve: boolean;
   /** Animation: last level shown, and when it last levelled up. */
   shownLevel: number;
@@ -85,6 +88,7 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       startXp,
       levels: reps.flatMap((r) => r.levelsGained),
       learned: reps.flatMap((r) => r.learned),
+      swapped: foldSwaps(reps.map((r) => r.swapped)),
       evolve: reps.some((r) => !!r.evolveTo),
       shownLevel: Math.min(MAX_LEVEL, levelForXp(startXp)),
       levelUpAt: -9,
@@ -536,7 +540,10 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
     if (u >= 1 && s.learned.length) {
       const names = s.learned.map((m) => { try { return getMove(m).name.toUpperCase(); } catch { return m; } });
       const line = `NEW MOVE${names.length > 1 ? 'S' : ''}: ${names.join(', ')}!`;
-      wrapText(line, r.w - (tx - r.x) - 8).slice(0, 2).forEach((l, k) => drawText(ctx, l, tx, r.y + 32 + k * 10, { color: '#7a3aa0', shadow: false }));
+      const maxW = r.w - (tx - r.x) - 8;
+      const swaps = s.swapped.length ? wrapText(swapLines(s.swapped).join(' '), maxW).slice(0, 1) : [];
+      const lines = [...wrapText(line, maxW).slice(0, 2 - swaps.length), ...swaps];
+      lines.forEach((l, k) => drawText(ctx, l, tx, r.y + 32 + k * 10, { color: k >= lines.length - swaps.length ? '#2f6ab0' : '#7a3aa0', shadow: false }));
     } else if (u >= 1 && s.evolve && pendingEvolution(d)) {
       drawText(ctx, `${name} IS STARTING TO GLOW!`, tx, r.y + 32, { color: '#b8781e', shadow: false });
     } else if (u >= 1 && fainted) {

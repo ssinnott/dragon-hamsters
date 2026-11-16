@@ -12,14 +12,14 @@ import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import {
   Button, ButtonGroup, ScrollList, Typewriter, UI, drawCoins, drawInset, drawPanel, drawPlaque,
-  drawSelection, drawTypewriter, fillRoundRect, hit, tint, wrapText, type Rect,
+  drawKeycap, drawSelection, drawTypewriter, fillRoundRect, foodEffectText, hit, itemEffectText, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawCoinIcon, drawFoodIcon, drawItemIcon } from '../icons.ts';
 import { drawDragon, type Pose } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
 import { music, sfx } from '../../audio/index.ts';
 import { FOODS, ITEMS, isFood } from '../../data/index.ts';
-import type { DragonVisual, FoodId, ItemDef, ItemId, StageStat } from '../../data/schema.ts';
+import type { DragonVisual, FoodId, ItemId } from '../../data/schema.ts';
 import { SHOP, buy, owned, shopName } from '../../game/shop.ts';
 import { BAG_MAX } from '../../game/habitat.ts';
 
@@ -53,53 +53,17 @@ const BULK = [
   'Five! Shall I fetch a wheelbarrow?',
 ];
 
-const STAGE_SHORT: Record<StageStat, string> = {
-  atk: 'ATK', def: 'DEF', spa: 'SP.ATK', spd: 'SP.DEF', spe: 'SPD', acc: 'ACC', eva: 'EVA',
-};
-
 /** A one-line effect summary for a food or item (shared wording with the bag). */
 function effectLine(id: ShopId): string {
   if (isFood(id)) {
-    const f = FOODS[id];
-    return `FULL +${f.fullness} HAPPY +${f.happiness}` + (f.xp > 0 ? ` +${f.xp} XP` : '');
+    return foodEffectText(FOODS[id]);
   }
-  return itemEffect(ITEMS[id as ItemId]);
-}
-
-function itemEffect(def: ItemDef): string {
-  const e = def.effect;
-  switch (e.kind) {
-    case 'heal': return e.fraction >= 1 ? 'HEALS ALL HP' : `HEALS ${Math.round(e.fraction * 100)}% HP`;
-    case 'revive': return `REVIVES WITH ${Math.round(e.fraction * 100)}% HP`;
-    case 'cure': return 'CURES STATUS';
-    case 'stages': {
-      const parts = (Object.keys(e.changes) as StageStat[]).map((k) => {
-        const n = e.changes[k] ?? 0;
-        return `${n > 0 ? '+' : ''}${n} ${STAGE_SHORT[k]}`;
-      });
-      return 'BATTLE: ' + parts.join(' ');
-    }
-    default: return '';
-  }
+  return itemEffectText(ITEMS[id as ItemId]);
 }
 
 function drawEntryIcon(ctx: Ctx, id: ShopId, cx: number, cy: number, s: number): void {
   if (isFood(id)) drawFoodIcon(ctx, id, cx, cy, s);
   else drawItemIcon(ctx, id as ItemId, cx, cy, s);
-}
-
-/** A little keyboard key with a label (hotkey hints). Returns its width. */
-function drawKeycap(ctx: Ctx, key: string, x: number, y: number): number {
-  const tw = measureText(key);
-  const w = Math.max(9, tw + 4), h = 12;
-  x = Math.round(x); y = Math.round(y);
-  fillRoundRect(ctx, x, y, w, h, 2, UI.ink);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, 1, UI.nightDark);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 3, 1, UI.nightLight);
-  ctx.fillStyle = tint(UI.nightLight, 0.25);
-  ctx.fillRect(x + 2, y + 1, w - 4, 1);
-  drawText(ctx, key, x + Math.floor((w - tw) / 2), y + 2, { color: UI.textLight, shadow: false });
-  return w;
 }
 
 const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];

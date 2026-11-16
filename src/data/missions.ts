@@ -12,7 +12,8 @@
 //   - Node shapes: retrieve = 3 battles, rest, boss. Rescue = 2 battles, rest, 1 battle, boss.
 //     Sabotage = battle, branch, rest, boss. Infiltrate = 2 battles, boss, no rest. Defend = 4 waves
 //     of 1-2 enemies, rest after wave 2, boss. A boss encounter is [lieutenant, boss], with a minion
-//     in front in a few late cases.
+//     in front in a few late cases; the very first case is the tutorial showdown, the boss alone at
+//     band +1.
 //   - Sabotage branch: option 1 rushes on (a story beat) and carries the route `supercharge`
 //     { atk: +1, spa: +1 }, which the device gives the boss at the start of the boss battle; option 2
 //     cuts the power with one extra battle and leaves the boss normal. The boss node itself stays
@@ -161,6 +162,8 @@ interface Kit {
   battle(label: string, intro: string, ...enemies: Enemy[]): MissionNode;
   /** The showdown encounter: any minions given go first, then the lieutenant (+1) and the boss (+3). */
   boss(label: string, intro: string, ...minions: Enemy[]): MissionNode;
+  /** A showdown with the boss alone at the band level plus `d` (the very first case: the tutorial boss). */
+  soloBoss(label: string, intro: string, d: number): MissionNode;
   rest(label: string, text: string, heal?: number): MissionNode;
   story(label: string, text: string): MissionNode;
   /** A sabotage crossroads: rush on (the boss gets SUPERCHARGE) or cut the power (one more battle). */
@@ -175,6 +178,9 @@ function kit(org: OrgId, level: number): Kit {
     boss: (label, intro, ...minions) => ({
       kind: 'boss', label,
       encounter: { enemies: [...minions, { villain: lieutenant, level: level + 1 }, { villain: boss, level: level + 3 }], intro },
+    }),
+    soloBoss: (label, intro, d) => ({
+      kind: 'boss', label, encounter: { enemies: [{ villain: boss, level: level + d }], intro },
     }),
     rest: (label, text, heal = REST_HEAL) => ({ kind: 'rest', label, text, heal }),
     story: (label, text) => ({ kind: 'story', label, text }),
@@ -255,8 +261,12 @@ const CASES: CaseFile[] = [
         k.m('tunnel-rat', -1)),
       k.rest('Gift shop',
         'You hide behind a rack of dinosaur plushies and share a bag of sunflower seeds. Everyone feels ready for anything.', FULL_HEAL),
-      k.boss('Dinosaur hall',
-        `Under the great T-rex skeleton, the Big Cheese is polishing the egg with his hanky. Vinnie Grater steps in front of him. "Boss, we got company. Want me to grate 'em?"`),
+      // The tutorial showdown: the Big Cheese alone at band +1 (LV6). With Vinnie Grater in front and
+      // the boss at +3, a FIRE + LEAF pair almost never won (Vinnie's level-1 moves hit both of them
+      // super-effectively); alone at LV6 every starter pair wins about 80%+ of autopilot runs
+      // (tools/gametest.ts checks it).
+      k.soloBoss('Dinosaur hall',
+        "Under the great T-rex skeleton, the Big Cheese is polishing the egg with his hanky. Vinnie Grater has popped out for a bigger frying pan, so the boss rolls up his sleeves himself. \"Nobody touches my omelette!\"", 1),
     ],
     items: [item('seedcake', 2), item('berries', 2), item('herbtea', 1)],
     dragons: ['triceratot'],

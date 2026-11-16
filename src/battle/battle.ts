@@ -105,11 +105,17 @@ function healthyBench(s: BattleState, side: Side): boolean {
   return st.team.some((m, i) => i !== st.active && m.hp > 0);
 }
 
-function releaseTrapped(s: BattleState, trapper: BattleMon): void {
-  for (const m of sideOf(s, otherSide(trapper.side)).team) {
+/** Tell the scene a combatant's SEEDED / STUCK flags changed. */
+function volatileEvent(c: Ctx, m: BattleMon): void {
+  emit(c, { t: 'volatile', side: m.side, uid: m.uid, seeded: m.volatile.seeded, stuck: m.volatile.stuck });
+}
+
+function releaseTrapped(c: Ctx, trapper: BattleMon): void {
+  for (const m of sideOf(c.s, otherSide(trapper.side)).team) {
     if (m.volatile.stuckBy === trapper.uid) {
       m.volatile.stuck = false;
       m.volatile.stuckBy = null;
+      volatileEvent(c, m);
     }
   }
 }
@@ -284,7 +290,7 @@ function faintCheck(c: Ctx, m: BattleMon, killer: BattleMon | null): void {
   m.statusTurns = 0;
   m.stages = emptyStages();
   m.volatile = freshVolatile();
-  releaseTrapped(c.s, m);
+  releaseTrapped(c, m);
   if (m.side === 'enemy') awardXp(c, m);
   if (killer && killer.hp > 0 && killer.side !== m.side && isActive(c.s, killer) && abilityOf(killer).kind === 'moxie') {
     abilityEvent(c, killer);
@@ -372,7 +378,7 @@ function withdraw(c: Ctx, m: BattleMon, text: boolean): void {
   emit(c, { t: 'withdraw', side: m.side, uid: m.uid });
   m.stages = emptyStages();
   m.volatile = freshVolatile();
-  releaseTrapped(c.s, m);
+  releaseTrapped(c, m);
 }
 
 /** The boss AI's counter-swap: the rock-paper-scissors moment, announced as such. */
@@ -622,6 +628,7 @@ function applyEffect(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef, e: 
       if (foe.hp <= 0 || foe.volatile.stuck) return 'failed';
       foe.volatile.stuck = true;
       foe.volatile.stuckBy = user.uid;
+      volatileEvent(c, foe);
       say(c, `${who(foe)} CAN'T ESCAPE NOW!`);
       return 'applied';
     case 'cure': {
@@ -657,6 +664,7 @@ function applyEffect(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef, e: 
         return 'blocked';
       }
       foe.volatile.seeded = true;
+      volatileEvent(c, foe);
       say(c, `${who(foe)} WAS SEEDED!`);
       return 'applied';
     case 'pivot':
@@ -895,7 +903,12 @@ function afterTurn(c: Ctx): void {
 // Items
 // ---------------------------------------------------------------------------------------------
 
-function itemTargetOk(s: BattleState, item: ItemId, index: number): boolean {
+/**
+ * Can the player use `item` on team member `index` right now? Heals need a hurt, conscious target;
+ * revives a fainted one; cures a status (or the active one's confusion); stat items the active
+ * dragon, with room left on a stage they raise. legal().items and submitTurn use the same rule.
+ */
+export function itemTargetOk(s: BattleState, item: ItemId, index: number): boolean {
   const team = s.player.team;
   const m = team[index];
   if (!m) return false;

@@ -14,17 +14,17 @@ import type { Input } from '../input.ts';
 import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.ts';
 import {
   Button, ButtonGroup, Typewriter, UI, VIEW_H, VIEW_W, drawBar, drawInset, drawMessageBox, drawPanel,
-  drawTypeBadge, drawTypewriter, fillRoundRect, tint, wrapText, type Rect,
+  drawTypeBadge, fillRoundRect, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawActivityIcon, drawFoodIcon, drawOrgEmblem, drawTypeIcon } from '../icons.ts';
 import { drawBurrow } from '../../art/backdrops.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { drawVillain } from '../../art/villain.ts';
 import { createFx } from '../../art/fx.ts';
-import { ORGS, TYPES, effectiveness, getSpecies, getVillain } from '../../data/index.ts';
-import { STARTERS } from '../../data/species.ts';
+import { ORGS, STARTERS, TYPES, effectiveness, getSpecies, getVillain } from '../../data/index.ts';
 import { ACTIVITY_IDS, FOOD_IDS, ORG_IDS, STAT_IDS, type SpeciesDef, type StatId, type TypeId } from '../../data/schema.ts';
 import { newGame } from '../../game/state.ts';
+import { freshSeed } from '../../game/rng.ts';
 import { addDragon, createDragon, markSeen } from '../../game/dragons.ts';
 import { music, sfx } from '../../audio/index.ts';
 import { drawChief } from '../chief.ts';
@@ -34,16 +34,6 @@ type Ctx = CanvasRenderingContext2D;
 const STARTER_LEVEL = 5;
 const LINE_STEP = 10;
 
-/** A random 32-bit seed for a brand-new world. */
-function freshSeed(): number {
-  try {
-    const a = new Uint32Array(1);
-    crypto.getRandomValues(a);
-    return a[0];
-  } catch {
-    return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-  }
-}
 
 const easeOut = (u: number): number => 1 - (1 - u) * (1 - u) * (1 - u);
 const clamp01 = (u: number): number => Math.max(0, Math.min(1, u));
@@ -188,13 +178,11 @@ class Talk {
 
   draw(ctx: Ctx, t: number, slide: number): void {
     const x = 12, w = VIEW_W - 24;
-    const textX = x + 16, textW = w - 40;
+    // the message box's text column: drawMessageBox wraps in w - 32 - indent
+    const textX = x + 16, textW = w - 36;
     const h = this.boxH(textW);
     const y = VIEW_H - 12 - h + slide;
-    drawMessageBox(ctx, x, y, w, h, '', { arrow: false, name: 'CHIEF NIBBLES' });
-    const blockH = wrapText(this.tw.text, textW, 1).length * LINE_STEP - 3;
-    const ty = y + Math.max(10, Math.floor((h - 3 - blockH) / 2));
-    drawTypewriter(ctx, this.tw, textX, ty, textW, { color: UI.text, shadowColor: tint(UI.panelLight, -0.16) });
+    drawMessageBox(ctx, x, y, w, h, this.tw, { arrow: false, size: 1, indent: textX - x - 12, name: 'CHIEF NIBBLES' });
     const n = this.lines.length;
     if (n > 1) {
       const pipW = 4, gap = 3, total = n * pipW + (n - 1) * gap;

@@ -12,7 +12,7 @@ import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import { drawText } from '../../lib/engine/text.ts';
 import {
-  ButtonGroup, Typewriter, UI, VIEW_H, VIEW_W, drawMessageBox, drawPanel, drawTypewriter, fillRoundRect, tint, wrapText,
+  ButtonGroup, Typewriter, UI, VIEW_H, VIEW_W, drawMessageBox, drawPanel, fillRoundRect, tint, wrapText,
 } from '../widgets.ts';
 import { CHIEF_PORTRAIT_SIZE, drawChiefPortrait } from '../chief.ts';
 import { sfx } from '../../audio/index.ts';
@@ -49,8 +49,9 @@ export function createDialogScene(lines: string[], onDone?: () => void, speaker:
   // Layout: as wide as the screen allows, tall enough for the longest page (text never overflows).
   const boxX = BOX_MARGIN, boxW = VIEW_W - BOX_MARGIN * 2;
   const portraitPad = chief ? CHIEF_PORTRAIT_SIZE + 12 : 0;
-  const textX = boxX + 14 + portraitPad;
-  const textW = boxX + boxW - 22 - textX;
+  // the message box's text column (drawMessageBox wraps in boxW - 32 - indent, indent = textX - boxX - 12)
+  const textX = boxX + 16 + portraitPad;
+  const textW = boxX + boxW - 20 - textX;
   const maxLines = Math.max(1, ...pages.map((p) => wrapText(p, textW, 1).length));
   const textH = maxLines * LINE_STEP - 3;
   const boxH = Math.max(chief ? CHIEF_PORTRAIT_SIZE + 22 : 52, textH + 30);
@@ -96,11 +97,10 @@ export function createDialogScene(lines: string[], onDone?: () => void, speaker:
     draw(ctx: Ctx) {
       const slide = Math.round((1 - easeOut(Math.min(1, age / SLIDE_TIME))) * (boxH + BOX_MARGIN + 8));
       const y = boxY + slide;
-      drawMessageBox(ctx, boxX, y, boxW, boxH, '', { arrow: false, name: chief ? 'CHIEF NIBBLES' : undefined });
+      drawMessageBox(ctx, boxX, y, boxW, boxH, tw, {
+        arrow: false, size: 1, indent: textX - boxX - 12, name: chief ? 'CHIEF NIBBLES' : undefined,
+      });
       if (chief) drawChiefPortrait(ctx, boxX + 10, y + boxH - CHIEF_PORTRAIT_SIZE - 10, app.time, !tw.done);
-      const blockH = wrapText(tw.text, textW, 1).length * LINE_STEP - 3;
-      const ty = y + Math.max(10, Math.floor((boxH - 3 - blockH) / 2));
-      drawTypewriter(ctx, tw, textX, ty, textW, { color: UI.text, shadowColor: tint(UI.panelLight, -0.16) });
       // page pips, bottom centre of the text area
       if (pages.length > 1) {
         const pipW = 4, gap = 3;

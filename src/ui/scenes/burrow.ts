@@ -15,11 +15,11 @@ import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import {
   Button, ButtonGroup, ScrollList, UI, VIEW_H, VIEW_W, drawBar, drawCoins, drawHpBar, drawInset, drawPanel,
-  drawPlaque, drawSelection, drawTypeBadges, fillRoundRect, hit, hpColor, tint, wrapText,
+  drawKeycap, drawPlaque, drawSelection, drawTypeBadges, fillRoundRect, foodEffectText, hit, hpColor, tint, wrapText,
   type ButtonSpec, type Rect,
 } from '../widgets.ts';
 import { drawActivityIcon, drawCoinIcon, drawFoodIcon, drawItemIcon } from '../icons.ts';
-import { STATIONS, drawBurrow, drawStation } from '../../art/backdrops.ts';
+import { STATIONS, drawBurrow, drawStation, stationSignRect } from '../../art/backdrops.ts';
 import { drawDragon, dragonHeight, type Pose } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
 import { music, setMusic, setSound, sfx, type SfxName } from '../../audio/index.ts';
@@ -28,9 +28,11 @@ import {
   ACTIVITY_IDS, FOOD_IDS, ITEM_IDS, STAT_IDS, STAT_NAMES, STATUS_NAMES,
   type ActivityId, type DragonVisual, type FoodId, type StatId, type StatusId,
 } from '../../data/schema.ts';
-import { canDoActivity, doActivity, endDay, moodLine, type ActivityResult, type DayReport } from '../../game/habitat.ts';
+import {
+  HUNGRY_AT, JOYFUL_AT, canDoActivity, doActivity, endDay, moodLine, swapLines, type ActivityResult, type DayReport,
+} from '../../game/habitat.ts';
 import { dragonName, dragonStats, dragonTypes, findDragon, isFainted, xpProgress } from '../../game/dragons.ts';
-import { MISSION_ENERGY, SLOTS_PER_DAY, type OwnedDragon } from '../../game/types.ts';
+import { MISSION_ENERGY, SLOTS_PER_DAY, TUTORIAL_FLAGS, type OwnedDragon } from '../../game/types.ts';
 
 type Ctx = CanvasRenderingContext2D;
 type IconFn = (ctx: Ctx, cx: number, cy: number) => void;
@@ -44,9 +46,6 @@ const HUD_H = 28;
 const FLOOR = { x0: 44, x1: 596, y0: 250, y1: 298 };
 const DRAGON_SCALE = 1;
 const WALK_SPEED = 26;
-/** Mirrors the habitat rules for the burrow's body language. */
-const HUNGRY_AT = 30;
-const JOYFUL_AT = 80;
 /** Vignette timing (seconds). */
 const ACT_TIME = 2.5;
 /** The first case: the MISSIONS button pulses until it is cleared. */
@@ -197,20 +196,6 @@ function iconHeart(ctx: Ctx, cx: number, cy: number): void {
   drawText(ctx, '♥', cx - 2, cy - 3, { color: '#ff5a8a', shadowColor: UI.ink });
 }
 
-/** A little keyboard key with a label (hotkey hints). Returns its width. */
-function drawKeycap(ctx: Ctx, key: string, x: number, y: number): number {
-  const tw = measureText(key);
-  const w = Math.max(9, tw + 4), h = 12;
-  x = Math.round(x); y = Math.round(y);
-  fillRoundRect(ctx, x, y, w, h, 2, UI.ink);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, 1, UI.nightDark);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 3, 1, UI.nightLight);
-  ctx.fillStyle = tint(UI.nightLight, 0.25);
-  ctx.fillRect(x + 2, y + 1, w - 4, 1);
-  drawText(ctx, key, x + Math.floor((w - tw) / 2), y + 2, { color: UI.textLight, shadow: false });
-  return w;
-}
-
 /** A small coloured pill with light text (effect chips). Returns its width. */
 function drawChip(ctx: Ctx, text: string, x: number, y: number, fill: string): number {
   const w = measureText(text) + 8, h = 11;
@@ -269,12 +254,6 @@ function activityChips(id: ActivityId): { text: string; color: string }[] {
   return out;
 }
 
-function foodSummary(f: FoodId, fav: boolean): string {
-  const def = FOODS[f];
-  let s = `FULL +${def.fullness}, HAPPY +${def.happiness * (fav ? 2 : 1)}`;
-  if (def.xp > 0) s += `, +${def.xp} XP`;
-  return s;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Station geometry (derived from the station boxes so it follows the art)
@@ -321,12 +300,10 @@ function nestSpot(i: number): { x: number; y: number } {
   return { x: cx - 56 + (k % 6) * 22, y: FLOOR.y0 + Math.floor(k / 6) * 10 };
 }
 
-/** Station sign geometry, mirrored from backdrops.ts, for the hotkey caps. */
+/** The left end of a station's sign (backdrops.ts), for the hotkey caps. */
 function signLeft(id: ActivityId): { x: number; y: number } {
-  const b = STATIONS[id];
-  const cx = b.x + b.w / 2 + (id === 'nap' ? -14 : id === 'play' ? -4 : 0);
-  const w = ACTIVITIES[id].name.length * 6 + 7;
-  return { x: Math.round(cx - w / 2), y: b.y + 4 };
+  const r = stationSignRect(id);
+  return { x: Math.round(r.x), y: r.y };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -416,7 +393,8 @@ interface CardState {
 }
 
 interface DragonRow { d: OwnedDragon; ok: boolean; reason: string; liked: boolean }
-interface FoodRow { id: FoodId; ok: boolean; reason: string; fav: boolean; count: number }
+/** `happy`: the happiness multiplier this dragon gets from it (favourite food x2, Snack Bar fan x2). */
+interface FoodRow { id: FoodId; ok: boolean; reason: string; fav: boolean; happy: number; count: number }
 
 interface PanelState {
   station: ActivityId;
@@ -915,9 +893,11 @@ export function createBurrowScene(): Scene {
 
   function foodRows(d: OwnedDragon): FoodRow[] {
     const fav = getSpecies(d.speciesId).favoriteFood;
+    const fan = likesActivity(d, 'feed');
     return FOOD_IDS.map((f) => {
       const c = canDoActivity(app.state, d.id, 'feed', f);
-      return { id: f, ok: c.ok, reason: c.ok ? '' : c.reason ?? 'NOT RIGHT NOW', fav: f === fav, count: app.state.food[f] ?? 0 };
+      const happy = (f === fav ? 2 : 1) * (fan ? 2 : 1);
+      return { id: f, ok: c.ok, reason: c.ok ? '' : c.reason ?? 'NOT RIGHT NOW', fav: f === fav, happy, count: app.state.food[f] ?? 0 };
     });
   }
 
@@ -1069,7 +1049,7 @@ export function createBurrowScene(): Scene {
     const def = FOODS[row.id];
     drawText(ctx, def.name, r.x + COL.name, r.y + 4, { color: row.count > 0 ? UI.text : UI.textDim, shadow: false });
     if (row.fav) drawText(ctx, '♥', r.x + COL.name + measureText(def.name) + 4, r.y + 4, { color: '#ff5a8a', shadowColor: UI.ink });
-    drawText(ctx, foodSummary(row.id, row.fav), r.x + COL.name, r.y + 15, { color: UI.textDim, shadow: false });
+    drawText(ctx, foodEffectText(FOODS[row.id], { happyMult: row.happy, sep: ', ' }), r.x + COL.name, r.y + 15, { color: UI.textDim, shadow: false });
     drawText(ctx, 'X' + row.count, r.x + 236, r.y + 9, { color: row.count > 0 ? UI.text : UI.bad, shadow: false });
     const sx = r.x + 270, sw = r.w - 274;
     if (row.ok) {
@@ -1350,7 +1330,9 @@ export function createBurrowScene(): Scene {
     // why it was extra fun
     if (v.activity === 'feed' && v.food && getSpecies(d.speciesId).favoriteFood === v.food) {
       rows.push(textRow(`${FOODS[v.food].name} is ${name}'s favourite! X2 happiness`, '#d83a72', iconHeart, 'sparkle'));
-    } else if (v.activity !== 'feed' && likesActivity(d, v.activity) && a.happiness > 0) {
+    }
+    // the Snack Bar's fans love every meal (stacks with a favourite food); other stations double their joy
+    if (likesActivity(d, v.activity) && (v.activity === 'feed' || a.happiness > 0)) {
       rows.push(textRow(`${name} LOVES the ${a.name}! X2 happiness`, '#d83a72', iconHeart, 'sparkle'));
     }
     // needs
@@ -1389,6 +1371,7 @@ export function createBurrowScene(): Scene {
         const mv = getMove(m).name.toUpperCase();
         rows.push(textRow(d.moves.includes(m) ? `Learned ${mv}!` : `Learned ${mv}! Equip it in DRAGONS.`, '#3a7ad0', iconStar, 'statUp'));
       }
+      for (const line of swapLines(r.swapped)) rows.push(textRow(line, '#3a7ad0', iconArrow('#3a7ad0'), 'select'));
       if (r.evolveTo) rows.push(textRow(`Huh? ${name} is starting to glow!`, UI.goldDark, iconStar, 'sparkle'));
     }
     const flavour = wrapText((res.lines[0] ?? '').toUpperCase(), ROW_TEXT_W);
@@ -1852,9 +1835,9 @@ export function createBurrowScene(): Scene {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].some((k) => input.pressed(k))) navT = app.time;
       switch (mode) {
         case 'hub':
-          if (!tutorialAsked && !app.state.flags.burrowTutorial && !app.scenes.busy) {
+          if (!tutorialAsked && !app.state.flags[TUTORIAL_FLAGS.burrow] && !app.scenes.busy) {
             tutorialAsked = true;
-            app.nav.dialog(TUTORIAL, () => { app.state.flags.burrowTutorial = true; app.save(); }, 'chief');
+            app.nav.dialog(TUTORIAL, () => { app.state.flags[TUTORIAL_FLAGS.burrow] = true; app.save(); }, 'chief');
             return;
           }
           hub.update(input);

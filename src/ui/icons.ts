@@ -12,7 +12,7 @@ import {
 import { TYPES } from '../data/types.ts';
 import { FOODS, ITEMS } from '../data/items.ts';
 import { ORGS } from '../data/villains.ts';
-import type { ActivityId, FoodId, ItemId, OrgId, TypeId } from '../data/schema.ts';
+import type { ActivityId, FoodId, ItemId, MissionNode, MissionTypeId, OrgId, TypeId } from '../data/schema.ts';
 
 const INK = '#1b1426';
 const WHITE = '#fffaf0';
@@ -805,4 +805,139 @@ export function drawActivityIcon(ctx: G, id: ActivityId, cx: number, cy: number,
   if (!paint) return;
   const r = s / 2;
   blit(ctx, sprite(`a|${id}|${r}`, r, INK, paint), cx, cy);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mask sprites: hand-placed pixel rows ('.' = empty, any other letter = a palette colour), with a
+// 1 px ink outline grown around them. Used for the mission-type and mission-node icons, which the
+// board, the briefing and the mission run all share.
+// ---------------------------------------------------------------------------------------------
+
+const maskCache = new Map<string, HTMLCanvasElement>();
+
+/** A cached outlined sprite for `rows` (unknown letters draw in ink). `key` must be unique per look. */
+export function pixelSprite(key: string, rows: readonly string[], pal: Record<string, string>): HTMLCanvasElement {
+  const hitC = maskCache.get(key);
+  if (hitC) return hitC;
+  const h = rows.length;
+  const w = Math.max(...rows.map((r) => r.length));
+  const c = document.createElement('canvas');
+  c.width = w + 2; c.height = h + 2;
+  const g = c.getContext('2d') as G;
+  const on = (x: number, y: number): boolean => y >= 0 && y < h && x >= 0 && x < rows[y].length && rows[y][x] !== '.';
+  g.fillStyle = INK;
+  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
+    if (on(x, y)) continue;
+    if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) g.fillRect(x + 1, y + 1, 1, 1);
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < rows[y].length; x++) {
+    const ch = rows[y][x];
+    if (ch === '.') continue;
+    g.fillStyle = pal[ch] ?? INK;
+    g.fillRect(x + 1, y + 1, 1, 1);
+  }
+  maskCache.set(key, c);
+  return c;
+}
+
+/** Draw a sprite centred on (cx, cy) on whole pixels, scaled by an integer `scale`. */
+export function blitSprite(ctx: G, s: HTMLCanvasElement, cx: number, cy: number, scale = 1): void {
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(s, Math.round(cx - (s.width * scale) / 2), Math.round(cy - (s.height * scale) / 2), s.width * scale, s.height * scale);
+}
+
+const MISSION_TYPE_ICONS: Record<MissionTypeId, { rows: string[]; pal: Record<string, string>; color: string }> = {
+  retrieve: {
+    rows: ['..lllllll..', '.wllllllcb.', 'wwlllllllcb', 'ddddddddddd', '.lllllcccb.', '..llllccb..', '...lllcb...', '....lcb....', '.....b.....'],
+    pal: { w: '#ffffff', l: '#a8ecff', c: '#52bde8', b: '#2f7cc0', d: '#2a5f9e' },
+    color: '#2a6aa8',
+  },
+  rescue: {
+    rows: ['.rrr...rrr.', 'rwwrr.rrrrr', 'rwrrrrrrrrr', 'rrrrrrrrrrd', '.rrrrrrrrd.', '..rrrrrrd..', '...rrrrd...', '....rrd....', '.....d.....'],
+    pal: { r: '#ef5a6f', w: '#ffd0d8', d: '#b8344a' },
+    color: '#c23a52',
+  },
+  sabotage: {
+    rows: ['.........y.', '........yoy', '.......f.y.', '......cc...', '...ddddd...', '..ddddddd..', '.dhhdddddd.', '.dhddddddd.',
+      '.ddddddddd.', '.ddddddddd.', '.ddddddddd.', '..ddddddd..', '...ddddd...'],
+    pal: { d: '#4a4262', h: '#a49ec0', c: '#9a9aa8', f: '#c89a5a', y: '#ffd84a', o: '#ff7a2a' },
+    color: '#c45a1c',
+  },
+  infiltrate: {
+    rows: ['.hhmm...hhmm.', 'mmmmmmmmmmmmm', 'mm..mmmmm..mm', 'mm..mmmmm..mm', 'mmmmmm.mmmmmm', '.mmmm...mmmm.'],
+    pal: { m: '#5a4a80', h: '#9584c0' },
+    color: '#5a3f8a',
+  },
+  defend: {
+    rows: ['ggggggggggg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'ggggggggggg', 'gbbbbgwwwwg', 'gbbbbgwwwwg', '.gbbbgwwwg.',
+      '..gbbgwwg..', '...ggggg...', '....ggg....', '.....g.....'],
+    pal: { g: '#e8b83a', w: '#f4f0e8', b: '#4f8fe0' },
+    color: '#2f8a3e',
+  },
+};
+
+/** The text colour that goes with each mission type's icon (names on cards and briefings). */
+export const MISSION_TYPE_COLOR: Record<MissionTypeId, string> = {
+  retrieve: MISSION_TYPE_ICONS.retrieve.color,
+  rescue: MISSION_TYPE_ICONS.rescue.color,
+  sabotage: MISSION_TYPE_ICONS.sabotage.color,
+  infiltrate: MISSION_TYPE_ICONS.infiltrate.color,
+  defend: MISSION_TYPE_ICONS.defend.color,
+};
+
+/** A mission type's emblem (diamond, heart, bomb, mask, shield) centred on (cx, cy). */
+export function drawMissionTypeIcon(ctx: G, type: MissionTypeId, cx: number, cy: number, scale = 1): void {
+  const ic = MISSION_TYPE_ICONS[type];
+  if (!ic) return;
+  blitSprite(ctx, pixelSprite('mt|' + type, ic.rows, ic.pal), cx, cy, scale);
+}
+
+export type MissionNodeKind = MissionNode['kind'];
+
+const NODE_CLAWS = ['c...........c', 'cc.........cc', '.cc.......cc.', '.scc.....ccs.', '..scc...ccs..', '...scc.ccs...', '....sckcs....',
+  '...ccs.scc...', '..ccs...scc..', '.bbb.....bbb.', 'bbbb.....bbbb', '.bb.......bb.'];
+const NODE_CROWN = ['y.....y.....y', 'yy...yyy...yy', 'yyy.yyyyy.yyy', 'yhhyyyyyyyyyy', 'yyyyyyyyyyyyy', 'yyryyybyyyryy', 'yyyyyyyyyyyyy', 'ddddddddddddd'];
+const NODE_FIRE_A = ['......o......', '.....oo......', '.....ooo.....', '....ooyo.....', '....oyyoo....', '...ooyyyo....', '...oyywyoo...',
+  '...oywwyyo...', '....owwyo....', 'll.lllllll.ll', 'llllLLLLLllll', '.ll.......ll.'];
+const NODE_FIRE_B = ['.......o.....', '......oo.....', '.....ooo.....', '.....oyoo....', '....ooyyo....', '....oyyyoo...', '...ooyywyo...',
+  '...oyywwyo...', '....oywwo....', 'll.lllllll.ll', 'llllLLLLLllll', '.ll.......ll.'];
+const NODE_SIGN = ['......p......', '.wwwwwwwwww..', 'wwwwwwwwwww..', '.wwwwwwwwww..', '......p......', '..wwwwwwwwww.', '..wwwwwwwwwww',
+  '..wwwwwwwwww.', '......p......', '......p......', '......p......', '.....ppp.....'];
+const NODE_SCROLL = ['.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.', '..ppppppppp..', '..plllllllp..', '..ppppppppp..', '..pllllllpp..',
+  '..ppppppppp..', '.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.'];
+const NODE_TICK = ['......g', '.....gg', 'g...gg.', 'gg.gg..', '.ggg...', '..g....'];
+
+const NODE_PAL: Record<string, string> = {
+  c: '#fff0d6', s: '#c8b49a', b: '#8a5a3c', k: INK,
+  y: '#f6c63c', h: '#fff0a0', r: '#e04f45', d: '#b8781e',
+  o: '#f0702a', w: '#fff3c8', l: '#8a5a3c', L: '#5e3a24',
+  p: '#8a5a3c', g: '#5cd34f', f: '#e04f45',
+};
+
+/** The disc colour behind each mission node's icon on the trail. */
+export const MISSION_NODE_FILL: Record<MissionNodeKind, string> = {
+  battle: '#e8603c', boss: '#9a3fb8', rest: '#4f9a5a', branch: '#4f8fe0', story: '#c89a4a',
+};
+
+/** A mission node's icon: claws (battle), crown (boss), campfire (rest, flickers with `t`), signpost (branch), scroll (story). */
+export function missionNodeSprite(kind: MissionNodeKind, t = 0): HTMLCanvasElement {
+  switch (kind) {
+    case 'battle': return pixelSprite('n|claws', NODE_CLAWS, NODE_PAL);
+    case 'boss': return pixelSprite('n|crown', NODE_CROWN, { ...NODE_PAL, b: '#4f9be0' });
+    case 'rest': return Math.floor(t * 5) % 2
+      ? pixelSprite('n|fireA', NODE_FIRE_A, { ...NODE_PAL, y: '#ffd84a', w: '#fffbe8' })
+      : pixelSprite('n|fireB', NODE_FIRE_B, { ...NODE_PAL, y: '#ffd84a', w: '#fffbe8' });
+    case 'branch': return pixelSprite('n|sign', NODE_SIGN, { ...NODE_PAL, w: '#f0cc84' });
+    default: return pixelSprite('n|scroll', NODE_SCROLL, { ...NODE_PAL, r: '#d8b07a', R: '#9a6e44', p: '#fff2d2', l: '#b0947a' });
+  }
+}
+
+/** Draw a mission node's icon centred on (cx, cy). */
+export function drawMissionNodeIcon(ctx: G, kind: MissionNodeKind, cx: number, cy: number, t = 0, scale = 1): void {
+  blitSprite(ctx, missionNodeSprite(kind, t), cx, cy, scale);
+}
+
+/** The little green tick on a cleared stop. */
+export function drawTickIcon(ctx: G, cx: number, cy: number): void {
+  blitSprite(ctx, pixelSprite('tick', NODE_TICK, NODE_PAL), cx, cy);
 }

@@ -17,9 +17,8 @@ import { app, type Nav } from '../ui/app.ts';
 import { drawPanel, VIEW_W, VIEW_H } from '../ui/widgets.ts';
 import { newGame } from '../game/state.ts';
 import { addDragon, createDragon } from '../game/dragons.ts';
-import { SPECIES_BY_DEX } from '../data/index.ts';
-import { STARTERS } from '../data/species.ts';
-import type { GameState } from '../game/types.ts';
+import { SPECIES_BY_DEX, STARTERS } from '../data/index.ts';
+import { ALL_TUTORIAL_FLAGS, type GameState } from '../game/types.ts';
 
 export interface HarnessOptions {
   seed?: number;
@@ -43,7 +42,8 @@ export function defaultTestState(seed = 7): GameState {
   s.coins = 500;
   for (const k of Object.keys(s.food) as (keyof typeof s.food)[]) s.food[k] = 5;
   for (const k of Object.keys(s.items) as (keyof typeof s.items)[]) s.items[k] = 3;
-  for (const f of ['introDone', 'burrowTutorial', 'boardTutorial', 'battleTutorial']) s.flags[f] = true;
+  s.flags.introDone = true;
+  for (const f of ALL_TUTORIAL_FLAGS) s.flags[f] = true;
   return s;
 }
 

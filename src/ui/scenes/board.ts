@@ -4,7 +4,7 @@
 // briefing; a locked case wiggles and says what to solve first.
 import { drawText, measureText } from '../../lib/engine/text.ts';
 import { MISSIONS_IN_ORDER, getLocation, getMissionType, getOrg, getVillain } from '../../data/index.ts';
-import { ORG_IDS, type MissionDef, type MissionTypeId, type OrgId } from '../../data/schema.ts';
+import { ORG_IDS, type MissionDef, type OrgId } from '../../data/schema.ts';
 import { missionStatus, nextMission, type MissionStatus } from '../../game/missions.ts';
 import { drawVillain, villainHeight } from '../../art/villain.ts';
 import { sfx, music } from '../../audio/index.ts';
@@ -14,7 +14,8 @@ import type { Input } from '../input.ts';
 import {
   Button, ButtonGroup, UI, VIEW_W, VIEW_H, drawStars, drawTypeBadges, fillRoundRect, tint, wrapText, type Rect,
 } from '../widgets.ts';
-import { drawLock, drawOrgEmblem } from '../icons.ts';
+import { MISSION_TYPE_COLOR, blitSprite, drawLock, drawMissionTypeIcon, drawOrgEmblem, pixelSprite } from '../icons.ts';
+import { TUTORIAL_FLAGS } from '../../game/types.ts';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -23,73 +24,6 @@ const INK = UI.ink;
 // ---------------------------------------------------------------------------------------------
 // Pixel icons (fill masks; an ink outline is added around each)
 // ---------------------------------------------------------------------------------------------
-
-const spriteCache = new Map<string, HTMLCanvasElement>();
-
-function pixelSprite(key: string, rows: readonly string[], pal: Record<string, string>): HTMLCanvasElement {
-  const hitC = spriteCache.get(key);
-  if (hitC) return hitC;
-  const h = rows.length;
-  const w = Math.max(...rows.map((r) => r.length));
-  const c = document.createElement('canvas');
-  c.width = w + 2; c.height = h + 2;
-  const g = c.getContext('2d') as Ctx;
-  const on = (x: number, y: number): boolean => y >= 0 && y < h && x >= 0 && x < rows[y].length && rows[y][x] !== '.';
-  g.fillStyle = INK;
-  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) {
-    if (on(x, y)) continue;
-    if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < rows[y].length; x++) {
-    const ch = rows[y][x];
-    if (ch === '.') continue;
-    g.fillStyle = pal[ch] ?? INK;
-    g.fillRect(x + 1, y + 1, 1, 1);
-  }
-  spriteCache.set(key, c);
-  return c;
-}
-
-function blitSprite(ctx: Ctx, s: HTMLCanvasElement, cx: number, cy: number, scale = 1): void {
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(s, Math.round(cx - (s.width * scale) / 2), Math.round(cy - (s.height * scale) / 2), s.width * scale, s.height * scale);
-}
-
-const TYPE_ICONS: Record<MissionTypeId, { rows: string[]; pal: Record<string, string>; color: string }> = {
-  retrieve: {
-    rows: ['..lllllll..', '.wllllllcb.', 'wwlllllllcb', 'ddddddddddd', '.lllllcccb.', '..llllccb..', '...lllcb...', '....lcb....', '.....b.....'],
-    pal: { w: '#ffffff', l: '#a8ecff', c: '#52bde8', b: '#2f7cc0', d: '#2a5f9e' },
-    color: '#2a6aa8',
-  },
-  rescue: {
-    rows: ['.rrr...rrr.', 'rwwrr.rrrrr', 'rwrrrrrrrrr', 'rrrrrrrrrrd', '.rrrrrrrrd.', '..rrrrrrd..', '...rrrrd...', '....rrd....', '.....d.....'],
-    pal: { r: '#ef5a6f', w: '#ffd0d8', d: '#b8344a' },
-    color: '#c23a52',
-  },
-  sabotage: {
-    rows: ['.........y.', '........yoy', '.......f.y.', '......cc...', '...ddddd...', '..ddddddd..', '.dhhdddddd.', '.dhddddddd.',
-      '.ddddddddd.', '.ddddddddd.', '.ddddddddd.', '..ddddddd..', '...ddddd...'],
-    pal: { d: '#4a4262', h: '#a49ec0', c: '#9a9aa8', f: '#c89a5a', y: '#ffd84a', o: '#ff7a2a' },
-    color: '#c45a1c',
-  },
-  infiltrate: {
-    rows: ['.hhmm...hhmm.', 'mmmmmmmmmmmmm', 'mm..mmmmm..mm', 'mm..mmmmm..mm', 'mmmmmm.mmmmmm', '.mmmm...mmmm.'],
-    pal: { m: '#5a4a80', h: '#9584c0' },
-    color: '#5a3f8a',
-  },
-  defend: {
-    rows: ['ggggggggggg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'gwwwwgbbbbg', 'ggggggggggg', 'gbbbbgwwwwg', 'gbbbbgwwwwg', '.gbbbgwwwg.',
-      '..gbbgwwg..', '...ggggg...', '....ggg....', '.....g.....'],
-    pal: { g: '#e8b83a', w: '#f4f0e8', b: '#4f8fe0' },
-    color: '#2f8a3e',
-  },
-};
-
-function drawMissionTypeIcon(ctx: Ctx, type: MissionTypeId, cx: number, cy: number, scale = 1): void {
-  const ic = TYPE_ICONS[type];
-  if (!ic) return;
-  blitSprite(ctx, pixelSprite('mt|' + type, ic.rows, ic.pal), cx, cy, scale);
-}
 
 const PIN_ROWS = ['.rrr.', 'rwrrr', 'rrrrr', '.rrr.', '..r..', '..r..'];
 function drawMapPin(ctx: Ctx, cx: number, cy: number): void {
@@ -305,8 +239,8 @@ export function createBoardScene(): Scene {
       if (toast.t > 0) toast.t = Math.max(0, toast.t - dt);
       if (!tutorialChecked) {
         tutorialChecked = true;
-        if (!state().flags.boardTutorial) {
-          state().flags.boardTutorial = true;
+        if (!state().flags[TUTORIAL_FLAGS.board]) {
+          state().flags[TUTORIAL_FLAGS.board] = true;
           app.save();
           app.nav.dialog(TUTORIAL, undefined, 'chief');
           return;
@@ -616,7 +550,7 @@ export function createBoardScene(): Scene {
     drawMissionTypeIcon(ctx, m.type, cx, y + 80, 2);
     ctx.restore();
     const tname = mt.name.toUpperCase();
-    drawText(ctx, tname, cx, y + 98, { color: st === 'locked' ? dimC : TYPE_ICONS[m.type]?.color ?? UI.text, shadow: false, align: 'center' });
+    drawText(ctx, tname, cx, y + 98, { color: st === 'locked' ? dimC : MISSION_TYPE_COLOR[m.type] ?? UI.text, shadow: false, align: 'center' });
 
     // location
     const loc = getLocation(m.location).name.toUpperCase();

@@ -11,8 +11,9 @@ import type { Input } from '../input.ts';
 import { app } from '../app.ts';
 import { STAT_IDS, type DragonVisual, type MoveId, type SpeciesDef, type StatId, type Stats, type TypeId } from '../../data/schema.ts';
 import { getMove, getSpecies, getType } from '../../data/index.ts';
-import { dragonName, dragonStats, evolve, findDragon } from '../../game/dragons.ts';
-import { drawDragon, type Pose } from '../../art/dragon.ts';
+import { dragonName, dragonStats, evolveDragon, findDragon } from '../../game/dragons.ts';
+import { swapLines } from '../../game/habitat.ts';
+import { drawDragon, fitDragon, type Pose } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
 import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.ts';
 import {
@@ -39,40 +40,10 @@ const STAT_SHORT: Record<StatId, string> = { hp: 'HP', atk: 'ATTACK', def: 'DEFE
 interface Mote { a: number; r: number; v: number; color: string; size: number }
 interface Confetti { x: number; y: number; vx: number; vy: number; color: string; spin: number; t: number }
 
-/** A sprite's drawn bounds at scale 1, relative to its ground point (px), measured once. */
-interface Box { l: number; r: number; t: number; b: number }
-const boxes = new Map<DragonVisual, Box>();
-
-function measure(v: DragonVisual): Box {
-  const hitB = boxes.get(v);
-  if (hitB) return hitB;
-  const K = 2, S = K * v.size;
-  const half = Math.ceil(60 * S), top = Math.ceil(100 * S);
-  const c = document.createElement('canvas');
-  c.width = half * 2; c.height = top + Math.ceil(16 * S);
-  const g = c.getContext('2d', { willReadFrequently: true })!;
-  drawDragon(g, v, half, top, { scale: K, t: 0.45, silhouette: '#000000' });
-  const data = g.getImageData(0, 0, c.width, c.height).data;
-  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
-  for (let y = 0; y < c.height; y++) {
-    for (let x = 0; x < c.width; x++) {
-      if (data[(y * c.width + x) * 4 + 3] > 60) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      }
-    }
-  }
-  const box: Box = x1 < 0
-    ? { l: -20 * v.size, r: 20 * v.size, t: -40 * v.size, b: 0 }
-    : { l: (x0 - half) / K, r: (x1 + 1 - half) / K, t: (y0 - top) / K, b: (y1 + 1 - top) / K };
-  boxes.set(v, box);
-  return box;
-}
-
 /** Scale and horizontal nudge that fit `v` inside maxW x maxH, centred on its bounds. */
 function fit(v: DragonVisual, maxW: number, maxH: number, maxScale: number): { scale: number; dx: number } {
-  const b = measure(v);
-  const scale = Math.min(maxScale, maxW / Math.max(1, b.r - b.l), maxH / Math.max(1, b.b - b.t));
-  return { scale, dx: Math.round(-((b.l + b.r) / 2) * scale) };
+  const f = fitDragon(v, maxW, maxH, maxScale);
+  return { scale: f.scale, dx: Math.round(f.dx) };
 }
 
 export function createEvolutionScene(dragonId: string, onDone: () => void): Scene {
@@ -106,11 +77,10 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
   function doEvolve(): void {
     if (evolved || !valid || !d || !from || !to) return;
     evolved = true;
-    const knownBefore = [...d.knownMoves];
-    evolve(app.state, d);
+    const report = evolveDragon(app.state, d);
     app.save();
     newStats = dragonStats(d);
-    learned = d.knownMoves.filter((m) => !knownBefore.includes(m));
+    learned = report.learned;
     const oldSet = new Set(from.learnset.map((e) => e.move));
     upcoming = to.learnset.filter((e) => e.level > d.level && !oldSet.has(e.move) && !d.knownMoves.includes(e.move)).slice(0, 2);
     const newName = dragonName(d);
@@ -119,6 +89,7 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
       const name = getMove(m).name;
       lines.push(d.moves.includes(m) ? `${newName} learned ${name}! It is ready to use.` : `${newName} learned ${name}! Equip it on the DRAGONS screen.`);
     }
+    lines.push(...swapLines(report.swapped));
     const gained = to.types.filter((ty) => !oldTypes.includes(ty));
     if (gained.length) lines.push(`${newName} is now ${to.types.map((ty) => getType(ty).name).join(' and ')} type!`);
     if (upcoming.length) {

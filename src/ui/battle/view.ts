@@ -41,6 +41,11 @@ export interface MonView {
   /** Seconds since the status badge last changed (drives its pop). */
   statusAge: number;
   confused: boolean;
+  /** SEEDED (loses HP to the foe each turn end) and STUCK (cannot swap out). */
+  seeded: boolean;
+  stuck: boolean;
+  /** Seconds since SEEDED / STUCK last changed (drives the badge pop). */
+  volatileAge: number;
   fainted: boolean;
   /** Has been sent out at least once. */
   out: boolean;
@@ -74,6 +79,9 @@ export function makeView(m: BattleMon): MonView {
     status: m.status,
     statusAge: 99,
     confused: m.volatile.confused > 0,
+    seeded: m.volatile.seeded,
+    stuck: m.volatile.stuck,
+    volatileAge: 99,
     fainted: m.hp <= 0,
     out: false,
   };
@@ -91,6 +99,7 @@ export function tickView(v: MonView, dt: number): void {
   const cap = v.level >= MAX_LEVEL ? v.xp : Math.min(v.xp, xpForLevel(v.level + 1));
   v.shownXp = approach(v.shownXp, cap, Math.max(v.xpSpeed, 20) * dt);
   v.statusAge += dt;
+  v.volatileAge += dt;
 }
 
 /** Start an HP change that drains or fills over about `dur` seconds. */
@@ -141,6 +150,8 @@ export function syncViews(views: Map<string, MonView>, battle: BattleState): str
     if (v.fainted !== fainted) { off.push(`fainted ${v.fainted}->${fainted}`); v.fainted = fainted; }
     const conf = m.volatile.confused > 0;
     if (v.confused !== conf) { off.push(`confused ${v.confused}->${conf}`); v.confused = conf; }
+    if (v.seeded !== m.volatile.seeded) { off.push(`seeded ${v.seeded}->${m.volatile.seeded}`); v.seeded = m.volatile.seeded; }
+    if (v.stuck !== m.volatile.stuck) { off.push(`stuck ${v.stuck}->${m.volatile.stuck}`); v.stuck = m.volatile.stuck; }
     if (off.length) drift.push(`${m.uid} (${off.join(', ')})`);
   }
   return drift;

@@ -10,8 +10,7 @@ import { drawText, measureText } from '../../lib/engine/text.ts';
 import { ButtonGroup, UI, VIEW_W, fillRoundRect, hit, tint, type Rect } from '../widgets.ts';
 import { drawTitleBackdrop } from '../../art/backdrops.ts';
 import { drawDragon, dragonHeight } from '../../art/dragon.ts';
-import { getSpecies } from '../../data/index.ts';
-import { STARTERS } from '../../data/species.ts';
+import { STARTERS, getSpecies } from '../../data/index.ts';
 import { loadGame } from '../../game/state.ts';
 import { music, setMusic, setSound, sfx } from '../../audio/index.ts';
 

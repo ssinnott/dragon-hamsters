@@ -21,6 +21,21 @@ export const MISSION_FULLNESS = 20;
 export const TRAINING_CAP_STAT = 252;
 export const TRAINING_CAP_TOTAL = 510;
 
+/**
+ * The one-shot tutorial flags (keys of GameState.flags): each screen's first-visit briefing from
+ * Chief Nibbles sets its own flag. The test API's newGame(..., { skipTutorials: true }) sets them all.
+ */
+export const TUTORIAL_FLAGS = {
+  burrow: 'burrowTutorial',
+  board: 'boardTutorial',
+  roster: 'rosterTutorial',
+  dex: 'dexTutorial',
+  typeChart: 'typeChartTutorial',
+} as const;
+export type TutorialFlag = (typeof TUTORIAL_FLAGS)[keyof typeof TUTORIAL_FLAGS];
+/** Every tutorial flag, for "skip all tutorials". */
+export const ALL_TUTORIAL_FLAGS: readonly TutorialFlag[] = Object.values(TUTORIAL_FLAGS);
+
 export interface Needs {
   /** 0 starving .. 100 stuffed. At 0 a dragon cannot go on missions and loses happiness daily. */
   fullness: number;

@@ -12,9 +12,10 @@ import { createSceneManager, type Scene } from './ui/scene.ts';
 import { app, type Nav } from './ui/app.ts';
 import { UI } from './ui/widgets.ts';
 import { loadGame, newGame, saveGame } from './game/state.ts';
-import type { GameState } from './game/types.ts';
+import { freshSeed } from './game/rng.ts';
+import { ALL_TUTORIAL_FLAGS, type GameState } from './game/types.ts';
 import { addDragon, createDragon, markSeen } from './game/dragons.ts';
-import { STARTERS } from './data/species.ts';
+import { STARTERS } from './data/index.ts';
 import type { SpeciesId } from './data/schema.ts';
 import { isAudioUnlocked, setMusic, setSound, unlockAudio } from './audio/index.ts';
 import { createTitleScene } from './ui/scenes/title.ts';
@@ -36,10 +37,6 @@ import { createBattleScene } from './ui/scenes/battle.ts';
 const DT = 1 / 60;
 const STARTER_LEVEL = 5;
 /** Every one-shot tutorial the screens show; the test API can mark them all seen. */
-const TUTORIAL_FLAGS = [
-  'burrowTutorial', 'boardTutorial', 'briefingTutorial', 'runTutorial', 'battleTutorial', 'resultsTutorial',
-  'rosterTutorial', 'dexTutorial', 'typeChartTutorial', 'shopTutorial', 'bagTutorial',
-];
 
 // ---------------------------------------------------------------------------------------------
 // Debug hooks (index.html installs window.__game before the module graph loads)
@@ -59,16 +56,6 @@ function report(where: string, e: unknown): void {
   if (box) { box.style.display = 'block'; box.textContent = hooks.errors.slice(-8).join('\n'); }
 }
 
-/** A random 32-bit seed for a brand-new world. */
-function freshSeed(): number {
-  try {
-    const a = new Uint32Array(1);
-    crypto.getRandomValues(a);
-    return a[0];
-  } catch {
-    return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-  }
-}
 
 // ---------------------------------------------------------------------------------------------
 // Canvas, input, scenes, state
@@ -208,7 +195,7 @@ function apiNewGame(seed?: number, starters?: [SpeciesId, SpeciesId] | NewGameOp
   for (const id of STARTERS) if (!ids.includes(id)) markSeen(s, id);
   s.squad = s.dragons.map((d) => d.id);
   s.flags.introDone = true;
-  if (o.skipTutorials) for (const f of TUTORIAL_FLAGS) s.flags[f] = true;
+  if (o.skipTutorials) for (const f of ALL_TUTORIAL_FLAGS) s.flags[f] = true;
   app.state = s;
   applySettings();
   app.nav.burrow();

@@ -5,9 +5,9 @@ import { drawText, measureText } from '../../lib/engine/text.ts';
 import { getMove, getItem, getType } from '../../data/index.ts';
 import type { ItemId, MoveDef, Stats, TypeId } from '../../data/schema.ts';
 import type { MoveSlot } from '../../battle/types.ts';
-import { weaknesses, typeEffectiveness } from '../../battle/matchup.ts';
+import { GRADE_LABELS, weaknesses, typeEffectiveness } from '../../battle/matchup.ts';
 import {
-  UI, drawBar, drawEffectTag, drawHpBar, drawPanel, drawStars, drawStatusBadge, drawTypeBadge, drawTypeBadges,
+  UI, drawBar, drawEffectTag, drawHpBar, drawPanel, drawStars, drawStatusBadge, drawTypeBadge, drawTypeBadges, movePowerLabel, typeBadgeWidth,
   drawWrapped, effectStyle, fillRoundRect, textOn, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawItemIcon, drawTypeIcon } from '../icons.ts';
@@ -134,8 +134,12 @@ export function drawPips(ctx: Ctx, team: readonly MonView[], activeUid: string |
 // Info boxes
 // ---------------------------------------------------------------------------------------------
 
-/** The status badge with a little pop when it has just changed (bounce + white flash ring). */
-function drawStatusPop(ctx: Ctx, v: MonView, x: number, y: number): number {
+/**
+ * The status badge with a little pop when it has just changed (bounce + white flash ring), then the
+ * DIZZY / SEEDED / STUCK pills. Everything stays left of `maxRight`: a pill that does not fit in full
+ * uses its short form, and one that does not fit at all is left out. Returns the width used.
+ */
+function drawStatusPop(ctx: Ctx, v: MonView, x: number, y: number, maxRight: number): number {
   let w = 0;
   if (v.status) {
     const a = v.statusAge;
@@ -152,7 +156,17 @@ function drawStatusPop(ctx: Ctx, v: MonView, x: number, y: number): number {
     }
     w += 3;
   }
-  if (v.confused) w += drawPill(ctx, 'DIZZY', x + w, y, '#d6609e') + 3;
+  // SEEDED / STUCK pop in like the status badge
+  const pop = v.volatileAge < 0.3 ? -Math.round(Math.sin((v.volatileAge / 0.3) * Math.PI) * 3) : 0;
+  const pills: { full: string; short: string; fill: string; dy: number }[] = [];
+  if (v.confused) pills.push({ full: 'DIZZY', short: 'DZY', fill: '#d6609e', dy: 0 });
+  if (v.seeded) pills.push({ full: 'SEEDED', short: 'SEED', fill: '#4f9a3a', dy: pop });
+  if (v.stuck) pills.push({ full: 'STUCK', short: 'STK', fill: '#8a5a3c', dy: pop });
+  for (const p of pills) {
+    const text = [p.full, p.short].find((t) => x + w + measureText(t) + 8 <= maxRight);
+    if (!text) continue;
+    w += drawPill(ctx, text, x + w, y + p.dy, p.fill) + 3;
+  }
   return w;
 }
 
@@ -179,8 +193,9 @@ export function drawEnemyBox(ctx: Ctx, v: MonView, team: readonly MonView[], act
   if (pipsX > nameEnd + 4) drawPips(ctx, team, activeUid, pipsX, y + 6, 'enemy');
   drawHpBar(ctx, x + 8, y + 17, B.w - 16, v.shownHp, v.maxHp, { boss: v.isBoss });
   const bw = drawTypeBadges(ctx, v.types, x + 8, y + 30);
-  drawStatusPop(ctx, v, x + 8 + bw + 4, y + 31);
-  if (pipsX <= nameEnd + 4) drawPips(ctx, team, activeUid, x + B.w - 8 - pipsW, y + 33, 'enemy');
+  const pipsBelow = pipsX <= nameEnd + 4;
+  drawStatusPop(ctx, v, x + 8 + bw + 4, y + 31, pipsBelow ? x + B.w - 8 - pipsW - 4 : x + B.w - 6);
+  if (pipsBelow) drawPips(ctx, team, activeUid, x + B.w - 8 - pipsW, y + 33, 'enemy');
 }
 
 /** The WEAK TO row under the enemy box: small badges, biggest multipliers first. */
@@ -189,7 +204,7 @@ export function drawWeakRow(ctx: Ctx, v: MonView, slide: number): void {
   const weak = weaknesses(v.types).sort((a, b) => typeEffectiveness(b, v.types) - typeEffectiveness(a, v.types));
   const label = 'WEAK TO:';
   const lw = measureText(label);
-  const badgeW = (t: TypeId): number => measureText(getType(t).name) + 17;
+  const badgeW = (t: TypeId): number => typeBadgeWidth(t, { small: true });
   let full = weak.reduce((s, t) => s + badgeW(t) + 2, 0) - 2;
   const maxW = 398 - (lw + 14);
   const iconsOnly = full > maxW;
@@ -225,8 +240,8 @@ export function drawPlayerBox(ctx: Ctx, v: MonView, team: readonly MonView[], ac
   const x = Math.round(B.x + (1 - slide) * (B.w + 12)), y = B.y;
   drawPanel(ctx, x, y, B.w, B.h, { fill: UI.night });
   drawText(ctx, v.name, x + 8, y + 6, { color: UI.textLight });
-  drawStatusPop(ctx, v, x + 8 + measureText(v.name) + 5, y + 4);
-  drawLevel(ctx, v.level, x + B.w - 8, y + 6);
+  const lvW = drawLevel(ctx, v.level, x + B.w - 8, y + 6);
+  drawStatusPop(ctx, v, x + 8 + measureText(v.name) + 5, y + 4, x + B.w - 8 - lvW - 4);
   const barW = 178;
   drawHpBar(ctx, x + 8, y + 17, barW, v.shownHp, v.maxHp);
   const hpNow = Math.max(0, Math.round(v.shownHp));
@@ -427,9 +442,7 @@ function dimOn(face: string, text: string): string {
   return text === UI.text ? tint(face, -0.62) : tint(face, 0.68);
 }
 
-export function smallBadgeWidth(t: TypeId): number {
-  return measureText(getType(t).name) + 17;
-}
+
 
 function effectTagWidth(mult: number): number {
   return measureText(effectStyle(mult).text) + 8;
@@ -440,8 +453,7 @@ export function isDamagingMove(m: MoveDef): boolean {
 }
 
 export function powerText(m: MoveDef): string {
-  if (m.effects.some((e) => e.kind === 'fixed')) return 'POW -';
-  return m.power > 0 ? `POW ${m.power}` : 'STATUS';
+  return isDamagingMove(m) ? `POW ${movePowerLabel(m)}` : 'STATUS';
 }
 
 /** A move button: name, small type badge, PP, power, and the effectiveness tag vs the foe. */
@@ -455,7 +467,7 @@ export function drawMoveFace(ctx: Ctx, face: Rect, enabled: boolean, slot: MoveS
   drawText(ctx, mv.name.toUpperCase(), face.x + 14, face.y + 5, { color: col, shadowColor: sh, shadow: enabled });
   ctx.save();
   if (!enabled) ctx.globalAlpha = 0.55;
-  drawTypeBadge(ctx, mv.type, face.x + face.w - 4 - smallBadgeWidth(mv.type), face.y + 3, { small: true });
+  drawTypeBadge(ctx, mv.type, face.x + face.w - 4 - typeBadgeWidth(mv.type, { small: true }), face.y + 3, { small: true });
   ctx.restore();
   const ppLow = slot.pp <= Math.max(1, Math.floor(slot.maxPp / 4));
   const pp = `PP ${slot.pp}/${slot.maxPp}`;
@@ -501,9 +513,9 @@ export function drawMoveInfo(ctx: Ctx, r: Rect, slot: MoveSlot | null, noPp: boo
 
 /** Matchup grade words under the stars. */
 const GRADE_TEXT: Record<1 | 2 | 3, [string, string]> = {
-  3: ['GREAT MATCHUP!', '#2f9a3a'],
-  2: ['EVEN MATCHUP', UI.textDim],
-  1: ['BAD MATCHUP', '#c4561e'],
+  3: [GRADE_LABELS[3], '#2f9a3a'],
+  2: [GRADE_LABELS[2], UI.textDim],
+  1: [GRADE_LABELS[1], '#c4561e'],
 };
 
 /** A team card (SWAP menu and item targets): mini sprite, name, LV, HP, status, then a grade or a reason. */

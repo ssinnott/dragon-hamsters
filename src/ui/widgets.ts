@@ -7,7 +7,7 @@
 // (size 1: 7 px tall, 6 px advance; size 2 for headings).
 import { drawText, measureText, type DrawTextOptions } from '../lib/engine/text.ts';
 import { TYPES } from '../data/types.ts';
-import { STATUS_SHORT, type StatusId, type TypeId } from '../data/schema.ts';
+import { STATUS_SHORT, type FoodDef, type ItemDef, type MoveDef, type StageStat, type StatusId, type TypeId } from '../data/schema.ts';
 import type { Input } from './input.ts';
 import { drawCoinIcon, drawTypeIcon } from './icons.ts';
 
@@ -353,6 +353,11 @@ export class ButtonGroup {
   focus = 0;
   /** Arrow keys / Tab / Enter / Space drive this group (hotkeys always work). */
   keyboard = true;
+  /**
+   * Draw the focus ring on the focused button. null (the default) follows `keyboard`: a group the
+   * keyboard does not drive shows hover highlights only, never a stale focus ring.
+   */
+  showFocus: boolean | null = null;
   private pressIdx = -1;
   private lastX = Number.NaN;
   private lastY = Number.NaN;
@@ -486,7 +491,7 @@ export class ButtonGroup {
   }
 
   draw(ctx: Ctx): void {
-    const f = this.usable(this.focus) ? this.focus : -1;
+    const f = (this.showFocus ?? this.keyboard) && this.usable(this.focus) ? this.focus : -1;
     for (let i = 0; i < this.buttons.length; i++) if (i !== f) this.buttons[i].draw(ctx, false);
     if (f >= 0) this.buttons[f].draw(ctx, true);
   }
@@ -576,6 +581,23 @@ function drawPill(ctx: Ctx, x: number, y: number, w: number, h: number, fill: st
 export function badgeHeight(small = false): number { return small ? 11 : 13; }
 
 /** A rounded pill in the type's colour with its emblem and name. Returns its width. */
+/** Badge geometry shared by drawTypeBadge and typeBadgeWidth. */
+function badgeMetrics(small: boolean): { iconBox: number; padL: number; gap: number; padR: number } {
+  return { iconBox: small ? 7 : 9, padL: 2, gap: small ? 2 : 3, padR: small ? 4 : 5 };
+}
+
+/** The width drawTypeBadge would use for this type, without drawing (for layout). */
+export function typeBadgeWidth(type: TypeId, opts: { small?: boolean } = {}): number {
+  const m = badgeMetrics(!!opts.small);
+  return 1 + m.padL + m.iconBox + m.gap + measureText(String(TYPES[type]?.name || type)) + m.padR + 1;
+}
+
+/** The width drawTypeBadges would use for these types (badges `gap` px apart, default 2). */
+export function typeBadgesWidth(types: readonly TypeId[], opts: { small?: boolean; gap?: number } = {}): number {
+  if (!types.length) return 0;
+  return types.reduce((a, t) => a + typeBadgeWidth(t, opts), 0) + (types.length - 1) * (opts.gap ?? 2);
+}
+
 export function drawTypeBadge(ctx: Ctx, type: TypeId, x: number, y: number, opts: { small?: boolean } = {}): number {
   x = Math.round(x); y = Math.round(y);
   const info = TYPES[type];
@@ -584,10 +606,8 @@ export function drawTypeBadge(ctx: Ctx, type: TypeId, x: number, y: number, opts
   const name = String(info?.name || type);
   const small = !!opts.small;
   const h = badgeHeight(small);
-  const iconBox = small ? 7 : 9;
-  const padL = 2, gap = small ? 2 : 3, padR = small ? 4 : 5;
-  const tw = measureText(name);
-  const w = 1 + padL + iconBox + gap + tw + padR + 1;
+  const { iconBox, padL, gap } = badgeMetrics(small);
+  const w = typeBadgeWidth(type, { small });
   drawPill(ctx, x, y, w, h, color);
   drawTypeIcon(ctx, type, x + 1 + padL + (iconBox - 1) / 2, y + (small ? 5 : 6), small ? 2.6 : 3.6, { plain: true });
   drawText(ctx, name, x + 1 + padL + iconBox + gap, y + (small ? 2 : 3), { color: textOn(color) === UI.text ? UI.text : '#ffffff', shadowColor: dark });
@@ -838,6 +858,8 @@ export interface MessageBoxOpts {
   /** Speaker name plaque on the top edge. */
   name?: string;
   fill?: string;
+  /** Extra left inset for the text in px (room for a portrait); the text wraps in what is left. */
+  indent?: number;
 }
 
 /**
@@ -852,7 +874,8 @@ export function drawMessageBox(ctx: Ctx, x: number, y: number, w: number, h: num
   ctx.fillRect(x + 4, y + 4, w - 8, 1);
   ctx.fillRect(x + 4, y + h - 7, w - 8, 1);
   const full = typeof text === 'string' ? text : text.text;
-  const padX = 12, innerW = w - padX * 2 - 8;
+  const indent = Math.max(0, Math.round(opts.indent ?? 0));
+  const padX = 12 + indent, innerW = w - 24 - indent - 8;
   let size = opts.size ?? 0;
   if (!size) {
     const lines2 = wrapText(full, innerW, 2);
@@ -890,6 +913,11 @@ export interface ScrollListOptions<T> {
   onSelect?: (item: T, i: number) => void;
   /** Double-click, or Enter/Space on the selection. */
   onActivate?: (item: T, i: number) => void;
+  /**
+   * A single click on a row: pressed and released on the same row without dragging the list
+   * (fires after the row is selected, and before onActivate on a double-click's second click).
+   */
+  onClick?: (item: T, i: number) => void;
   /** Shown centred when there are no items. */
   empty?: string;
 }
@@ -1002,6 +1030,7 @@ export class ScrollList<T> {
       this.press = null;
       if (pr.kind === 'row' && !pr.dragged && pr.row >= 0 && pr.row === this.hovered) {
         this.choose(pr.row, items);
+        this.opts.onClick?.(items[pr.row], pr.row);
         if (this.lastClickRow === pr.row && this.tick - this.lastClickTick <= DOUBLE_CLICK_UPDATES) {
           this.lastClickRow = -1;
           this.activate(pr.row, items);
@@ -1065,4 +1094,68 @@ export class ScrollList<T> {
       ctx.fillRect(bx + 2, gy, 3, 1); ctx.fillRect(bx + 2, gy + 2, 3, 1); ctx.fillRect(bx + 2, gy + 4, 3, 1);
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Move numbers
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A move's power as shown anywhere in the UI: the number, or '-' for status moves and for
+ * fixed-damage moves (power 0 in the table: they deal the user's level or a flat amount).
+ */
+export function movePowerLabel(m: MoveDef): string {
+  return m.power > 0 && !m.effects.some((e) => e.kind === 'fixed') ? String(m.power) : '-';
+}
+
+// ---------------------------------------------------------------------------------------------
+// Key hints and item summaries (shop, bag, burrow)
+// ---------------------------------------------------------------------------------------------
+
+/** A little keyboard key with a label (hotkey hints: '1', 'ESC', 'ENTER'). Returns its width. */
+export function drawKeycap(ctx: Ctx, key: string, x: number, y: number): number {
+  const tw = measureText(key);
+  const w = Math.max(9, tw + 4), h = 12;
+  x = Math.round(x); y = Math.round(y);
+  fillRoundRect(ctx, x, y, w, h, 2, UI.ink);
+  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, 1, UI.nightDark);
+  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 3, 1, UI.nightLight);
+  ctx.fillStyle = tint(UI.nightLight, 0.25);
+  ctx.fillRect(x + 2, y + 1, w - 4, 1);
+  drawText(ctx, key, x + Math.floor((w - tw) / 2), y + 2, { color: UI.textLight, shadow: false });
+  return w;
+}
+
+/** Short stat names for item effect lines. */
+export const STAGE_SHORT: Record<StageStat, string> = {
+  atk: 'ATK', def: 'DEF', spa: 'SP.ATK', spd: 'SP.DEF', spe: 'SPD', acc: 'ACC', eva: 'EVA',
+};
+
+/** A one-line summary of a battle item's effect, e.g. 'HEALS 50% HP' or 'BATTLE: +1 ATK +1 SP.ATK'. */
+export function itemEffectText(def: ItemDef): string {
+  const e = def.effect;
+  switch (e.kind) {
+    case 'heal': return e.fraction >= 1 ? 'HEALS ALL HP' : `HEALS ${Math.round(e.fraction * 100)}% HP`;
+    case 'revive': return `REVIVES WITH ${Math.round(e.fraction * 100)}% HP`;
+    case 'cure': return 'CURES STATUS';
+    case 'stages': {
+      const parts = (Object.keys(e.changes) as StageStat[]).map((k) => {
+        const n = e.changes[k] ?? 0;
+        return `${n > 0 ? '+' : ''}${n} ${STAGE_SHORT[k]}`;
+      });
+      return 'BATTLE: ' + parts.join(' ');
+    }
+    default: return '';
+  }
+}
+
+/**
+ * A one-line summary of a food, e.g. 'FULL +35 HAPPY +8 +150 XP'. `happyMult` scales the happiness
+ * (a favourite food, a Snack Bar fan); `sep` goes between the parts (default a space).
+ */
+export function foodEffectText(def: FoodDef, opts: { happyMult?: number; sep?: string } = {}): string {
+  const sep = opts.sep ?? ' ';
+  const parts = [`FULL +${def.fullness}`, `HAPPY +${def.happiness * (opts.happyMult ?? 1)}`];
+  if (def.xp > 0) parts.push(`+${def.xp} XP`);
+  return parts.join(sep);
 }

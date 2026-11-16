@@ -29,7 +29,10 @@ Burrow (feed, train, rest)  ->  Mission board  ->  briefing + squad of 3  ->  mi
 
 A **day** lasts until you choose SLEEP in the Burrow. Each dragon gets two activity slots per day;
 missions cost energy and fullness, so a squad can usually run one or two missions a day before it
-needs to sleep. Sleeping heals everyone, cures status, restores energy, and costs fullness.
+needs to sleep. Sleeping heals everyone, cures status, restores **80 energy** (capped at 100), and
+costs 25 fullness. The numbers are tuned so a full day (wheel 20 + play 15 + one mission 30 = 65
+energy) is paid back by one night with room to spare: at +60 a busy dragon slowly ran dry and had
+to spend slots napping.
 
 ## Rule of five
 
@@ -95,7 +98,7 @@ three needs, 0-100: **fullness**, **happiness**, **energy**.
 
 | Station | Activity | Energy | Effect |
 |---|---|---|---|
-| Snack Bar | feed one food from the pantry | 0 | fullness + happiness (x2 for its favourite food); dragonfruit gives XP; no slot used |
+| Snack Bar | feed one food from the pantry | 0 | fullness + happiness (x2 for its favourite food, and x2 again for FLUFF / COOKING, who love the Snack Bar); dragonfruit gives XP; no slot used |
 | Hamster Wheel | run | -20 | SPEED training, a little XP; LIGHTNING / WINGED love it |
 | Treasure Tunnels | dig | -20 | ATTACK/DEFENSE training, loot (coins, food, rarely an item); EARTH/ROCK/METAL dig better |
 | Cozy Nest | nap | +50 | full HP, cure status |

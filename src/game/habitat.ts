@@ -8,20 +8,22 @@ import { ACTIVITIES, getFood, getItem, getMove, getSpecies } from '../data/index
 import { xpForLevel } from '../battle/stats.ts';
 import { MAX_LEVEL, MISSION_ENERGY, SLOTS_PER_DAY, type GameState, type OwnedDragon } from './types.ts';
 import {
-  dragonName, dragonStats, dragonTypes, findDragon, grantXp, isFainted, addTraining, type XpReport,
+  dragonName, dragonStats, dragonTypes, findDragon, grantXp, isFainted, addTraining, type MoveSwap, type XpReport,
 } from './dragons.ts';
 import { stateRng, weightedPick } from './rng.ts';
 
 /** Needs live in 0..100. */
 const NEED_MAX = 100;
 /** endDay: energy restored, fullness spent, and the happiness lost by a dragon left at 0 fullness. */
-const NIGHT_ENERGY = 60;
+const NIGHT_ENERGY = 80;
 const NIGHT_FULLNESS = 25;
 const STARVING_HAPPINESS = 15;
-/** At or below this fullness a dragon counts as hungry (mood line, morning report). */
-const HUNGRY_AT = 30;
+/** At or below this fullness a dragon counts as hungry (mood line, morning report, burrow thought bubbles). */
+export const HUNGRY_AT = 30;
 /** At or below this happiness a dragon counts as glum (battle loafing starts at 20). */
-const GLUM_AT = 20;
+export const GLUM_AT = 20;
+/** At or above this happiness a dragon is overjoyed (mood line, burrow hops). */
+export const JOYFUL_AT = 80;
 /** Bag cap, so a pantry never overflows its shelves. */
 export const BAG_MAX = 99;
 
@@ -112,10 +114,18 @@ export function xpLines(d: OwnedDragon, r: XpReport): string[] {
   if (r.levelsGained.length) out.push(`${name} grew to level ${r.levelsGained[r.levelsGained.length - 1]}!`);
   for (const m of r.learned) {
     const mv = getMove(m).name;
-    out.push(d.moves.includes(m) ? `${name} learned ${mv}!` : `${name} learned ${mv}! Equip it from the DRAGONS screen.`);
+    out.push(d.moves.includes(m) || r.swapped.some((x) => x.in === m)
+      ? `${name} learned ${mv}!`
+      : `${name} learned ${mv}! Equip it from the DRAGONS screen.`);
   }
+  out.push(...swapLines(r.swapped));
   if (r.evolveTo) out.push(`Huh? ${name} is starting to glow!`);
   return out;
+}
+
+/** "SWAPPED X FOR Y" for each automatic loadout swap (XpReport.swapped / EvolveReport.swapped). */
+export function swapLines(swapped: readonly MoveSwap[]): string[] {
+  return swapped.map((x) => `SWAPPED ${getMove(x.out).name.toUpperCase()} FOR ${getMove(x.in).name.toUpperCase()}!`);
 }
 
 /** XP for an activity: a fraction of what the dragon's next level needs (at least 1). */
@@ -191,12 +201,16 @@ function feed(state: GameState, d: OwnedDragon, food: FoodId): ActivityResult {
   const f = getFood(food);
   const name = dragonName(d);
   const favourite = getSpecies(d.speciesId).favoriteFood === food;
+  // The Snack Bar's fans (ACTIVITIES.feed.likedBy) love every meal: double happiness, which stacks
+  // with a favourite food's double.
+  const fan = likes(d, ACTIVITIES.feed);
   state.food[food] = Math.max(0, (state.food[food] ?? 0) - 1);
   const before = { ...d.needs };
   d.needs.fullness = clampNeed(d.needs.fullness + f.fullness);
-  d.needs.happiness = clampNeed(d.needs.happiness + f.happiness * (favourite ? 2 : 1));
+  d.needs.happiness = clampNeed(d.needs.happiness + f.happiness * (favourite ? 2 : 1) * (fan ? 2 : 1));
   const lines = [`${name} munched the ${f.name}. Nom nom!`];
   if (favourite) lines.push(`${f.name} is ${name}'s favourite! Double happiness!`);
+  if (fan) lines.push(`${name} LOVES the ${ACTIVITIES.feed.name}! Double happiness!`);
   const parts: string[] = [];
   if (d.needs.fullness > before.fullness) parts.push(`FULLNESS +${d.needs.fullness - before.fullness}`);
   if (d.needs.happiness > before.happiness) parts.push(`HAPPINESS +${d.needs.happiness - before.happiness}`);
@@ -343,7 +357,7 @@ export function moodLine(d: OwnedDragon): string {
   if (d.needs.fullness <= HUNGRY_AT) return 'HUNGRY!';
   if (d.needs.energy < MISSION_ENERGY) return 'SLEEPY';
   if (d.needs.happiness <= GLUM_AT) return 'GRUMPY';
-  if (d.needs.happiness >= 80) return 'OVERJOYED';
+  if (d.needs.happiness >= JOYFUL_AT) return 'OVERJOYED';
   if (d.needs.happiness >= 50) return 'HAPPY';
   return 'CONTENT';
 }

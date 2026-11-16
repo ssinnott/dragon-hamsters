@@ -9,15 +9,15 @@ import { app } from '../app.ts';
 import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import {
-  ButtonGroup, ScrollList, UI, drawHpBar, drawInset, drawPanel, drawSelection, drawStatusBadge, fillRoundRect,
-  tint, wrapText, type Rect,
+  ButtonGroup, ScrollList, UI, drawHpBar, drawInset, drawKeycap, drawPanel, drawSelection, drawStatusBadge, fillRoundRect,
+  foodEffectText, itemEffectText, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawActivityIcon, drawFoodIcon, drawItemIcon } from '../icons.ts';
 import { drawDragon, dragonHeight } from '../../art/dragon.ts';
 import { createFx } from '../../art/fx.ts';
 import { music, sfx } from '../../audio/index.ts';
 import { ACTIVITIES, FOODS, ITEMS, getSpecies } from '../../data/index.ts';
-import { FOOD_IDS, ITEM_IDS, type FoodId, type ItemDef, type ItemId, type StageStat } from '../../data/schema.ts';
+import { FOOD_IDS, ITEM_IDS, type FoodId, type ItemId } from '../../data/schema.ts';
 import { useItemOutside } from '../../game/habitat.ts';
 import { dragonName, dragonStats, isFainted } from '../../game/dragons.ts';
 import type { GameState, OwnedDragon } from '../../game/types.ts';
@@ -27,51 +27,15 @@ type Ctx = CanvasRenderingContext2D;
 type Entry = { kind: 'food'; id: FoodId } | { kind: 'item'; id: ItemId };
 interface Target { d: OwnedDragon; ok: boolean; tag: string }
 
-const STAGE_SHORT: Record<StageStat, string> = {
-  atk: 'ATK', def: 'DEF', spa: 'SP.ATK', spd: 'SP.DEF', spe: 'SPD', acc: 'ACC', eva: 'EVA',
-};
-
-function itemEffect(def: ItemDef): string {
-  const e = def.effect;
-  switch (e.kind) {
-    case 'heal': return e.fraction >= 1 ? 'HEALS ALL HP' : `HEALS ${Math.round(e.fraction * 100)}% HP`;
-    case 'revive': return `REVIVES WITH ${Math.round(e.fraction * 100)}% HP`;
-    case 'cure': return 'CURES STATUS';
-    case 'stages': {
-      const parts = (Object.keys(e.changes) as StageStat[]).map((k) => {
-        const n = e.changes[k] ?? 0;
-        return `${n > 0 ? '+' : ''}${n} ${STAGE_SHORT[k]}`;
-      });
-      return 'BATTLE: ' + parts.join(' ');
-    }
-    default: return '';
-  }
-}
-
 function entryName(e: Entry): string { return e.kind === 'food' ? FOODS[e.id].name : ITEMS[e.id].name; }
 function entryCount(e: Entry): number { return e.kind === 'food' ? app.state.food[e.id] ?? 0 : app.state.items[e.id] ?? 0; }
 function entryEffect(e: Entry): string {
-  if (e.kind === 'item') return itemEffect(ITEMS[e.id]);
-  const f = FOODS[e.id];
-  return `FULL +${f.fullness} HAPPY +${f.happiness}` + (f.xp > 0 ? ` +${f.xp} XP` : '');
+  if (e.kind === 'item') return itemEffectText(ITEMS[e.id]);
+  return foodEffectText(FOODS[e.id]);
 }
 function drawEntryIcon(ctx: Ctx, e: Entry, cx: number, cy: number, s: number): void {
   if (e.kind === 'food') drawFoodIcon(ctx, e.id, cx, cy, s);
   else drawItemIcon(ctx, e.id, cx, cy, s);
-}
-
-/** A little keyboard key with a label (hotkey hints). Returns its width. */
-function drawKeycap(ctx: Ctx, key: string, x: number, y: number): number {
-  const tw = measureText(key);
-  const w = Math.max(9, tw + 4), h = 12;
-  x = Math.round(x); y = Math.round(y);
-  fillRoundRect(ctx, x, y, w, h, 2, UI.ink);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, 1, UI.nightDark);
-  fillRoundRect(ctx, x + 1, y + 1, w - 2, h - 3, 1, UI.nightLight);
-  ctx.fillStyle = tint(UI.nightLight, 0.25);
-  ctx.fillRect(x + 2, y + 1, w - 4, 1);
-  drawText(ctx, key, x + Math.floor((w - tw) / 2), y + 2, { color: UI.textLight, shadow: false });
-  return w;
 }
 
 /** Deep copy of the save for a dry run (what would this item do for that dragon?). */
@@ -344,7 +308,7 @@ export function createBagScene(): Scene {
         drawText(ctx, 'DRAGON', LIST.x + 30, LIST.y - 13, { color: UI.textDim, shadow: false });
         drawText(ctx, 'HP', LIST.x + 116, LIST.y - 13, { color: UI.textDim, shadow: false });
         const it = currentItem();
-        drawText(ctx, it ? itemEffect(ITEMS[it]) : '', LIST.x + LIST.w - 6, LIST.y - 13, { align: 'right', color: UI.textDim, shadow: false });
+        drawText(ctx, it ? itemEffectText(ITEMS[it]) : '', LIST.x + LIST.w - 6, LIST.y - 13, { align: 'right', color: UI.textDim, shadow: false });
         drawInset(ctx, LIST.x - 4, LIST.y - 3, LIST.w + 8, LIST.h + 6);
         dragons.draw(ctx);
       }

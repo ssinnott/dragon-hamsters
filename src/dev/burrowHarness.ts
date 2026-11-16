@@ -10,7 +10,7 @@ import { FOOD_IDS, ITEM_IDS } from '../data/schema.ts';
 import { addDragon, createDragon, dragonStats } from '../game/dragons.ts';
 import { xpForLevel } from '../battle/stats.ts';
 import { getSpecies } from '../data/index.ts';
-import type { GameState } from '../game/types.ts';
+import { TUTORIAL_FLAGS, type GameState } from '../game/types.ts';
 import { createBurrowScene } from '../ui/scenes/burrow.ts';
 import { createShopScene } from '../ui/scenes/shop.ts';
 import { createBagScene } from '../ui/scenes/bag.ts';
@@ -43,7 +43,7 @@ function setup(s: GameState): void {
     a.hp = dragonStats(a).hp;
     a.needs.fullness = 70;
   }
-  if (params.get('tutorial')) s.flags.burrowTutorial = false;
+  if (params.get('tutorial')) s.flags[TUTORIAL_FLAGS.burrow] = false;
   if (params.get('cleared')) s.missions['cheese-1'] = { clears: 1, firstClearDay: 1 };
   if (params.get('poor')) s.coins = 12;
   if (params.get('empty')) {

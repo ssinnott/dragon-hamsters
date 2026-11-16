@@ -58,9 +58,12 @@ function isDamagingMove(moveId: MoveId): boolean {
   return m.power > 0 || m.effects.some((e) => e.kind === 'fixed');
 }
 
-/** Best multiplier among the damaging moves (or the own types when it knows no damaging move). */
-function offence(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): number {
-  const damaging = selfMoves.filter(isDamagingMove);
+/**
+ * Best multiplier among the damaging moves (or the own types when it knows no damaging move).
+ * `stabOnly` keeps only moves of the combatant's own types (and falls back to the own types too).
+ */
+function offence(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[], stabOnly = false): number {
+  const damaging = selfMoves.filter((id) => isDamagingMove(id) && (!stabOnly || selfTypes.includes(getMove(id).type)));
   if (!damaging.length) return bestTypeMultiplier(selfTypes, foeTypes);
   let best = 0;
   for (const id of damaging) {
@@ -72,23 +75,61 @@ function offence(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foe
   return best;
 }
 
-/**
- * Matchup score in "doublings": how hard it hits the foe minus how hard the foe's types hit it.
- * +1 means e.g. super-effective offence with neutral defence.
- */
-export function matchupScore(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): number {
-  return lg(offence(selfTypes, selfMoves, foeTypes)) - lg(bestTypeMultiplier(foeTypes, selfTypes));
+/** The three numbers a grade is made of: best move multiplier, best STAB multiplier, their best STAB on us. */
+export interface MatchupParts {
+  /** Best multiplier any of its damaging moves gets on the foe (coverage counts). */
+  offence: number;
+  /** Best multiplier its own-type (STAB) moves get on the foe. */
+  stab: number;
+  /** Best multiplier the foe's own types (its STAB) get on it. */
+  defence: number;
 }
 
-/** 1..3 stars: how well a combatant with these types and moves fares against `foeTypes` (offence and defence). */
+export function matchupParts(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): MatchupParts {
+  return {
+    offence: offence(selfTypes, selfMoves, foeTypes),
+    stab: offence(selfTypes, selfMoves, foeTypes, true),
+    defence: bestTypeMultiplier(foeTypes, selfTypes),
+  };
+}
+
+/**
+ * Matchup score in "doublings": how hard it hits the foe minus how hard the foe's types hit it.
+ * +1 means e.g. super-effective offence with neutral defence. (A rough number for sorting; the
+ * star grade uses the rules in matchupGrade.)
+ */
+export function matchupScore(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): number {
+  const p = matchupParts(selfTypes, selfMoves, foeTypes);
+  return lg(p.offence) - lg(p.defence);
+}
+
+/**
+ * 1..3 stars: how well a combatant with these types and moves fares against `foeTypes`.
+ *   3  clearly favourable: the foe's STAB does not hit it super-effectively, and either one of its
+ *      moves hits super-effectively, or it resists the foe's STAB while its own STAB lands at least
+ *      neutrally. (WATER vs WATER resists both ways: 2.)
+ *   1  the foe's STAB hits it super-effectively and it has nothing super-effective back, or none
+ *      of its moves can touch the foe at all.
+ *   2  anything else.
+ */
 export function matchupGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): 1 | 2 | 3 {
-  const s = matchupScore(selfTypes, selfMoves, foeTypes);
-  if (s >= 1) return 3;
-  if (s <= -1) return 1;
+  const p = matchupParts(selfTypes, selfMoves, foeTypes);
+  if (p.defence <= 1 && (p.offence > 1 || (p.defence < 1 && p.stab >= 1))) return 3;
+  if ((p.defence > 1 && p.offence <= 1) || (p.offence === 0 && p.defence >= 1)) return 1;
   return 2;
 }
 
-/** Average grade against several expected enemy type sets (mission intel). */
+/** The words shown with a grade (battle swap cards, briefing squad picks): one wording everywhere. */
+export const GRADE_LABELS: Record<1 | 2 | 3, string> = {
+  3: 'GREAT MATCHUP!',
+  2: 'EVEN MATCHUP',
+  1: 'BAD MATCHUP',
+};
+
+/**
+ * Grade against several expected enemy type sets (mission intel): the rounded average of the
+ * per-set matchupGrade, so one set gives exactly that set's grade.
+ */
 export function intelGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[]): 1 | 2 | 3 {
   if (!intel.length) return 2;
   let sum = 0;

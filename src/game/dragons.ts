@@ -1,7 +1,7 @@
 // Owned dragons: creation, levelling, evolution, loadouts, training, and the bridge to and from the
 // battle engine (toMonInit / syncFromBattle).
 import { STAT_IDS, type MoveId, type SpeciesDef, type SpeciesId, type Stats, type TypeId } from '../data/schema.ts';
-import { PERSONALITIES, getSpecies } from '../data/index.ts';
+import { PERSONALITIES, getMove, getSpecies } from '../data/index.ts';
 import { calcStats, levelForXp, xpForLevel } from '../battle/stats.ts';
 import { defaultMoves } from '../battle/build.ts';
 import type { BattleState, MonInit } from '../battle/types.ts';
@@ -69,12 +69,96 @@ export function markSeen(state: GameState, id: SpeciesId): void {
   markDex(state, id, false);
 }
 
-/** Learn a move: into knownMoves, and into a free loadout slot if there is one. */
-function learn(d: OwnedDragon, move: MoveId, learned: MoveId[]): void {
+// ---------------------------------------------------------------------------------------------
+// Auto-equip: a move learned with a full loadout replaces the weakest equipped move if it is better
+// ---------------------------------------------------------------------------------------------
+
+/** One automatic loadout change: `out` left the loadout, `in` took its slot. */
+export interface MoveSwap { out: MoveId; in: MoveId }
+
+/** Auto-equip value of the one status move a loadout keeps (any further status move is worth 0). */
+export const STATUS_MOVE_VALUE = 55;
+/** Auto-equip value of a fixed-damage move (damage = level or a flat number; power 0 in the table). */
+export const FIXED_MOVE_VALUE = 50;
+
+/**
+ * How much auto-equip values a move for a dragon of these types: power x STAB (1.5) x accuracy/100
+ * for damaging moves (x the expected hits of a multi-hit move; sure-hit moves count as 100%),
+ * FIXED_MOVE_VALUE x accuracy for fixed-damage moves, STATUS_MOVE_VALUE for a status move.
+ */
+export function moveValue(types: readonly TypeId[], id: MoveId): number {
+  const m = getMove(id);
+  const acc = m.effects.some((e) => e.kind === 'sureHit') ? 100 : Math.max(0, Math.min(100, m.accuracy));
+  if (m.effects.some((e) => e.kind === 'fixed')) return (FIXED_MOVE_VALUE * acc) / 100;
+  if (m.category === 'status' || m.power <= 0) return STATUS_MOVE_VALUE;
+  const multi = m.effects.find((e) => e.kind === 'multiHit');
+  const hits = multi && multi.kind === 'multiHit' ? (multi.min === 2 && multi.max === 5 ? 3.1 : (multi.min + multi.max) / 2) : 1;
+  return m.power * hits * (types.includes(m.type) ? 1.5 : 1) * (acc / 100);
+}
+
+const isStatusMove = (id: MoveId): boolean => {
+  const m = getMove(id);
+  return (m.category === 'status' || m.power <= 0) && !m.effects.some((e) => e.kind === 'fixed');
+};
+
+/** The value of each equipped move: only the first status move counts as STATUS_MOVE_VALUE. */
+function loadoutValues(types: readonly TypeId[], moves: readonly MoveId[]): number[] {
+  let statusKept = false;
+  return moves.map((id) => {
+    if (!isStatusMove(id)) return moveValue(types, id);
+    if (statusKept) return 0;
+    statusKept = true;
+    return STATUS_MOVE_VALUE;
+  });
+}
+
+/**
+ * The swap auto-equip would make if `d` learned `move` with a full loadout, or null: the weakest
+ * equipped move (lowest moveValue; a second status move counts 0; ties go to the earlier slot) is
+ * replaced when the new move is worth strictly more. A new status move only counts when the
+ * loadout has no status move yet.
+ */
+export function autoSwapFor(d: OwnedDragon, move: MoveId): MoveSwap | null {
+  if (d.moves.length < 4 || d.moves.includes(move)) return null;
+  const types = getSpecies(d.speciesId).types;
+  const values = loadoutValues(types, d.moves);
+  const value = isStatusMove(move) ? (d.moves.some(isStatusMove) ? 0 : STATUS_MOVE_VALUE) : moveValue(types, move);
+  let weakest = 0;
+  for (let i = 1; i < values.length; i++) if (values[i] < values[weakest]) weakest = i;
+  return value > values[weakest] ? { out: d.moves[weakest], in: move } : null;
+}
+
+/**
+ * Learn a move: into knownMoves, then into a free loadout slot if there is one, otherwise in place
+ * of the weakest equipped move when it is better (autoSwapFor). A swap that replaces a move swapped
+ * in earlier in the same report is folded into that one.
+ */
+function learn(d: OwnedDragon, move: MoveId, learned: MoveId[], swapped: MoveSwap[]): void {
   if (d.knownMoves.includes(move)) return;
   d.knownMoves.push(move);
   learned.push(move);
-  if (d.moves.length < 4 && !d.moves.includes(move)) d.moves.push(move);
+  if (d.moves.includes(move)) return;
+  if (d.moves.length < 4) { d.moves.push(move); return; }
+  const swap = autoSwapFor(d, move);
+  if (!swap) return;
+  d.moves[d.moves.indexOf(swap.out)] = swap.in;
+  addSwap(swapped, swap);
+}
+
+function addSwap(list: MoveSwap[], swap: MoveSwap): void {
+  const prev = list.find((x) => x.in === swap.out);
+  if (prev) prev.in = swap.in;
+  else list.push({ ...swap });
+}
+
+/**
+ * Several reports' swaps as one list, in order, with chains folded: A out for B, then B out for C
+ * reads as A out for C (what the player sees changed in the loadout).
+ */
+export function foldSwaps(lists: readonly (readonly MoveSwap[] | undefined)[]): MoveSwap[] {
+  const out: MoveSwap[] = [];
+  for (const l of lists) for (const x of l ?? []) addSwap(out, x);
+  return out;
 }
 
 /** Keep the same fraction of HP across a max-HP change (fainted stays fainted, full stays full). */
@@ -155,8 +239,13 @@ export interface XpReport {
   xp: number;
   /** Each level reached, in order. */
   levelsGained: number[];
-  /** Moves learned on the way (auto-equipped while the loadout had a free slot). */
+  /** Moves learned on the way (auto-equipped into a free slot, or swapped in; see `swapped`). */
   learned: MoveId[];
+  /**
+   * Automatic loadout swaps made on the way: with four moves equipped, a learned move that is
+   * better than the weakest equipped one takes its slot (autoSwapFor). Shown as "SWAPPED X FOR Y".
+   */
+  swapped: MoveSwap[];
   /** Set when the dragon is at or past its evolution level; the scene then calls evolve(). */
   evolveTo: SpeciesId | null;
 }
@@ -170,25 +259,35 @@ export function grantXp(d: OwnedDragon, amount: number): XpReport {
   const gained = d.xp - before;
   const levelsGained: number[] = [];
   const learned: MoveId[] = [];
+  const swapped: MoveSwap[] = [];
   const newLevel = Math.max(d.level, levelForXp(d.xp));
   if (newLevel > d.level) {
     const oldMax = dragonStats(d).hp;
     for (let L = d.level + 1; L <= newLevel; L++) {
       levelsGained.push(L);
-      for (const e of species.learnset) if (e.level === L) learn(d, e.move, learned);
+      for (const e of species.learnset) if (e.level === L) learn(d, e.move, learned, swapped);
     }
     d.level = newLevel;
     rescaleHp(d, oldMax);
   }
-  return { dragonId: d.id, xp: gained, levelsGained, learned, evolveTo: pendingEvolution(d) };
+  return { dragonId: d.id, xp: gained, levelsGained, learned, swapped, evolveTo: pendingEvolution(d) };
+}
+
+/** What an evolution did: the old species, the moves learned and any automatic loadout swaps. */
+export interface EvolveReport {
+  from: SpeciesId;
+  to: SpeciesId;
+  learned: MoveId[];
+  swapped: MoveSwap[];
 }
 
 /**
- * Evolve into the next species. Keeps nickname, genes, training, XP, level and loadout; the ability
- * keeps its slot; moves the new species knows at this level are learned (filling free loadout
- * slots); HP keeps its proportion. Returns the old species id.
+ * Evolve into the next species and report what changed. Keeps nickname, genes, training, XP,
+ * level and loadout; the ability keeps its slot; moves the new species knows at this level are
+ * learned (into free loadout slots, or swapped in for weaker ones like a level-up); HP keeps its
+ * proportion.
  */
-export function evolve(state: GameState, d: OwnedDragon): SpeciesId {
+export function evolveDragon(state: GameState, d: OwnedDragon): EvolveReport {
   const from = getSpecies(d.speciesId);
   if (!from.evolvesTo) throw new Error(`${from.id} does not evolve`);
   const to = getSpecies(from.evolvesTo.species);
@@ -204,10 +303,16 @@ export function evolve(state: GameState, d: OwnedDragon): SpeciesId {
 
   d.speciesId = to.id;
   const learned: MoveId[] = [];
-  for (const m of learnedMovesUpTo(to, d.level)) learn(d, m, learned);
+  const swapped: MoveSwap[] = [];
+  for (const m of learnedMovesUpTo(to, d.level)) learn(d, m, learned, swapped);
   rescaleHp(d, oldMax);
   markDex(state, to.id, true);
-  return from.id;
+  return { from: from.id, to: to.id, learned, swapped };
+}
+
+/** Evolve into the next species (see evolveDragon). Returns the old species id. */
+export function evolve(state: GameState, d: OwnedDragon): SpeciesId {
+  return evolveDragon(state, d).from;
 }
 
 /** Equip 1-4 distinct moves the dragon knows. Throws on an invalid loadout. */

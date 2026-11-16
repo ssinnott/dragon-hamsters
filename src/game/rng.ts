@@ -31,6 +31,21 @@ export function stateRng(state: GameState): RngInstance {
   };
 }
 
+/**
+ * A random 32-bit seed for a brand-new world (never zero): the one place a world's randomness comes
+ * from outside the save. Uses crypto.getRandomValues (browser and Node), else the clock and
+ * Math.random.
+ */
+export function freshSeed(): number {
+  try {
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return a[0] || 1;
+  } catch {
+    return ((Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0) || 1;
+  }
+}
+
 /** A fresh 31-bit seed drawn from the world stream (for a battle's own RNG). Never zero. */
 export function nextSeed(state: GameState): number {
   return 1 + Math.floor(step(state) * 0x7ffffffe);

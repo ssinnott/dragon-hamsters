@@ -9,11 +9,10 @@
 import { bootHarness } from './harness.ts';
 import { app } from '../ui/app.ts';
 import type { Scene } from '../ui/scene.ts';
-import { SPECIES_BY_DEX, MISSIONS_IN_ORDER } from '../data/index.ts';
-import { STARTERS } from '../data/species.ts';
+import { SPECIES_BY_DEX, MISSIONS_IN_ORDER, STARTERS } from '../data/index.ts';
 import { xpForLevel } from '../battle/stats.ts';
 import { dragonStats, grantXp, markSeen } from '../game/dragons.ts';
-import type { GameState } from '../game/types.ts';
+import { TUTORIAL_FLAGS, type GameState } from '../game/types.ts';
 import { createRosterScene } from '../ui/scenes/roster.ts';
 import { createDexScene } from '../ui/scenes/dex.ts';
 import { createTypeChartScene } from '../ui/scenes/typechart.ts';
@@ -24,7 +23,7 @@ const params = new URLSearchParams(location.search);
 const which = params.get('scene') ?? 'roster';
 
 function setup(s: GameState): void {
-  if (!params.get('tut')) for (const f of ['rosterTutorial', 'dexTutorial', 'typeChartTutorial']) s.flags[f] = true;
+  if (!params.get('tut')) for (const f of [TUTORIAL_FLAGS.roster, TUTORIAL_FLAGS.dex, TUTORIAL_FLAGS.typeChart]) s.flags[f] = true;
   // the fire starter has reached its evolution level but put it off
   const fire = s.dragons.find((d) => d.speciesId === STARTERS[0]);
   const evoLevel = SPECIES_BY_DEX.find((sp) => sp.id === STARTERS[0])?.evolvesTo?.level ?? 16;

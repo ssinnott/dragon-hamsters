@@ -22,16 +22,17 @@ import {
 } from '../../game/dragons.ts';
 import { moodLine } from '../../game/habitat.ts';
 import {
-  MAX_LEVEL, MISSION_ENERGY, SLOTS_PER_DAY, TRAINING_CAP_STAT, TRAINING_CAP_TOTAL, type OwnedDragon,
+  MAX_LEVEL, MISSION_ENERGY, SLOTS_PER_DAY, TRAINING_CAP_STAT, TRAINING_CAP_TOTAL, TUTORIAL_FLAGS, type OwnedDragon,
 } from '../../game/types.ts';
-import { drawDragon, hash01, poseState, type Pose } from '../../art/dragon.ts';
+import { drawDragon, fitDragon as fit, openEyesTime, type Pose } from '../../art/dragon.ts';
 import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.ts';
 import {
   Button, ButtonGroup, ScrollList, UI, VIEW_W, drawBar, drawHpBar, drawInset, drawPanel, drawSelection,
-  drawStatusBadge, drawTypeBadge, drawTypeBadges, fillRoundRect, hit, tint, wrapText, type Rect,
+  drawStatusBadge, drawTypeBadge, drawTypeBadges, fillRoundRect, hit, movePowerLabel, tint, wrapText, type Rect,
 } from '../widgets.ts';
 import { drawActivityIcon, drawFoodIcon, drawTypeIcon } from '../icons.ts';
 import { sfx, music } from '../../audio/index.ts';
+import { drawWallBackdrop } from '../../art/backdrops.ts';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -84,46 +85,6 @@ function statCap(level: number): Stats {
 // Sprites: measured bounds and cached stills (wide wings and tails stay inside their boxes)
 // ---------------------------------------------------------------------------------------------
 
-interface Box { l: number; r: number; t: number; b: number }
-const boxes = new Map<DragonVisual, Box>();
-
-function openEyesTime(v: DragonVisual): number {
-  const phase = hash01([v.body, v.belly, v.accent, v.wing, v.size, v.build, v.wings, v.horns, v.tail]);
-  for (const t of [0.45, 1.2, 1.9, 2.7, 3.4]) if (poseState('idle', t, 0, phase).eyes !== 'closed') return t;
-  return 0.45;
-}
-
-function measure(v: DragonVisual): Box {
-  const hitB = boxes.get(v);
-  if (hitB) return hitB;
-  const K = 2, S = K * v.size;
-  const half = Math.ceil(60 * S), top = Math.ceil(100 * S);
-  const c = document.createElement('canvas');
-  c.width = half * 2; c.height = top + Math.ceil(16 * S);
-  const g = c.getContext('2d', { willReadFrequently: true })!;
-  drawDragon(g, v, half, top, { scale: K, t: openEyesTime(v), silhouette: '#000000' });
-  const data = g.getImageData(0, 0, c.width, c.height).data;
-  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
-  for (let y = 0; y < c.height; y++) {
-    for (let x = 0; x < c.width; x++) {
-      if (data[(y * c.width + x) * 4 + 3] > 60) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      }
-    }
-  }
-  const box: Box = x1 < 0
-    ? { l: -20 * v.size, r: 20 * v.size, t: -40 * v.size, b: 0 }
-    : { l: (x0 - half) / K, r: (x1 + 1 - half) / K, t: (y0 - top) / K, b: (y1 + 1 - top) / K };
-  boxes.set(v, box);
-  return box;
-}
-
-function fit(v: DragonVisual, maxW: number, maxH: number, maxScale: number): { scale: number; dx: number; dy: number } {
-  const b = measure(v);
-  const scale = Math.min(maxScale, maxW / Math.max(1, b.r - b.l), maxH / Math.max(1, b.b - b.t));
-  return { scale, dx: -((b.l + b.r) / 2) * scale, dy: -Math.max(0, b.b) * scale };
-}
-
 interface Still { canvas: HTMLCanvasElement; ox: number; oy: number }
 const stills = new Map<string, Still>();
 
@@ -147,24 +108,8 @@ function still(v: DragonVisual, maxW: number, maxH: number): Still {
 // Background (cached): a warm burrow wall
 // ---------------------------------------------------------------------------------------------
 
-let wall: HTMLCanvasElement | null = null;
 function drawWall(ctx: Ctx): void {
-  if (!wall) {
-    wall = document.createElement('canvas');
-    wall.width = 640; wall.height = 360;
-    const g = wall.getContext('2d')!;
-    const bands = ['#3d2a22', '#43302a', '#4a352c', '#523b30', '#5a4134', '#614536'];
-    const bh = 360 / bands.length;
-    bands.forEach((c, i) => { g.fillStyle = c; g.fillRect(0, Math.floor(i * bh), 640, Math.ceil(bh) + 1); });
-    let s = 4242;
-    const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-    for (let i = 0; i < 300; i++) {
-      const x = Math.floor(rnd() * 640), y = Math.floor(rnd() * 360);
-      g.fillStyle = rnd() < 0.5 ? 'rgba(255, 230, 190, 0.07)' : 'rgba(20, 10, 10, 0.2)';
-      g.fillRect(x, y, rnd() < 0.3 ? 2 : 1, 1);
-    }
-  }
-  ctx.drawImage(wall, 0, 0);
+  drawWallBackdrop(ctx, { seed: 4242 });
 }
 
 /** A rounded chip with centred text. Returns its width. */
@@ -179,7 +124,7 @@ function chip(ctx: Ctx, text: string, x: number, y: number, fill: string, color 
 
 interface Floater { text: string; x: number; y: number; t: number; color: string }
 
-/** Chief Nibbles' first-visit briefing (once per save: flags.rosterTutorial). */
+/** Chief Nibbles' first-visit briefing (once per save: flags[TUTORIAL_FLAGS.roster]). */
 const TUTORIAL = [
   'This is the agent file room. Every dragon in the burrow has a card: stats, moves, lore, and how it is feeling today.',
   'A dragon can learn lots of moves but only carries FOUR on a mission. Open MOVES, pick a slot, then pick a move to swap it in.',
@@ -435,8 +380,8 @@ export function createRosterScene(dragonId?: string): Scene {
     time += dt; hopT += dt; tabT += dt;
     if (!tutorialAsked && !app.scenes.busy) {
       tutorialAsked = true;
-      if (!app.state.flags.rosterTutorial && dragons().length) {
-        app.state.flags.rosterTutorial = true;
+      if (!app.state.flags[TUTORIAL_FLAGS.roster] && dragons().length) {
+        app.state.flags[TUTORIAL_FLAGS.roster] = true;
         app.save();
         app.nav.dialog(TUTORIAL, undefined, 'chief');
         return;
@@ -661,10 +606,9 @@ export function createRosterScene(dragonId?: string): Scene {
     x += drawTypeBadge(ctx, mv.type, x, y) + 4;
     const cat = CATEGORY[mv.category];
     x += chip(ctx, cat.text, x, y + 1, cat.fill) + 8;
-    const fixed = mv.effects.some((e) => e.kind === 'fixed');
     const sure = mv.effects.some((e) => e.kind === 'sureHit');
     const parts: [string, string][] = [
-      ['POW', mv.power > 0 ? String(mv.power) : fixed ? 'LV' : '-'],
+      ['POW', movePowerLabel(mv)],
       ['ACC', sure ? 'SURE' : mv.accuracy + '%'],
       ['PP', String(mv.pp)],
       ['PRI', mv.priority > 0 ? '+' + mv.priority : String(mv.priority)],

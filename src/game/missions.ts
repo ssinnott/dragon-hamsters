@@ -2,7 +2,8 @@
 // battle, writing results back, and paying out rewards.
 import {
   ITEM_IDS,
-  type FoodId, type ItemId, type MissionDef, type MissionId, type MissionNode, type SpeciesId, type TypeId, type VillainId,
+  type FoodId, type ItemId, type MissionDef, type MissionId, type MissionNode, type SpeciesId, type StageChanges,
+  type StageStat, type TypeId, type VillainId,
 } from '../data/schema.ts';
 import { MISSIONS, MISSIONS_IN_ORDER, getFood, getItem, getMission, getSpecies, getVillain, isFood } from '../data/index.ts';
 import type { BattleSetup, BattleState, MonInit } from '../battle/types.ts';
@@ -66,6 +67,26 @@ export interface MissionRun {
   defeated: VillainId[];
   xp: Record<string, XpReport[]>;
   outcome: 'active' | 'won' | 'lost' | 'retreated';
+  /**
+   * Stages the chosen branch routes give the mission's boss (sabotage: rushing in lets the device
+   * power him up). encounterSetup adds them to the boss node's own `supercharge`. Absent = none.
+   */
+  supercharge?: StageChanges;
+}
+
+/** Sum two sets of stage changes, clamped to the -6..+6 stage range; zero entries are dropped. */
+export function mergeStages(a: StageChanges | undefined, b: StageChanges | undefined): StageChanges | undefined {
+  if (!a && !b) return undefined;
+  const out: StageChanges = {};
+  for (const src of [a, b]) {
+    if (!src) continue;
+    for (const k of Object.keys(src) as StageStat[]) out[k] = (out[k] ?? 0) + (src[k] ?? 0);
+  }
+  for (const k of Object.keys(out) as StageStat[]) {
+    const v = Math.max(-6, Math.min(6, out[k] ?? 0));
+    if (v === 0) delete out[k]; else out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -91,13 +112,23 @@ export function currentNode(run: MissionRun): MissionNode | null {
   return run.nodes[run.index] ?? null;
 }
 
-/** Replace the current branch node with the chosen option's nodes. */
+/**
+ * Replace the current branch node with the chosen option's nodes. A route's `supercharge` is
+ * recorded on the run (run.supercharge) for the boss battle.
+ */
 export function chooseBranch(run: MissionRun, option: number): void {
   const node = currentNode(run);
   if (!node || node.kind !== 'branch') throw new Error('the current node is not a branch');
   const opt = node.options[option];
   if (!opt) throw new Error(`branch has no option ${option}`);
   run.nodes.splice(run.index, 1, ...clone(opt.nodes));
+  if (opt.supercharge) run.supercharge = mergeStages(run.supercharge, opt.supercharge);
+}
+
+/** The stages the boss of this boss node starts with: the node's own plus the run's branch routes. */
+export function bossSupercharge(run: MissionRun, node: MissionNode): StageChanges | undefined {
+  if (node.kind !== 'boss') return undefined;
+  return mergeStages(node.supercharge, run.supercharge);
 }
 
 /** Rest stop: heal every squad dragon by the node's fraction of max HP; fainted ones get back up. */
@@ -147,7 +178,8 @@ export function encounterSetup(state: GameState, run: MissionRun): BattleSetup {
       kind: 'villain', defId: v.id, ownerRef: null, name: v.name, ability: v.ability,
       level: Math.max(1, Math.min(MAX_LEVEL, Math.round(e.level))), isBoss,
     };
-    if (isBoss && node.kind === 'boss' && node.supercharge) init.startStages = { ...node.supercharge };
+    const stages = isBoss ? bossSupercharge(run, node) : undefined;
+    if (stages) init.startStages = stages;
     return init;
   });
   return {

@@ -110,6 +110,12 @@ export type PlayerAction =
  * What happened, in order. The scene shows `text` events in the message box and animates the rest;
  * every non-text event that a player should notice is ALSO preceded or followed by a text event, so
  * a scene that only printed text events would still tell the whole story.
+ *
+ * Implicit clean-ups (no event of their own): on 'faint' the engine clears the combatant's status,
+ * stat stages and volatile state (confusion, SEEDED, STUCK, ...); on 'withdraw' and 'sendOut' it
+ * clears its stages and volatile state (the status stays). A scene clears its own copies when it
+ * plays those events. Mons that the fainted or withdrawn combatant had STUCK are released with a
+ * 'volatile' event.
  */
 export type BattleEvent =
   | { t: 'text'; text: string }
@@ -123,6 +129,8 @@ export type BattleEvent =
   | { t: 'protect'; side: Side; uid: string }
   | { t: 'status'; side: Side; uid: string; status: StatusId | null }
   | { t: 'confuse'; side: Side; uid: string; on: boolean }
+  /** SEEDED / STUCK changed (set by a move, or STUCK released when the trapper leaves). Both flags are the new values. */
+  | { t: 'volatile'; side: Side; uid: string; seeded: boolean; stuck: boolean }
   | { t: 'stages'; side: Side; uid: string; changes: StageChanges }
   | { t: 'ability'; side: Side; uid: string; ability: AbilityId }
   | { t: 'item'; side: Side; uid: string; item: ItemId }

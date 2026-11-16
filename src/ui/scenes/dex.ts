@@ -6,16 +6,18 @@
 import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import { app } from '../app.ts';
-import { STAT_IDS, type SpeciesDef, type SpeciesId, type StatId, type DragonVisual, type Rarity } from '../../data/schema.ts';
+import { STAT_IDS, type SpeciesDef, type SpeciesId, type StatId, type Rarity } from '../../data/schema.ts';
 import { MISSIONS_IN_ORDER, SPECIES_BY_DEX, getSpecies } from '../../data/index.ts';
 import { missionStatus } from '../../game/missions.ts';
-import { drawDragon, hash01, poseState, type Pose } from '../../art/dragon.ts';
+import { drawDragon, fitDragon as fit, openEyesTime, type Pose } from '../../art/dragon.ts';
 import { drawText, drawTextOutlined, measureText } from '../../lib/engine/text.ts';
 import {
   ButtonGroup, UI, VIEW_W, drawBar, drawInset, drawPanel, drawTypeBadges, fillRoundRect, hit, tint, wrapText,
   type Rect,
 } from '../widgets.ts';
 import { sfx, music } from '../../audio/index.ts';
+import { TUTORIAL_FLAGS } from '../../game/types.ts';
+import { drawWallBackdrop } from '../../art/backdrops.ts';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -51,49 +53,6 @@ const RARITY: Record<Rarity, { text: string; color: string }> = {
 // Sprites: measured bounds (so wide wings and tails fit their boxes) and cached still frames
 // ---------------------------------------------------------------------------------------------
 
-/** A sprite's drawn bounds at scale 1, relative to its ground point (px). */
-interface Box { l: number; r: number; t: number; b: number }
-const boxes = new Map<DragonVisual, Box>();
-
-/** A still idle frame with its eyes open (the blink cycle is part of the pose maths). */
-function openEyesTime(v: DragonVisual): number {
-  const phase = hash01([v.body, v.belly, v.accent, v.wing, v.size, v.build, v.wings, v.horns, v.tail]);
-  for (const t of [0.45, 1.2, 1.9, 2.7, 3.4]) if (poseState('idle', t, 0, phase).eyes !== 'closed') return t;
-  return 0.45;
-}
-
-function measure(v: DragonVisual): Box {
-  const hitB = boxes.get(v);
-  if (hitB) return hitB;
-  const K = 2, S = K * v.size;
-  const half = Math.ceil(60 * S), top = Math.ceil(100 * S);
-  const c = document.createElement('canvas');
-  c.width = half * 2; c.height = top + Math.ceil(16 * S);
-  const g = c.getContext('2d', { willReadFrequently: true })!;
-  drawDragon(g, v, half, top, { scale: K, t: openEyesTime(v), silhouette: '#000000' });
-  const data = g.getImageData(0, 0, c.width, c.height).data;
-  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
-  for (let y = 0; y < c.height; y++) {
-    for (let x = 0; x < c.width; x++) {
-      if (data[(y * c.width + x) * 4 + 3] > 60) {
-        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      }
-    }
-  }
-  const box: Box = x1 < 0
-    ? { l: -20 * v.size, r: 20 * v.size, t: -40 * v.size, b: 0 }
-    : { l: (x0 - half) / K, r: (x1 + 1 - half) / K, t: (y0 - top) / K, b: (y1 + 1 - top) / K };
-  boxes.set(v, box);
-  return box;
-}
-
-/** Scale and horizontal nudge that fit `v` (idle) inside maxW x maxH, centred on its bounds. */
-function fit(v: DragonVisual, maxW: number, maxH: number, maxScale: number): { scale: number; dx: number; dy: number } {
-  const b = measure(v);
-  const scale = Math.min(maxScale, maxW / Math.max(1, b.r - b.l), maxH / Math.max(1, b.b - b.t));
-  return { scale, dx: -((b.l + b.r) / 2) * scale, dy: -Math.max(0, b.b) * scale };
-}
-
 interface Still { canvas: HTMLCanvasElement; ox: number; oy: number }
 const stills = new Map<string, Still>();
 
@@ -124,28 +83,8 @@ function blitStill(ctx: Ctx, s: Still, x: number, y: number): void {
 // Background (cached): a warm burrow wall
 // ---------------------------------------------------------------------------------------------
 
-let wall: HTMLCanvasElement | null = null;
 function drawWall(ctx: Ctx): void {
-  if (!wall) {
-    wall = document.createElement('canvas');
-    wall.width = 640; wall.height = 360;
-    const g = wall.getContext('2d')!;
-    const bands = ['#3d2a22', '#43302a', '#4a352c', '#523b30', '#5a4134', '#614536'];
-    const bh = 360 / bands.length;
-    bands.forEach((c, i) => { g.fillStyle = c; g.fillRect(0, Math.floor(i * bh), 640, Math.ceil(bh) + 1); });
-    let s = 99173;
-    const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-    for (let i = 0; i < 300; i++) {
-      const x = Math.floor(rnd() * 640), y = Math.floor(rnd() * 360);
-      g.fillStyle = rnd() < 0.5 ? 'rgba(255, 230, 190, 0.07)' : 'rgba(20, 10, 10, 0.2)';
-      g.fillRect(x, y, rnd() < 0.3 ? 2 : 1, 1);
-    }
-    for (let i = 0; i < 26; i++) {   // pebbles
-      const x = Math.floor(rnd() * 640), y = Math.floor(rnd() * 360), w = 3 + Math.floor(rnd() * 4);
-      fillRoundRect(g, x, y, w, Math.max(2, w - 2), 1, 'rgba(255, 230, 190, 0.06)');
-    }
-  }
-  ctx.drawImage(wall, 0, 0);
+  drawWallBackdrop(ctx, { seed: 99173, pebbles: true });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -154,7 +93,7 @@ function drawWall(ctx: Ctx): void {
 
 type Know = 'owned' | 'seen' | 'unseen';
 
-/** Chief Nibbles' first-visit briefing (once per save: flags.dexTutorial). */
+/** Chief Nibbles' first-visit briefing (once per save: flags[TUTORIAL_FLAGS.dex]). */
 const TUTORIAL = [
   'The Dragondex! Every dragon hamster the agency has on file. Well, the ones we have spotted. The rest are still shadowy question marks.',
   'Spot a dragon and it gets a page. Raise one yourself and you will see its base stats too. FOUND IN tells you which cases might turn one up.',
@@ -214,8 +153,8 @@ export function createDexScene(): Scene {
     time += dt; hopT += dt; selT += dt;
     if (!tutorialAsked && !app.scenes.busy) {
       tutorialAsked = true;
-      if (!app.state.flags.dexTutorial) {
-        app.state.flags.dexTutorial = true;
+      if (!app.state.flags[TUTORIAL_FLAGS.dex]) {
+        app.state.flags[TUTORIAL_FLAGS.dex] = true;
         app.save();
         app.nav.dialog(TUTORIAL, undefined, 'chief');
         return;

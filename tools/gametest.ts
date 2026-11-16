@@ -10,10 +10,10 @@
 // rebalanced. Checks that need content the tables do not have (say, no species evolves yet) are
 // reported as skipped rather than passed.
 import {
-  FOODS, ITEMS, MISSIONS, MISSIONS_IN_ORDER, PERSONALITIES, SPECIES,
+  FOODS, ITEMS, MISSIONS, MISSIONS_IN_ORDER, MOVES, PERSONALITIES, SPECIES,
   getActivity, getMission, getMove, getSpecies, getVillain,
 } from '../src/data/index.ts';
-import { STARTERS } from '../src/data/species.ts';
+import { STARTERS } from '../src/data/index.ts';
 import {
   ACTIVITY_IDS, FOOD_IDS, ITEM_IDS, STAT_IDS,
   type ActivityId, type FoodId, type MissionId, type SpeciesDef, type SpeciesId,
@@ -31,10 +31,10 @@ import {
 import { nextSeed, stateRng } from '../src/game/rng.ts';
 import { clearSave, loadGame, memoryStorage, newGame, parseSave, saveGame, type Storage } from '../src/game/state.ts';
 import {
-  addDragon, addTraining, createDragon, dragonName, dragonStats, dragonTypes, evolve, grantXp, isFainted,
-  setLoadout, syncFromBattle, toMonInit, type XpReport,
+  STATUS_MOVE_VALUE, addDragon, addTraining, autoSwapFor, createDragon, dragonName, dragonStats, dragonTypes, evolve,
+  evolveDragon, foldSwaps, grantXp, isFainted, moveValue, setLoadout, syncFromBattle, toMonInit, type XpReport,
 } from '../src/game/dragons.ts';
-import { canDoActivity, doActivity, endDay, moodLine, useItemOutside } from '../src/game/habitat.ts';
+import { canDoActivity, doActivity, endDay, moodLine, swapLines as swapLinesFor, useItemOutside } from '../src/game/habitat.ts';
 import { SHOP, buy } from '../src/game/shop.ts';
 import {
   abandonMission, advance, applyRest, canLaunch, chooseBranch, completeMission, currentNode, encounterSetup,
@@ -341,10 +341,76 @@ test('XP curve, level ups and learned moves', () => {
   if (!full) { skip('learning with a full loadout (no learnset has 5+ moves)'); return; }
   const b = createDragon(g, full.x.id, full.le.level - 1);
   const before = [...b.moves];
+  const expected = autoSwapFor(b, full.le.move);
   const rb = grantXp(b, xpForLevel(full.le.level) - b.xp);
   ok(rb.learned.includes(full.le.move), 'learned with a full loadout');
-  deepEq(b.moves, before, 'full loadout unchanged');
-  ok(b.knownMoves.includes(full.le.move), 'known but not equipped');
+  ok(b.knownMoves.includes(full.le.move), 'known after learning');
+  eq(b.moves.length, 4, 'still four moves equipped');
+  if (expected) {
+    deepEq(rb.swapped, [expected], 'swap reported');
+    deepEq(b.moves, before.map((m) => (m === expected.out ? expected.in : m)), 'swapped into the weakest slot');
+  } else {
+    deepEq(rb.swapped, [], 'no swap reported');
+    deepEq(b.moves, before, 'full loadout unchanged when the new move is not better');
+  }
+});
+
+test('auto-equip: a better move replaces the weakest equipped one', () => {
+  // A level-up into a full loadout: every swap the content produces must follow the rule.
+  let swaps = 0;
+  let keeps = 0;
+  for (const sp of SPECIES) {
+    const g = newGame(13);
+    const d = createDragon(g, sp.id, 1);
+    for (let L = 2; L <= MAX_LEVEL; L++) {
+      const learnHere = sp.learnset.filter((le) => le.level === L && !d.knownMoves.includes(le.move)).map((le) => le.move);
+      const beforeMoves = [...d.moves];
+      const types = getSpecies(d.speciesId).types;
+      const r = grantXp(d, xpForLevel(L) - d.xp);
+      for (const x of r.swapped) {
+        swaps++;
+        ok(beforeMoves.includes(x.out) && !d.moves.includes(x.out), `${sp.id} L${L}: ${x.out} left the loadout`);
+        ok(d.moves.includes(x.in) && learnHere.includes(x.in), `${sp.id} L${L}: ${x.in} is a new move in the loadout`);
+        ok(d.moves.indexOf(x.in) === beforeMoves.indexOf(x.out), `${sp.id} L${L}: swapped in place`);
+        const statusIn = getMove(x.in).category === 'status' && !getMove(x.in).effects.some((e) => e.kind === 'fixed');
+        if (!statusIn) ok(moveValue(types, x.in) > moveValue(types, x.out) || getMove(x.out).category === 'status', `${sp.id} L${L}: ${x.in} beats ${x.out}`);
+      }
+      if (beforeMoves.length === 4 && learnHere.length && !r.swapped.length) keeps++;
+      eq(d.moves.length, Math.min(4, d.knownMoves.length), `${sp.id} L${L}: loadout stays full`);
+      eq(new Set(d.moves).size, d.moves.length, `${sp.id} L${L}: no duplicates`);
+      const statusEquipped = d.moves.filter((m) => getMove(m).category === 'status').length;
+      if (beforeMoves.length === 4) ok(statusEquipped <= Math.max(1, beforeMoves.filter((m) => getMove(m).category === 'status').length), `${sp.id} L${L}: no extra status moves`);
+    }
+  }
+  ok(swaps > 0, 'the content produces at least one swap');
+  // A hand-made case: a weak non-STAB move goes, a strong STAB move comes in, the report says so.
+  const g = newGame(14);
+  const fire = getSpecies(FIRE);
+  const d = createDragon(g, FIRE, 5);
+  const allMoves = Object.keys(MOVES);
+  const weak = allMoves.find((m) => getMove(m).category !== 'status' && getMove(m).power > 0 && getMove(m).power <= 40 && !fire.types.includes(getMove(m).type) && !getMove(m).effects.some((e) => e.kind === 'multiHit'));
+  const strong = allMoves.filter((m) => getMove(m).type === fire.types[0] && getMove(m).category !== 'status' && getMove(m).power >= 80)
+    .find((m) => !d.knownMoves.includes(m));
+  const st = allMoves.filter((m) => getMove(m).category === 'status');
+  if (!weak || !strong || st.length < 3) { skip('auto-equip hand-made case (content lacks the moves)'); return; }
+  d.knownMoves = [weak, st[0], st[1], st[2]];
+  d.moves = [weak, st[0], st[1], st[2]];
+  // Two extra status moves count 0, so they go before the weak attack does.
+  const sw = autoSwapFor(d, strong);
+  deepEq(sw, { out: st[1], in: strong }, 'a second status move is the first to go');
+  d.moves = [weak, st[0], ...allMoves.filter((m) => getMove(m).category !== 'status' && getMove(m).power >= 60 && fire.types.includes(getMove(m).type) && m !== strong).slice(0, 2)];
+  if (d.moves.length === 4) {
+    d.knownMoves = [...d.moves];
+    deepEq(autoSwapFor(d, strong), { out: weak, in: strong }, 'the weak non-STAB attack goes before the one status move');
+    eq(autoSwapFor(d, st[2]), null, 'a second status move is never swapped in');
+    eq(autoSwapFor(d, weak), null, 'an equipped move is not swapped');
+  }
+  ok(moveValue(fire.types, strong) > moveValue(fire.types, weak), 'STAB power beats weak power');
+  eq(moveValue(fire.types, st[0]), STATUS_MOVE_VALUE, 'status value');
+  ok(swapLinesFor([{ out: weak, in: strong }])[0] === `SWAPPED ${getMove(weak).name.toUpperCase()} FOR ${getMove(strong).name.toUpperCase()}!`, 'swap line text');
+  // Folding: A->B then B->C reads as A->C.
+  deepEq(foldSwaps([[{ out: 'a', in: 'b' }], [{ out: 'b', in: 'c' }, { out: 'x', in: 'y' }]]), [{ out: 'a', in: 'c' }, { out: 'x', in: 'y' }], 'foldSwaps');
+  void keeps;
 });
 
 test('evolution', () => {
@@ -363,15 +429,23 @@ test('evolution', () => {
   const keep = { nickname: d.nickname, genes: { ...d.genes }, training: { ...d.training }, xp: d.xp, level: d.level, moves: [...d.moves] };
   d.hp = Math.floor(dragonStats(d).hp / 2);
   const frac = d.hp / dragonStats(d).hp;
+  const knownBefore = [...d.knownMoves];
+  const sim = clone(d);
+  const evo = evolveDragon(clone(s), sim);
   const old = evolve(s, d);
   eq(old, sp.id, 'returns the old species');
+  eq(evo.from, sp.id, 'report: old species');
+  eq(evo.to, target.id, 'report: new species');
+  deepEq(evo.learned, d.knownMoves.filter((m) => !knownBefore.includes(m)), 'report: newly learned moves');
+  deepEq(sim, d, 'evolveDragon and evolve do the same thing');
+  for (const x of evo.swapped) ok(keep.moves.includes(x.out) && d.moves.includes(x.in) && !d.moves.includes(x.out), `swap ${x.out} -> ${x.in}`);
   eq(d.speciesId, target.id, 'species switched');
   eq(d.nickname, keep.nickname, 'nickname kept');
   deepEq(d.genes, keep.genes, 'genes kept');
   deepEq(d.training, keep.training, 'training kept');
   eq(d.xp, keep.xp, 'xp kept');
   eq(d.level, keep.level, 'level kept');
-  for (const m of keep.moves) ok(d.moves.includes(m), `kept equipped move ${m}`);
+  for (const m of keep.moves) ok(d.moves.includes(m) || evo.swapped.some((x) => x.out === m), `kept equipped move ${m} (or swapped it for a better one)`);
   for (const le of target.learnset) if (le.level <= d.level) ok(d.knownMoves.includes(le.move), `learned ${le.move} from the new species`);
   ok(s.dex.owned.includes(target.id) && s.dex.seen.includes(target.id), 'dex marks the evolution');
   ok(Math.abs(d.hp / dragonStats(d).hp - frac) < 0.05, 'hp proportion kept');
@@ -513,6 +587,24 @@ test('activities: feeding', () => {
     ok(r.ok && r.xp, 'xp food ok');
     eq(d.xp - xp0, FOODS[xpFood].xp, 'xp food grants its xp');
   } else skip('xp food (no food gives xp)');
+  // The Snack Bar's fans (ACTIVITIES.feed.likedBy) get double happiness from any food, x4 from a favourite.
+  const fanSp = SPECIES.find((x) => x.types.some((t) => getActivity('feed').likedBy.includes(t)));
+  ok(!getSpecies(d.speciesId).types.some((t) => getActivity('feed').likedBy.includes(t)), 'fixture is not a Snack Bar fan');
+  if (!fanSp) { skip('Snack Bar fans (no species of a likedBy type)'); return; }
+  const g = newGame(42);
+  const fan = createDragon(g, fanSp.id, 10);
+  addDragon(g, fan);
+  const fanFav = fanSp.favoriteFood;
+  const plain = FOOD_IDS.find((f) => f !== fanFav && FOODS[f].xp === 0) as FoodId;
+  g.food[fanFav] = 1;
+  g.food[plain] = 1;
+  fan.needs.fullness = 10; fan.needs.happiness = 10;
+  r = doActivity(g, fan.id, 'feed', plain);
+  eq(fan.needs.happiness, Math.min(100, 10 + FOODS[plain].happiness * 2), 'Snack Bar fan: double happiness');
+  ok(r.lines.some((l) => /LOVES the Snack Bar/i.test(l)), 'Snack Bar fan line');
+  fan.needs.fullness = 10; fan.needs.happiness = 10;
+  doActivity(g, fan.id, 'feed', fanFav);
+  eq(fan.needs.happiness, Math.min(100, 10 + FOODS[fanFav].happiness * 4), 'Snack Bar fan + favourite food: x4');
 });
 
 test('activities: every refusal', () => {
@@ -628,7 +720,7 @@ test('endDay', () => {
     eq(d.status, null, 'cured');
     eq(d.slotsUsed, 0, 'slots reset');
   }
-  eq(a.needs.energy, 70, 'energy +60');
+  eq(a.needs.energy, 90, 'energy +80');
   eq(b.needs.energy, 100, 'energy capped');
   eq(a.needs.fullness, 0, 'fullness floored');
   eq(b.needs.fullness, 65, 'fullness -25');
@@ -989,19 +1081,73 @@ test('missions: branches splice and supercharge', () => {
   const run = startMission(s, m.id, [s.dragons[1].id]);
   try { chooseBranch(run, 0); } catch { threw = true; }
   ok(threw || m.nodes[0].kind === 'branch', 'chooseBranch only on a branch node');
-  // A supercharged boss starts with its stages.
-  const sup = MISSIONS.map((x) => ({ x, n: [...x.nodes, ...x.nodes.flatMap((n) => (n.kind === 'branch' ? n.options.flatMap((o) => o.nodes) : []))].find((n) => n.kind === 'boss' && n.supercharge) }))
-    .find((y) => y.n);
-  if (!sup || !sup.n || sup.n.kind !== 'boss') { skip('supercharge (no boss node has one)'); return; }
+  // A boss node's own supercharge still applies (no mission uses one today: build one).
   refresh();
-  const r = startMission(s, sup.x.id, [s.dragons[0].id]);
-  r.nodes = [sup.n];
+  const r = startMission(s, m.id, [s.dragons[0].id]);
+  const bossNode = r.nodes.find((n) => n.kind === 'boss');
+  ok(bossNode && bossNode.kind === 'boss', 'mission has a boss node');
+  r.nodes = [{ ...bossNode, supercharge: { spe: 2 } }];
   r.index = 0;
   const setup = encounterSetup(s, r);
   const boss = setup.enemy[setup.enemy.length - 1];
   ok(boss.isBoss, 'boss flagged');
-  deepEq(boss.startStages, sup.n.supercharge, 'supercharge stages');
+  deepEq(boss.startStages, { spe: 2 }, 'boss node supercharge');
   for (const e of setup.enemy.slice(0, -1)) ok(!e.startStages && !e.isBoss, 'lieutenant not supercharged');
+  // ...and merges with a route's (clamped to +6).
+  r.supercharge = { spe: 5, atk: 1 };
+  deepEq(encounterSetup(s, r).enemy.at(-1)?.startStages, { spe: 6, atk: 1 }, 'route + node supercharge merge, clamped');
+});
+
+test('sabotage: rushing supercharges the boss, cutting the power does not', () => {
+  const sabotage = MISSIONS.filter((x) => x.type === 'sabotage');
+  ok(sabotage.length > 0, 'there are sabotage missions');
+  const s = gameWithStarters(122, 50);
+  for (const x of MISSIONS) s.missions[x.id] = { clears: 1, firstClearDay: 1 };
+  for (const mdef of sabotage) {
+    const branches = mdef.nodes.filter((n) => n.kind === 'branch');
+    eq(branches.length, 1, `${mdef.id}: one branch`);
+    const br = branches[0];
+    if (br.kind !== 'branch') continue;
+    const bossNodes = mdef.nodes.filter((n) => n.kind === 'boss');
+    eq(bossNodes.length, 1, `${mdef.id}: one boss node outside the branch`);
+    const bn = bossNodes[0];
+    ok(bn.kind === 'boss' && !bn.supercharge, `${mdef.id}: the boss node itself carries no supercharge`);
+    const rushIdx = br.options.findIndex((o) => o.supercharge);
+    ok(rushIdx >= 0, `${mdef.id}: a rush route`);
+    deepEq(br.options[rushIdx].supercharge, { atk: 1, spa: 1 }, `${mdef.id}: rush route gives +1 ATK/SP.ATK`);
+    eq(br.options.filter((o) => o.supercharge).length, 1, `${mdef.id}: only the rush route supercharges`);
+    br.options.forEach((opt, oi) => {
+      for (const d of s.dragons) { d.needs = { fullness: 100, happiness: 60, energy: 100 }; d.hp = dragonStats(d).hp; }
+      const run = startMission(s, mdef.id, s.dragons.map((d) => d.id));
+      // Walk the real path: the branch is chosen through chooseBranch, the boss built by encounterSetup.
+      let bossSetup: ReturnType<typeof encounterSetup> | null = null;
+      for (let guard = 0; guard < 50 && run.outcome === 'active' && currentNode(run); guard++) {
+        const node = currentNode(run);
+        if (!node) break;
+        if (node.kind === 'branch') { chooseBranch(run, oi); continue; }
+        if (node.kind === 'boss') { bossSetup = encounterSetup(s, run); break; }
+        advance(run);
+      }
+      ok(bossSetup, `${mdef.id} option ${oi}: reached the boss`);
+      const bossInit = bossSetup.enemy[bossSetup.enemy.length - 1];
+      ok(bossInit.isBoss, `${mdef.id}: boss flagged`);
+      if (opt.supercharge) {
+        deepEq(run.supercharge, opt.supercharge, `${mdef.id}: the run records the route's supercharge`);
+        deepEq(bossInit.startStages, { atk: 1, spa: 1 }, `${mdef.id}: rushed boss is supercharged`);
+        // ...and the engine applies it: the boss starts the battle at +1/+1.
+        const battle = createBattle(bossSetup);
+        startBattle(battle);
+        const bossMon = battle.enemy.team[battle.enemy.team.length - 1];
+        eq(bossMon.stages.atk, 1, `${mdef.id}: boss ATK stage in battle`);
+        eq(bossMon.stages.spa, 1, `${mdef.id}: boss SP.ATK stage in battle`);
+      } else {
+        ok(!run.supercharge, `${mdef.id}: cutting the power records nothing`);
+        ok(!bossInit.startStages, `${mdef.id}: boss not supercharged after cutting the power`);
+      }
+      for (const e of bossSetup.enemy.slice(0, -1)) ok(!e.startStages, `${mdef.id}: only the boss is supercharged`);
+      abandonMission(s, run);
+    });
+  }
 });
 
 test('syncFromBattle: training from defeated foes, statuses, levels', () => {
@@ -1031,39 +1177,56 @@ test('syncFromBattle: training from defeated foes, statuses, levels', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// The first case must be winnable with any two starters
+// ---------------------------------------------------------------------------------------------
+
+/** Autopilot win rate needed on the first case for every starter pair (fresh LV5 starters, no care). */
+const FIRST_CASE_MIN_WIN = 0.7;
+const FIRST_CASE_SEEDS = 60;
+
+test(`first case: every starter pair wins >= ${FIRST_CASE_MIN_WIN * 100}% (autopilot, ${FIRST_CASE_SEEDS} seeds x both leads)`, () => {
+  const first = MISSIONS_IN_ORDER[0];
+  ok(STARTERS.length === 3, 'three starters');
+  const rows: string[] = [];
+  const bad: string[] = [];
+  for (const [a, b] of [[0, 1], [0, 2], [1, 2]] as const) {
+    let wins = 0;
+    let runs = 0;
+    const perLead: string[] = [];
+    for (const order of [[a, b], [b, a]]) {
+      let w = 0;
+      for (let k = 0; k < FIRST_CASE_SEEDS; k++) {
+        const s = newGame(1000 + k * 7919);
+        for (const i of order) addDragon(s, createDragon(s, STARTERS[i], 5));
+        const run = startMission(s, first.id, s.dragons.map((d) => d.id));
+        playMission(s, run);
+        if (run.outcome === 'active') w++;
+      }
+      perLead.push(`${getSpecies(STARTERS[order[0]]).name} lead ${Math.round((100 * w) / FIRST_CASE_SEEDS)}%`);
+      wins += w;
+      runs += FIRST_CASE_SEEDS;
+    }
+    const rate = wins / runs;
+    const name = `${getSpecies(STARTERS[a]).name} + ${getSpecies(STARTERS[b]).name}`;
+    rows.push(`    ${name.padEnd(26)} ${String(Math.round(rate * 100)).padStart(3)}%  (${perLead.join(', ')})`);
+    if (rate < FIRST_CASE_MIN_WIN) bad.push(`${name} ${Math.round(rate * 100)}%`);
+  }
+  console.log(`  ${first.id} autopilot win rates:`);
+  for (const r of rows) console.log(r);
+  ok(bad.length === 0, `first case too hard for: ${bad.join(', ')}`);
+});
+
+// ---------------------------------------------------------------------------------------------
 // Campaign simulation
 // ---------------------------------------------------------------------------------------------
 
 const SIM_MAX_ATTEMPTS = 6;
 const SIM_MAX_DAYS = 600;
 
-/**
- * The keeper's loadout editor: the four best attacks the dragon knows (power x STAB x accuracy, a
- * second move of an already covered type counts for less), topped up with other moves if it knows
- * fewer than four attacks. Learned moves only auto-equip into free slots, so a real player does
- * this on the DRAGONS screen.
- */
-function bestLoadout(d: OwnedDragon): string[] {
-  const types = dragonTypes(d);
-  const scored = d.knownMoves.map((id) => {
-    const m = getMove(id);
-    const acc = m.effects.some((e) => e.kind === 'sureHit') ? 100 : Math.min(100, m.accuracy);
-    return { id, type: m.type, score: m.power * (types.includes(m.type) ? 1.5 : 1) * (acc / 100) };
-  });
-  const out: { id: string; type: string; score: number }[] = [];
-  const pool = scored.filter((x) => x.score > 0);
-  while (out.length < 4 && pool.length) {
-    pool.sort((a, b) => (b.score * (out.some((o) => o.type === b.type) ? 0.6 : 1)) - (a.score * (out.some((o) => o.type === a.type) ? 0.6 : 1)));
-    out.push(pool.shift() as { id: string; type: string; score: number });
-  }
-  for (const x of scored) if (out.length < 4 && !out.includes(x)) out.push(x);
-  return out.map((x) => x.id);
-}
-
 /** Daily care: feed up to good fullness (favourite food first, buying seeds if the pantry is bare), wheel, play. */
 function dailyCare(s: GameState): void {
+  // No loadout editing: learned moves auto-equip (a better move replaces the weakest one).
   for (const d of s.dragons) {
-    setLoadout(d, bestLoadout(d));
     for (let k = 0; k < 3 && d.needs.fullness < 75 && d.hp > 0; k++) {
       const fav = getSpecies(d.speciesId).favoriteFood;
       let food: FoodId | undefined = s.food[fav] > 0 ? fav : FOOD_IDS.filter((f) => s.food[f] > 0 && FOODS[f].xp === 0)

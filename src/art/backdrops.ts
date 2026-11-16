@@ -1859,6 +1859,25 @@ function stationName(id: ActivityId): string {
   return def && def.name ? def.name : STATION_NAMES[id];
 }
 
+/** How far each station's name sign sits off the centre of its STATIONS box (px). */
+const SIGN_DX: Record<ActivityId, number> = { feed: 0, wheel: 0, dig: 0, nap: -14, play: -4 };
+
+/**
+ * Where a station's name sign is drawn (11 px tall), for overlays that sit on it, such as the
+ * burrow's hotkey caps.
+ */
+export function stationSignRect(id: ActivityId): { x: number; y: number; w: number; h: number } {
+  const b = STATIONS[id];
+  const w = stationName(id).length * 6 + 7;
+  const cx = b.x + b.w / 2 + SIGN_DX[id];
+  return { x: cx - w / 2, y: b.y + 4, w, h: 11 };
+}
+
+function drawStationSign(c: Ctx, id: ActivityId): void {
+  const r = stationSignRect(id);
+  stationSign(c, r.x + r.w / 2, r.y, stationName(id));
+}
+
 function stationSign(c: Ctx, cx: number, y: number, text: string): void {
   const B = BURROW;
   const w = text.length * 6 + 7;
@@ -1921,7 +1940,7 @@ function stationFeed(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   // a cheese cube on the end of the trough
   poly(c, [b.x + 16, ty - 1, b.x + 28, ty - 1, b.x + 28, ty - 9, b.x + 20, ty - 12, b.x + 16, ty - 9], '#ffd24a', '#b88a1a', 1);
   circle(c, b.x + 20, ty - 5, 1.3, '#d8a82a'); circle(c, b.x + 25, ty - 7, 1, '#d8a82a');
-  stationSign(c, cx, b.y + 4, stationName('feed'));
+  drawStationSign(c, 'feed');
   if (busy) {
     for (let i = 0; i < 5; i++) {
       const u = (t * 1.8 + i / 5) % 1;
@@ -1980,7 +1999,7 @@ function stationWheel(c: Ctx, b: { x: number; y: number; w: number; h: number },
       c.beginPath(); c.arc(cx, wy, R + 6, a, a + 0.6); c.stroke();
     }
   }
-  stationSign(c, cx, b.y + 4, stationName('wheel'));
+  drawStationSign(c, 'wheel');
 }
 
 function stationDig(c: Ctx, b: { x: number; y: number; w: number; h: number }, t: number, busy: boolean): void {
@@ -2021,7 +2040,7 @@ function stationDig(c: Ctx, b: { x: number; y: number; w: number; h: number }, t
     c.fillStyle = rgba('#ffffff', (tw - 0.6) * 2.5);
     pathStar(c, gx + 2, gy - 4, 6, 1.2, 4, 0); c.fill();
   }
-  stationSign(c, cx, b.y + 4, stationName('dig'));
+  drawStationSign(c, 'dig');
   if (busy) {
     for (let i = 0; i < 6; i++) {
       const u = (t * 1.6 + i / 6) % 1;
@@ -2078,7 +2097,7 @@ function stationNap(c: Ctx, b: { x: number; y: number; w: number; h: number }, t
     c.fillStyle = k ? '#ffd84a' : '#bfe0ff';
     pathStar(c, sx, my + 12 + k * 4, 4.5, 2, 5, -Math.PI / 2); c.fill();
   }
-  stationSign(c, cx - 14, b.y + 4, stationName('nap'));
+  drawStationSign(c, 'nap');
   if (busy) {
     for (let i = 0; i < 3; i++) {
       const u = (t * 0.5 + i / 3) % 1;
@@ -2115,7 +2134,7 @@ function stationPlay(c: Ctx, b: { x: number; y: number; w: number; h: number }, 
   // a little ladder at the side
   line(c, cx + 50, base, cx + 46, top - 6, '#c88a52', 2); line(c, cx + 58, base, cx + 54, top - 6, '#c88a52', 2);
   for (let k = 0; k < 4; k++) { const y = base - 6 - k * 11; line(c, cx + 49 - k, y, cx + 57 - k, y, '#c88a52', 1.5); }
-  stationSign(c, cx - 4, b.y + 4, stationName('play'));
+  drawStationSign(c, 'play');
   const n = busy ? 5 : 1;
   for (let i = 0; i < n; i++) {
     const u = ((busy ? t * 1.4 : t * 0.25) + i / n) % 1;
@@ -2595,4 +2614,47 @@ function mapAnim(c: Ctx, p: Pal, t: number): void {
   // compass needle wobble glint
   const g = 0.5 + 0.5 * Math.sin(t * 2);
   circle(c, 606, 36, 2, rgba('#ffffff', 0.3 + 0.5 * g));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plain burrow wall (the DRAGONS and DEX screens)
+// ---------------------------------------------------------------------------------------------
+
+const wallCache = new Map<string, HTMLCanvasElement>();
+
+/**
+ * A warm, banded and speckled burrow wall over the whole 640x360 view, cached per look. `seed`
+ * moves the speckles about; `pebbles` scatters a few faint pebbles on top.
+ */
+export function drawWallBackdrop(ctx: Ctx, opts: { seed?: number; pebbles?: boolean } = {}): void {
+  const seed = opts.seed ?? 4242;
+  const key = `${seed}|${opts.pebbles ? 1 : 0}`;
+  let wall = wallCache.get(key);
+  if (!wall) {
+    wall = document.createElement('canvas');
+    wall.width = 640; wall.height = 360;
+    const g = wall.getContext('2d')!;
+    const bands = ['#3d2a22', '#43302a', '#4a352c', '#523b30', '#5a4134', '#614536'];
+    const bh = 360 / bands.length;
+    bands.forEach((c, i) => { g.fillStyle = c; g.fillRect(0, Math.floor(i * bh), 640, Math.ceil(bh) + 1); });
+    let s = seed;
+    const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    for (let i = 0; i < 300; i++) {
+      const x = Math.floor(rnd() * 640), y = Math.floor(rnd() * 360);
+      g.fillStyle = rnd() < 0.5 ? 'rgba(255, 230, 190, 0.07)' : 'rgba(20, 10, 10, 0.2)';
+      g.fillRect(x, y, rnd() < 0.3 ? 2 : 1, 1);
+    }
+    if (opts.pebbles) {
+      g.fillStyle = 'rgba(255, 230, 190, 0.06)';
+      for (let i = 0; i < 26; i++) {
+        const x = Math.floor(rnd() * 640), y = Math.floor(rnd() * 360), w = 3 + Math.floor(rnd() * 4), h = Math.max(2, w - 2);
+        // a pebble with 1 px rounded corners, as three non-overlapping strips
+        g.fillRect(x + 1, y, w - 2, 1);
+        g.fillRect(x, y + 1, w, h - 2);
+        g.fillRect(x + 1, y + h - 1, w - 2, 1);
+      }
+    }
+    wallCache.set(key, wall);
+  }
+  ctx.drawImage(wall, 0, 0);
 }

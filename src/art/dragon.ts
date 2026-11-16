@@ -586,6 +586,74 @@ export function dragonHeight(v: DragonVisual, scale = 1): number {
   return -dgeo(v).top * v.size * scale;
 }
 
+/**
+ * The renderer's head geometry for a visual, in body-local units (multiply by scale * size for
+ * px), plus its blink/bob phase. For overlays drawn in the dragon's own head space (the Chief's
+ * eye patch and talking mouth) so they follow the idle bob and head tilt exactly.
+ */
+export interface DragonHeadGeo { hx: number; hy: number; hr: number; eyeRy: number; phase: number }
+
+export function dragonHeadGeo(v: DragonVisual): DragonHeadGeo {
+  const G = dgeo(v);
+  return { hx: G.hx, hy: G.hy, hr: G.hr, eyeRy: G.eyeRy, phase: G.phase };
+}
+
+/** The per-visual phase poseState() is driven with (idle bob, blink timing). */
+export function dragonPhase(v: DragonVisual): number {
+  return dgeo(v).phase;
+}
+
+/** An idle time `t` at which this visual's eyes are open: still frames never catch it mid-blink. */
+export function openEyesTime(v: DragonVisual): number {
+  const phase = dgeo(v).phase;
+  for (const t of [0.45, 1.2, 1.9, 2.7, 3.4]) if (poseState('idle', t, 0, phase).eyes !== 'closed') return t;
+  return 0.45;
+}
+
+/** A sprite's drawn bounds at scale 1, relative to its ground point (px): left, right, top, bottom. */
+export interface SpriteBox { l: number; r: number; t: number; b: number }
+
+const boxCache = new WeakMap<DragonVisual, SpriteBox>();
+
+/**
+ * The real drawn bounds of an idle, eyes-open frame (wings, tails, horns and extras included),
+ * measured once per visual by drawing a silhouette offscreen. Browser only (uses a canvas).
+ */
+export function measureDragon(v: DragonVisual): SpriteBox {
+  const hitB = boxCache.get(v);
+  if (hitB) return hitB;
+  const K = 2, S = K * v.size;
+  const half = Math.ceil(60 * S), top = Math.ceil(100 * S);
+  const c = document.createElement('canvas');
+  c.width = half * 2; c.height = top + Math.ceil(16 * S);
+  const g = c.getContext('2d', { willReadFrequently: true })!;
+  drawDragon(g, v, half, top, { scale: K, t: openEyesTime(v), silhouette: '#000000' });
+  const data = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      if (data[(y * c.width + x) * 4 + 3] > 60) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  const box: SpriteBox = x1 < 0
+    ? { l: -20 * v.size, r: 20 * v.size, t: -40 * v.size, b: 0 }
+    : { l: (x0 - half) / K, r: (x1 + 1 - half) / K, t: (y0 - top) / K, b: (y1 + 1 - top) / K };
+  boxCache.set(v, box);
+  return box;
+}
+
+/**
+ * Scale (capped at `maxScale`) and offsets that fit `v` inside maxW x maxH: draw at
+ * (centreX + dx, floorY + dy) to centre it on its measured bounds and keep its lowest pixel on the floor.
+ */
+export function fitDragon(v: DragonVisual, maxW: number, maxH: number, maxScale: number): { scale: number; dx: number; dy: number } {
+  const b = measureDragon(v);
+  const scale = Math.min(maxScale, maxW / Math.max(1, b.r - b.l), maxH / Math.max(1, b.b - b.t));
+  return { scale, dx: -((b.l + b.r) / 2) * scale, dy: -Math.max(0, b.b) * scale };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Per-draw context
 // ---------------------------------------------------------------------------------------------

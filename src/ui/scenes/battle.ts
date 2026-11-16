@@ -22,7 +22,7 @@ import { drawText } from '../../lib/engine/text.ts';
 import { ITEM_IDS, type FxKind, type ItemId, type Stats, type StatusId, type TypeId } from '../../data/schema.ts';
 import { getAbility, getItem, getLocation, getMission, getMove, getType } from '../../data/index.ts';
 import type { BattleEvent, BattleState, PlayerAction, Side } from '../../battle/types.ts';
-import { activeMon, createBattle, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
+import { activeMon, createBattle, itemTargetOk, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
 import { bestTypeMultiplier, effectivenessLabel, matchupGrade, moveEffectiveness } from '../../battle/matchup.ts';
 import { xpForLevel } from '../../battle/stats.ts';
 import { encounterSetup, finishBattle, type MissionRun } from '../../game/missions.ts';
@@ -289,6 +289,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         sl.boxOn = true;
         v.out = true;
         v.confused = false;
+        v.seeded = false;
+        v.stuck = false;
         const g = ground(e.side);
         fx.burst(g.x - facing(e.side) * 64, g.y - 64, getType(v.types[0]).color, 16);
         const bossEntrance = v.isBoss && !bossSeen.has(v.uid);
@@ -305,7 +307,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
 
       case 'withdraw': {
         const sl = slots[e.side];
-        view(e.uid).confused = false;
+        const wv = view(e.uid);
+        wv.confused = false;
+        wv.seeded = false;
+        wv.stuck = false;
         if (sl.uid === e.uid) {
           sl.anim = 'leave';
           sl.animT = 0;
@@ -432,6 +437,15 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         return mkStep(0.3);
       }
 
+      case 'volatile': {
+        const v = view(e.uid);
+        const added = (e.seeded && !v.seeded) || (e.stuck && !v.stuck);
+        v.seeded = e.seeded;
+        v.stuck = e.stuck;
+        v.volatileAge = 0;
+        return mkStep(added ? 0.2 : 0.05);
+      }
+
       case 'confuse': {
         const v = view(e.uid);
         v.confused = e.on;
@@ -492,6 +506,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         v.fainted = true;
         v.status = null;
         v.confused = false;
+        v.seeded = false;
+        v.stuck = false;
         const side = onField(e.uid);
         if (side) {
           const sl = slots[side];
@@ -758,17 +774,13 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     const item = pickedItem;
     if (!item) return { ok: false, reason: null };
     const eff = getItem(item).effect;
+    // the engine's rule decides; the scene only words the reason
+    if (itemTargetOk(battle, item, i)) return { ok: true, reason: eff.kind === 'revive' ? 'NEEDS A PEP!' : null };
     switch (eff.kind) {
-      case 'heal':
-        if (m.hp <= 0) return { ok: false, reason: 'FAINTED' };
-        return m.hp < m.stats.hp ? { ok: true, reason: null } : { ok: false, reason: 'ALREADY FULL HP' };
-      case 'revive':
-        return m.hp <= 0 ? { ok: true, reason: 'NEEDS A PEP!' } : { ok: false, reason: 'NOT FAINTED' };
-      case 'cure':
-        if (m.hp <= 0) return { ok: false, reason: 'FAINTED' };
-        return m.status !== null || (active && m.volatile.confused > 0) ? { ok: true, reason: null } : { ok: false, reason: 'FEELING FINE' };
-      case 'stages':
-        return active && m.hp > 0 ? { ok: true, reason: null } : { ok: false, reason: 'NOT IN BATTLE' };
+      case 'heal': return { ok: false, reason: m.hp <= 0 ? 'FAINTED' : 'ALREADY FULL HP' };
+      case 'revive': return { ok: false, reason: 'NOT FAINTED' };
+      case 'cure': return { ok: false, reason: m.hp <= 0 ? 'FAINTED' : 'FEELING FINE' };
+      case 'stages': return { ok: false, reason: active && m.hp > 0 ? 'MAXED OUT!' : 'NOT IN BATTLE' };
     }
   }
 

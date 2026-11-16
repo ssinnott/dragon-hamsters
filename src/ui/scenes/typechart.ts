@@ -16,6 +16,7 @@ import {
 } from '../widgets.ts';
 import { drawTypeIcon } from '../icons.ts';
 import { sfx } from '../../audio/index.ts';
+import { TUTORIAL_FLAGS } from '../../game/types.ts';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -115,7 +116,7 @@ const REASONS: Record<string, string> = {
   'BRAWL>MIND': 'big brains see the punch coming', 'BRAWL>LIGHT': 'too sparkly to punch',
 };
 
-/** Chief Nibbles' first-visit briefing (once per save: flags.typeChartTutorial). */
+/** Chief Nibbles' first-visit briefing (once per save: flags[TUTORIAL_FLAGS.typeChart]). */
 const TUTORIAL = [
   'The type chart! Attacking types run down the side, defending types along the top. Find where they meet.',
   'A green 2 means double damage. An orange .5 means half. A dark 0 means no effect at all. Blank means plain old normal.',
@@ -243,8 +244,8 @@ export function createTypeChartScene(focus?: TypeChartFocus): Scene {
     moved += dt;
     if (!tutorialAsked && !app.scenes.busy) {
       tutorialAsked = true;
-      if (!app.state.flags.typeChartTutorial) {
-        app.state.flags.typeChartTutorial = true;
+      if (!app.state.flags[TUTORIAL_FLAGS.typeChart]) {
+        app.state.flags[TUTORIAL_FLAGS.typeChart] = true;
         app.save();
         app.nav.dialog(TUTORIAL, undefined, 'chief');
         return;
