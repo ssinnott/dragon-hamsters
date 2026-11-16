@@ -552,6 +552,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
           victorySide = 'player';
           outro = { text: 'VICTORY!', color: '#e9a72a', age: 0 };
           sfx('victory');
+          // confetti!
+          const colors = ['#ffd24a', '#ef7d4f', '#4f9be0', '#5cbf4f', '#e86fb0'];
+          colors.forEach((c, i) => fx.burst(220 + i * 50, 104 + (i % 2) * 22, c, 14));
         } else if (w === 'enemy') {
           victorySide = 'enemy';
           outro = { text: 'TUCKERED OUT!', color: '#8a6fb0', age: 0 };
@@ -578,6 +581,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   function finish(): void {
     if (finished) return;
     finished = true;
+    delete app.debug.battleUi;
     const outcome: Outcome = battle.winner === 'player' ? 'won' : battle.winner === 'retreat' ? 'retreated' : 'lost';
     finishBattle(app.state, run, battle);
     app.save();

@@ -12,7 +12,7 @@
 //   ?status=snooze      the lead starts with that status (burn, goop, zap, snooze, frozen)
 //   ?test=ferrets       Dr. Ferretstein's showdown (long names, dual types, a big boss)
 //   ?species=a,b,c&lvl=N  the squad is fresh dragons of these species at level N
-//   ?enemies=id:lvl,id:lvl  a custom boss encounter (the last one is the boss)
+//   ?enemies=id:lvl,id:lvl  a custom boss encounter (the last one is the boss; &node=battle for minions)
 // A stand-in "mission run" scene sits under the battle: it pushes the battle on enter, shows the
 // outcome when the battle pops itself, and Enter starts a fresh battle.
 import { bootHarness } from './harness.ts';
@@ -36,6 +36,7 @@ function customNodes(): MissionNode[] | null {
   const list = q.get('enemies');
   if (list) {
     const enemies = list.split(',').map((e) => { const [villain, lvl] = e.split(':'); return { villain, level: Number(lvl || 10) }; });
+    if (q.get('node') === 'battle') return [{ kind: 'battle', label: 'Custom', encounter: { intro: '', enemies } }];
     return [{ kind: 'boss', label: 'Custom', encounter: { intro: '', enemies } }];
   }
   if (test === 'boss') {

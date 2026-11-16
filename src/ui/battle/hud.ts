@@ -317,12 +317,24 @@ export function drawMatchup(ctx: Ctx, m: Matchup | null, pulse: number, appear: 
       seg(lx + lw + 3, ax1);
       arrowHead(ctx, ax0 - wig, ay, -1, col);
     }
+    // a spark runs along the arrow now and then, so the direction of the hit reads at a glance
+    const k = ((t * 0.7 + (dir === 1 ? 0 : 0.55)) % 1.6) / 1.2;
+    if (k < 1) {
+      const span = ax1 - ax0 - 6;
+      const sx = Math.round(dir === 1 ? ax0 + span * k : ax1 - span * k);
+      if (sx < lx - 4 || sx > lx + lw + 2) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(sx, ay, 3, 1);
+        ctx.fillStyle = tint(col, 0.5);
+        ctx.fillRect(sx - dir * 2, ay, 2, 1);
+      }
+    }
   };
   arrow(m.fwd, y + 18, 1, true);
   arrow(m.back, y + 29, -1, false);
   const vy = y + 38;
   const text = VERDICT_TEXT[verdict];
-  drawText(ctx, text, x + Math.floor(S.w / 2), vy + (pulse > 0.6 ? Math.round((pulse - 0.6) * 10) : 0), { color: vc, align: 'center' });
+  drawText(ctx, text, x + Math.floor(S.w / 2), vy - (pulse > 0.6 ? Math.round((pulse - 0.6) * 7) : 0), { color: vc, align: 'center' });
 }
 
 // ---------------------------------------------------------------------------------------------
