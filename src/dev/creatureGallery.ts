@@ -3,12 +3,42 @@
 // URL options: ?t=1.25 freezes the clock (screenshots), ?zoom=3 sets the CSS pixel scale,
 // ?focus=dragon:3 or ?focus=villain:1 shows one sample close up in every pose at scale 3;
 // add &pose=faint for a filmstrip of that pose at poseT 0, 0.125 .. 1.
+// ?focus=outfits and ?focus=props layer every outfit / prop on every animal.
 
 import { drawDragon, dragonHeight, SAMPLE_DRAGONS, POSES } from '../art/dragon.ts';
 import type { Pose } from '../art/dragon.ts';
 import { drawVillain, villainHeight, SAMPLE_VILLAINS } from '../art/villain.ts';
 import { drawText } from '../lib/engine/text.ts';
-import type { DragonVisual, VillainVisual } from '../data/schema.ts';
+import type { Animal, DragonVisual, Outfit, VillainProp, VillainVisual } from '../data/schema.ts';
+
+const ANIMALS: Animal[] = ['mouse', 'rat', 'crow', 'magpie', 'pigeon', 'snake', 'lizard', 'toad', 'cat', 'ferret', 'robot', 'weasel'];
+const OUTFITS: Outfit[] = ['none', 'suit', 'trenchcoat', 'labcoat', 'bandana', 'tracksuit', 'cape', 'apron', 'armor'];
+const PROPS: VillainProp[] = ['none', 'cheeseHat', 'fedora', 'monocle', 'sunglasses', 'eyepatch', 'goggles', 'tophat', 'crown', 'antenna', 'chefHat', 'beret', 'headphones', 'helmet'];
+const OUTFIT_COLORS = ['#3a3048', '#2a3a5a', '#8a6a40', '#4a8a5a', '#d0383a', '#3a5ad0', '#5a2a6a', '#6a4a8a', '#6a7a8a'];
+
+function matrixSection(kind: 'outfits' | 'props'): Section {
+  const cols = kind === 'outfits' ? OUTFITS.length : PROPS.length;
+  const cellW = (W - 50) / cols, rowH = 46;
+  return {
+    title: `EVERY ${kind === 'outfits' ? 'OUTFIT' : 'PROP'} ON EVERY ANIMAL`, h: ANIMALS.length * rowH + 14, bg: '#efe4d0',
+    draw(y, t) {
+      for (let c = 0; c < cols; c++) {
+        const name = kind === 'outfits' ? OUTFITS[c] : PROPS[c];
+        drawText(ctx, name.slice(0, 7), 50 + c * cellW + cellW / 2, y + 2, { color: '#5a4a6a', align: 'center', shadow: false });
+      }
+      ANIMALS.forEach((animal, r) => {
+        const base = SAMPLE_VILLAINS.find((v) => v.animal === animal)!;
+        label(animal.slice(0, 6), 22, y + 14 + r * rowH + 24, '#5a4a6a');
+        for (let c = 0; c < cols; c++) {
+          const v: VillainVisual = kind === 'outfits'
+            ? { ...base, outfit: OUTFITS[c], outfitColor: OUTFIT_COLORS[c], prop: 'none', size: 0.85 }
+            : { ...base, outfit: 'none', prop: PROPS[c], size: 0.85 };
+          drawVillain(ctx, v, 50 + c * cellW + cellW / 2, y + 14 + (r + 1) * rowH - 4, { t: t + r * 0.3 + c * 0.17, facing: -1 });
+        }
+      });
+    },
+  };
+}
 
 const W = 640;
 
@@ -71,7 +101,7 @@ function focusSections(): Section[] {
   }];
 }
 
-const sections: Section[] = focus ? focusSections() : ([
+const sections: Section[] = focus === 'outfits' || focus === 'props' ? [matrixSection(focus)] : focus ? focusSections() : ([
   {
     title: 'DRAGONS AT SCALE 1 (BURROW)', h: 3 * 86 + 4, bg: '#efe4d0',
     draw(y, t) {
@@ -89,9 +119,10 @@ const sections: Section[] = focus ? focusSections() : ([
     title: 'DRAGONS AT SCALE 2 (BATTLE)', h: 150, bg: '#3a2f4f',
     draw(y, t) {
       const pick = [19, 4, 0, 13, 21];
+      const xs = [44, 128, 212, 330, 520];
       pick.forEach((idx, i) => {
         const v = SAMPLE_DRAGONS[idx];
-        const cx = 64 + i * 128, gy = y + 138;
+        const cx = xs[i], gy = y + 138;
         drawDragon(ctx, v, cx, gy, { scale: 2, t: t + i * 0.5, facing: i % 2 ? -1 : 1 });
         label(`H ${Math.round(dragonHeight(v, 2))}`, cx, gy + 3, '#bfb0d8');
       });
@@ -141,6 +172,67 @@ const sections: Section[] = focus ? focusSections() : ([
         drawVillain(ctx, POSE_VILLAIN, cx, gy, { scale: 1.1, t, pose, poseT: oneShot(t, i * 0.13), facing: -1 });
         label(pose, cx, gy + 6, '#d8ccf0');
       });
+    },
+  },
+  {
+    title: 'BATTLE MOCK: LUNGE, HIT FLASH, RECOIL', h: 150, bg: '#efe4d0',
+    draw(y, t) {
+      const d = SAMPLE_DRAGONS[1], v = SAMPLE_VILLAINS[8];
+      const u = t % 4.8;
+      const gy = y + 128;
+      ctx.fillStyle = '#d8c8a8';
+      ctx.beginPath(); ctx.ellipse(170, gy + 2, 90, 14, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(470, gy + 2, 90, 14, 0, 0, Math.PI * 2); ctx.fill();
+      const dragonAttack = u < 1.2 ? u / 1.2 : null;
+      const villainHurt = u >= 0.5 && u < 1.6 ? (u - 0.5) / 1.1 : null;
+      const villainAttack = u >= 2.4 && u < 3.6 ? (u - 2.4) / 1.2 : null;
+      const dragonHurt = u >= 2.9 && u < 4.0 ? (u - 2.9) / 1.1 : null;
+      drawDragon(ctx, d, 170, gy, {
+        scale: 2, t, facing: 1,
+        pose: dragonAttack != null ? 'attack' : dragonHurt != null ? 'hurt' : 'idle',
+        poseT: dragonAttack ?? dragonHurt ?? 0,
+        flash: dragonHurt != null ? Math.max(0, 1 - dragonHurt * 4) : 0,
+      });
+      drawVillain(ctx, v, 470, gy, {
+        scale: 2, t, facing: -1,
+        pose: villainAttack != null ? 'attack' : villainHurt != null ? 'hurt' : 'idle',
+        poseT: villainAttack ?? villainHurt ?? 0,
+        flash: villainHurt != null ? Math.max(0, 1 - villainHurt * 4) : 0,
+      });
+    },
+  },
+  {
+    title: 'MODES: SILHOUETTE, ALPHA 0.5, FACING, FLASH', h: 84, bg: '#3a2f4f',
+    draw(y, t) {
+      const gy = y + 64;
+      const pulse = (Math.sin(t * 4) + 1) / 2;
+      drawDragon(ctx, SAMPLE_DRAGONS[13], 50, gy, { t, silhouette: '#241c34' });
+      drawVillain(ctx, SAMPLE_VILLAINS[6], 130, gy, { t, silhouette: '#241c34', facing: -1 });
+      drawDragon(ctx, SAMPLE_DRAGONS[3], 220, gy, { t, alpha: 0.5 });
+      drawVillain(ctx, SAMPLE_VILLAINS[9], 300, gy, { t, alpha: 0.5 });
+      drawDragon(ctx, SAMPLE_DRAGONS[6], 380, gy, { t, facing: 1 });
+      drawDragon(ctx, SAMPLE_DRAGONS[6], 440, gy, { t, facing: -1 });
+      drawDragon(ctx, SAMPLE_DRAGONS[11], 520, gy, { t, flash: pulse });
+      drawVillain(ctx, SAMPLE_VILLAINS[13], 600, gy, { t, flash: pulse, facing: -1 });
+      label('SILHOUETTE', 90, gy + 5, '#d8ccf0');
+      label('ALPHA', 260, gy + 5, '#d8ccf0');
+      label('FACING', 410, gy + 5, '#d8ccf0');
+      label('FLASH', 560, gy + 5, '#d8ccf0');
+    },
+  },
+  {
+    title: 'BURROW CROWD: 12 DRAGONS AT SCALE 1', h: 86, bg: '#c8a878',
+    draw(y, t) {
+      const loop: Pose[] = ['walk', 'walk', 'idle', 'eat', 'walk', 'sleep', 'walk', 'happy', 'dig', 'walk', 'run', 'walk'];
+      for (let i = 0; i < 12; i++) {
+        const v = SAMPLE_DRAGONS[(i * 5) % SAMPLE_DRAGONS.length];
+        const pose = loop[i];
+        const speed = pose === 'run' ? 60 : pose === 'walk' ? 18 : 0;
+        const span = 560, raw = (i * 47 + t * speed) % (span * 2);
+        const x = 40 + (raw < span ? raw : span * 2 - raw);
+        const facing: 1 | -1 = speed === 0 ? (i % 2 ? -1 : 1) : raw < span ? 1 : -1;
+        drawDragon(ctx, v, speed ? x : 40 + ((i * 47) % span), y + 74, { t: t + i, pose, facing });
+      }
     },
   },
 ]);

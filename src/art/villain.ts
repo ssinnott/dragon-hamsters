@@ -21,7 +21,6 @@ import type { CreatureOpts, CreatureFrame, PoseState } from './dragon.ts';
 
 export type { Pose, CreatureOpts } from './dragon.ts';
 
-const TAU = Math.PI * 2;
 const PINK = '#f2a0aa';
 const TEETH = '#fbf6ea';
 
@@ -122,7 +121,7 @@ const ANAT: Record<Animal, Anat> = {
   robot: anat({
     plan: 'robot', tx: 0, ty: -15, trx: 8.5, try_: 9, hx: 0.5, hy: -30.5, hr: 6.8, top: -38.5,
     shX: 1.5, shY: -21.5, armL: 8.5, armR: 1.6, handR: 2.2,
-    e1x: 6.8 * 0.05, e1y: -6.8 * 0.08, e1r: 6.8 * 0.26, e2x: 6.8 * 0.62, e2y: -6.8 * 0.08, e2r: 6.8 * 0.26,
+    e1x: -6.8 * 0.07, e1y: -6.8 * 0.1, e1r: 6.8 * 0.26, e2x: 6.8 * 0.52, e2y: -6.8 * 0.1, e2r: 6.8 * 0.26,
     mx: 6.8 * 0.33, my: 6.8 * 0.3, hatY: -6.8 * 0.85, nx: 1, ny: -24,
   }),
   weasel: anat({
@@ -234,6 +233,8 @@ export function drawVillain(ctx: CanvasRenderingContext2D, v: VillainVisual, x: 
   const st = poseState(opts.pose ?? 'idle', t, opts.poseT ?? 0, phase);
   if (A.plan === 'snake' && (st.pose === 'walk' || st.pose === 'run')) { st.oy *= 0.3; st.rot *= 0.5; }
   if (st.pose === 'happy') st.paws = 'rest';
+  // bosses hold their chins up: pompous, and a little ridiculous
+  if (v.size >= 1.3 && (st.pose === 'idle' || st.pose === 'walk')) st.tilt -= 0.1;
   const boss = v.size >= 1.3;
   const S = scale * v.size;
   const fr: CreatureFrame = {
@@ -1050,7 +1051,13 @@ function drawVHead(g: CanvasRenderingContext2D, D: VC): void {
   g.save();
   g.translate(D.hx, D.hy);
   g.rotate(D.tilt);
-  if (v.animal === 'robot') { drawRobotHead(g, D); g.restore(); drawProp(g, D); return; }
+  const faceProp = v.prop === 'monocle' || v.prop === 'sunglasses' || v.prop === 'eyepatch' || v.prop === 'goggles';
+  if (v.animal === 'robot') {
+    drawRobotHead(g, D);
+    if (faceProp) drawFaceProp(g, D);
+    g.restore(); drawProp(g, D);
+    return;
+  }
   drawEarsBack(g, D);
   if (v.animal === 'weasel') {
     g.beginPath(); pathTaperedCapsule(g, -r * 0.3, r * 0.6, -r * 0.4 + (A.nx - D.hx) * 0.3, (A.ny - D.hy) + 1, r * 0.55, r * 0.62, false);
@@ -1100,7 +1107,7 @@ function drawVHead(g: CanvasRenderingContext2D, D: VC): void {
   drawVEye(g, D, A.e2x, A.e2y, A.e2r, false);
   drawVEye(g, D, A.e1x, A.e1y, A.e1r, true);
   drawSnout(g, D);
-  if (v.prop === 'monocle' || v.prop === 'sunglasses' || v.prop === 'eyepatch' || v.prop === 'goggles') drawFaceProp(g, D);
+  if (faceProp) drawFaceProp(g, D);
   g.restore();
   drawProp(g, D);
 }
@@ -1379,9 +1386,8 @@ function drawRobotHead(g: CanvasRenderingContext2D, D: VC): void {
       }
     }
   };
-  const ey = sy + sh * 0.4;
-  eye(sx + sw * 0.3, ey, true);
-  eye(sx + sw * 0.72, ey, false);
+  eye(A.e1x, A.e1y, true);
+  eye(A.e2x, A.e2y, false);
   // pixel mouth
   g.fillStyle = glow;
   const mx = sx + sw * 0.52, my = sy + sh * 0.78;
@@ -1427,6 +1433,9 @@ function drawFaceProp(g: CanvasRenderingContext2D, D: VC): void {
       g.beginPath();
       pathRoundedPoly(g, [e1x - e1r * 1.3, e1y - e1r * 0.85, e1x + e1r * 1.3, e1y - e1r * 0.85, e1x + e1r * 1.2, e1y + e1r * 0.9, e1x - e1r * 1.15, e1y + e1r * 0.95], 1.4);
       ink(g, '#262a3e', ow * 0.8);
+      g.beginPath(); g.moveTo(e1x - e1r * 1.2, e1y - e1r * 0.78); g.lineTo(e1x + e1r * 1.2, e1y - e1r * 0.78);
+      g.moveTo(e2x - e2r * 0.9, e2y - e2r * 0.82); g.lineTo(e2x + e2r * 1.15, e2y - e2r * 0.85);
+      strokeLine(g, '#6a7090', 0.6);
       g.beginPath(); g.moveTo(e1x + e1r * 1.3, e1y - e1r * 0.5); g.lineTo(e2x - e2r * 1.0, e2y - e2r * 0.45); strokeLine(g, '#1e1a26', 1.2);
       g.beginPath(); g.moveTo(e1x - e1r * 0.8, e1y - e1r * 0.4); g.lineTo(e1x + e1r * 0.2, e1y - e1r * 0.4); strokeLine(g, '#ffffff', 0.9);
       g.beginPath(); g.moveTo(e1x - e1r * 0.5, e1y + e1r * 0.15); g.lineTo(e1x + e1r * 0.5, e1y - e1r * 0.15); strokeLine(g, 'rgba(160,200,255,0.55)', 0.8);
@@ -1437,6 +1446,8 @@ function drawFaceProp(g: CanvasRenderingContext2D, D: VC): void {
       g.beginPath(); g.moveTo(-r * 0.98, -r * 0.62); g.lineTo(r * 0.6, -r * 0.95); strokeLine(g, INK, 1.1 + ow * 2);
       g.beginPath(); g.moveTo(-r * 0.98, -r * 0.62); g.lineTo(r * 0.6, -r * 0.95); strokeLine(g, '#2a2430', 1.1);
       g.beginPath(); addEll(g, e1x, e1y + 0.2, e1r * 1.25, e1r * 1.15, 0.1); ink(g, '#2a2430', ow);
+      g.beginPath(); addEll(g, e1x, e1y + 0.2, e1r * 0.95, e1r * 0.86, 0.1);
+      g.setLineDash([0.7, 0.7]); strokeLine(g, '#7a7090', 0.5); g.setLineDash([]);
       g.beginPath(); addEll(g, e1x - e1r * 0.35, e1y - e1r * 0.35, e1r * 0.35, e1r * 0.18, -0.4); g.fillStyle = '#4a4458'; g.fill();
       return;
     }

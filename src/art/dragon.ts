@@ -842,7 +842,7 @@ function drawFeet(g: CanvasRenderingContext2D, D: DC, near: boolean): void {
     const lift = Math.max(0, Math.sin(ph)) * 2.2 * st.stepAmp;
     const swing = Math.cos(ph) * 1.6 * st.stepAmp;
     let x = G.bx + (i === 0 ? k : -k) + swing + (near ? 0 : 2.4);
-    let y = fy - lift - (near ? 0 : 0.6);
+    const y = fy - lift - (near ? 0 : 0.6);
     if (st.paws === 'limp') { x += i ? -1 : 1; }
     const rx = 3.9 + G.f * 0.6, ry = 2.2;
     g.beginPath(); addEll(g, x, y, rx, ry);
@@ -862,7 +862,6 @@ function drawFeet(g: CanvasRenderingContext2D, D: DC, near: boolean): void {
         }
         g.fillStyle = '#fbf6ec'; g.fill();
       }
-      x += 0; y += 0;
     }
   }
 }
@@ -1177,7 +1176,7 @@ function drawMouth(g: CanvasRenderingContext2D, D: DC): void {
 }
 
 function drawHead(g: CanvasRenderingContext2D, D: DC): void {
-  const { G, P, st, v } = D;
+  const { G, P, st } = D;
   const hr = G.hr;
   const ex = G.extras;
   g.save();
@@ -1216,7 +1215,6 @@ function drawHead(g: CanvasRenderingContext2D, D: DC): void {
   if (ex.has('frostBreath') && D.fx && st.pose !== 'sleep' && st.pose !== 'faint') drawFrostBreath(g, D);
   if (st.zzz && D.fx) drawNoseBubble(g, D);
   g.restore();
-  void v;
 }
 
 // ---------------------------------------------------------------------------------------------
