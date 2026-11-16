@@ -322,9 +322,12 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
       const gained = to.types.filter((ty) => !oldTypes.includes(ty));
       let bx = x + 8;
       for (const ty of to.types) {
-        bx += drawTypeBadge(ctx, ty, bx, y + 34, { small: true }) + 2;
+        const bw = drawTypeBadge(ctx, ty, bx, y + 34, { small: true });
+        // a gained type is news: a gold star pinned to its badge's corner (no room for words here)
+        if (gained.includes(ty)) drawText(ctx, '★', bx + bw - 4, y + 29, { color: UI.gold, shadowColor: UI.ink });
+        bx += bw + 2;
       }
-      if (gained.length) drawText(ctx, 'NEW!', x + w - 8, y + 36, { color: '#b8781e', shadow: false, align: 'right' });
+      if (gained.length && bx + 4 + measureText('NEW!') <= x + w - 6) drawText(ctx, 'NEW!', bx + 4, y + 36, { color: '#b8781e', shadow: false });
       drawText(ctx, learned.length ? 'NEW MOVES' : 'COMING UP', x + 8, y + 52, { color: UI.textDim, shadow: false });
       const items: { m: MoveId; tag: string }[] = [
         ...learned.map((m) => ({ m, tag: 'NOW' })),
@@ -371,6 +374,8 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
     name: 'evolution',
     overlay: true,
     enter(): void {
+      // for tools/playtest.ts: has the new form been revealed yet, and for how long
+      app.debug.evolution = { evolved: () => evolved, revealT: () => revealT, t: () => t };
       prevMusic = currentMusic();
       music(null);   // a hush: the evolution sounds carry the moment
       if (valid) sfx('levelUp', { volume: 0.7 });
@@ -382,7 +387,8 @@ export function createEvolutionScene(dragonId: string, onDone: () => void): Scen
     draw(ctx: Ctx): void {
       // dim the screen below much further, so the light reads
       ctx.save();
-      ctx.globalAlpha = 0.84;
+      // nearly opaque: the results screen underneath must not read through the title and cards
+      ctx.globalAlpha = 0.95;
       ctx.fillStyle = UI.ink;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.restore();

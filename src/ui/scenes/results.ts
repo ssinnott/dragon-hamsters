@@ -214,6 +214,8 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
   const scene: Scene = {
     name: 'results',
     enter() {
+      // for tools/playtest.ts: report / evolving / reveal / leaving
+      app.debug.results = { stage: () => stage, animating: () => animating() };
       if (won) {
         music('victory');
         burstConfetti(90);
@@ -297,7 +299,11 @@ export function createResultsScene(run: MissionRun, rewards: MissionRewards | nu
       contBtn.draw(ctx, true);
       fx.draw(ctx);
       drawConfetti(ctx, true);
-      if (stage === 'reveal') drawReveal(ctx);
+      if (stage === 'reveal') {
+        drawReveal(ctx);
+        // the way home stays lit above the reveal's dim, so it never looks switched off
+        if (revealT >= 0.6) contBtn.draw(ctx, true);
+      }
     },
   };
   return scene;

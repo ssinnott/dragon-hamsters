@@ -358,7 +358,6 @@ test('XP curve, level ups and learned moves', () => {
 test('auto-equip: a better move replaces the weakest equipped one', () => {
   // A level-up into a full loadout: every swap the content produces must follow the rule.
   let swaps = 0;
-  let keeps = 0;
   for (const sp of SPECIES) {
     const g = newGame(13);
     const d = createDragon(g, sp.id, 1);
@@ -375,7 +374,6 @@ test('auto-equip: a better move replaces the weakest equipped one', () => {
         const statusIn = getMove(x.in).category === 'status' && !getMove(x.in).effects.some((e) => e.kind === 'fixed');
         if (!statusIn) ok(moveValue(types, x.in) > moveValue(types, x.out) || getMove(x.out).category === 'status', `${sp.id} L${L}: ${x.in} beats ${x.out}`);
       }
-      if (beforeMoves.length === 4 && learnHere.length && !r.swapped.length) keeps++;
       eq(d.moves.length, Math.min(4, d.knownMoves.length), `${sp.id} L${L}: loadout stays full`);
       eq(new Set(d.moves).size, d.moves.length, `${sp.id} L${L}: no duplicates`);
       const statusEquipped = d.moves.filter((m) => getMove(m).category === 'status').length;
@@ -410,7 +408,6 @@ test('auto-equip: a better move replaces the weakest equipped one', () => {
   ok(swapLinesFor([{ out: weak, in: strong }])[0] === `SWAPPED ${getMove(weak).name.toUpperCase()} FOR ${getMove(strong).name.toUpperCase()}!`, 'swap line text');
   // Folding: A->B then B->C reads as A->C.
   deepEq(foldSwaps([[{ out: 'a', in: 'b' }], [{ out: 'b', in: 'c' }, { out: 'x', in: 'y' }]]), [{ out: 'a', in: 'c' }, { out: 'x', in: 'y' }], 'foldSwaps');
-  void keeps;
 });
 
 test('evolution', () => {

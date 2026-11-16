@@ -69,7 +69,8 @@ function drawEntryIcon(ctx: Ctx, id: ShopId, cx: number, cy: number, s: number):
 const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 
 export function createShopScene(): Scene {
-  const P: Rect = { x: 8, y: 16, w: 624, h: 334 };
+  // y 2: the panel covers the Burrow's HUD row (and its focus ring) instead of cutting through it
+  const P: Rect = { x: 8, y: 2, w: 624, h: 348 };
   const BOOTH: Rect = { x: P.x + 10, y: P.y + 12, w: 200, h: P.h - 22 };
   const LIST: Rect = { x: 228, y: 56, w: 392, h: 22 * 10 };
   const DETAIL: Rect = { x: 222, y: 284, w: 404, h: 58 };
@@ -99,6 +100,7 @@ export function createShopScene(): Scene {
 
   const group = new ButtonGroup();
   group.keyboard = false;
+  group.showFocus = true; // Enter (the list's activate) buys one: the ring sits on BUY X1
   const buy1 = group.add({
     label: 'BUY X1', sub: '', rect: { x: DETAIL.x + DETAIL.w - 98, y: DETAIL.y + 4, w: 92, h: 24 }, color: UI.good,
     hotkey: '1', enabled: () => canBuy(1), onClick: () => attempt(1),

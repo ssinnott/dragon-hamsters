@@ -238,13 +238,16 @@ export function createBoardScene(): Scene {
       if (wiggle.t > 0) wiggle.t = Math.max(0, wiggle.t - dt);
       if (toast.t > 0) toast.t = Math.max(0, toast.t - dt);
       if (!tutorialChecked) {
-        tutorialChecked = true;
         if (!state().flags[TUTORIAL_FLAGS.board]) {
+          // the Chief explains the board once its case cards have been dealt, not over an empty
+          // corkboard (and nothing on it can be clicked before he has had his say)
+          if (switchT < 0.5) return;
           state().flags[TUTORIAL_FLAGS.board] = true;
           app.save();
           app.nav.dialog(TUTORIAL, undefined, 'chief');
-          return;
         }
+        tutorialChecked = true;
+        return;
       }
       const arrows = input.pressed('ArrowLeft') || input.pressed('ArrowRight');
       handleKeys(input);

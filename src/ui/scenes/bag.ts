@@ -44,7 +44,8 @@ function dryRun(state: GameState): GameState {
 }
 
 export function createBagScene(): Scene {
-  const P: Rect = { x: 8, y: 16, w: 624, h: 334 };
+  // y 2: the panel covers the Burrow's HUD row (and its focus ring) instead of cutting through it
+  const P: Rect = { x: 8, y: 2, w: 624, h: 348 };
   const LIST: Rect = { x: 22, y: 50, w: 304, h: 26 * 11 };
   const DETAIL: Rect = { x: 338, y: 36, w: 282, h: 302 };
   const entries: Entry[] = [
@@ -78,6 +79,7 @@ export function createBagScene(): Scene {
 
   const group = new ButtonGroup();
   group.keyboard = false;
+  group.showFocus = true; // Enter (the list's activate) uses the item: the ring sits on USE
   const useBtn = group.add({
     label: 'USE', rect: { x: DETAIL.x + DETAIL.w - 104, y: DETAIL.y + DETAIL.h - 32, w: 94, h: 22 }, color: UI.good,
     visible: () => {

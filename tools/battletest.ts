@@ -1217,6 +1217,21 @@ test('double knockouts', () => {
   eq(st.enemy.active, 1, 'enemy replaced');
   eq(st.phase, 'switch', 'player must switch');
   check(evs.filter((e) => e.t === 'faint').length === 2, 'two faints');
+  // The enemy's replacement has an entry ability: it waits for the player's replacement, then fires.
+  st = mk({
+    p: [{ moves: ['test-recoil'] }, {}], e: [{}, { ability: 'test-intimidate' }],
+    setup: (s) => { fast(s); s.player.team[0].hp = 1; s.enemy.team[0].hp = 1; },
+  });
+  evs = submitTurn(st, mvA());
+  eq(st.phase, 'switch', 'double KO: player must switch');
+  check(!evs.some((e) => e.t === 'ability'), 'entry ability does not fizzle on the fainted active');
+  eq(st.pendingEntry, st.enemy.team[1].uid, 'entry ability waits');
+  evs = submitSwitch(st, 1);
+  check(evs.some((e) => e.t === 'ability' && e.uid === st.enemy.team[1].uid), 'entry ability fires after the player switches in');
+  eq(P(st).stages.atk, -1, "the player's replacement gets the ATTACK drop");
+  eq(st.pendingEntry ?? null, null, 'nothing waits any more');
+  const sendAt = evs.findIndex((e) => e.t === 'sendOut' && e.side === 'player');
+  check(sendAt >= 0 && sendAt < evs.findIndex((e) => e.t === 'ability'), 'after the send-out');
   // Burn finishes the last foe while the player is also finished by seeds the same turn end.
   st = mk({ setup: (s) => { s.player.team[0].hp = 1; s.enemy.team[0].hp = 1; s.enemy.team[0].status = 'burn'; s.player.team[0].status = 'burn'; s.player.team[0].stats.spe = 999; s.player.team[0].moves[0].id = 'test-wait'; } });
   evs = submitTurn(st, mvA());

@@ -344,6 +344,8 @@ export function createMissionRunScene(run: MissionRun): Scene {
   const scene: Scene = {
     name: 'missionRun',
     enter() {
+      // for tools/playtest.ts: what the trail is doing and which stop the squad is at
+      app.debug.run = { phase: () => phase, index: () => run.index, node: () => currentNode(run)?.kind ?? null };
       music('mission');
     },
     resume() {
@@ -400,7 +402,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
       if (phase === 'rest' || phase === 'branch') {
         // the trail dims behind a choice or a rest, so the panel reads as the thing to answer
         ctx.fillStyle = 'rgba(27, 20, 38, 0.45)';
-        ctx.fillRect(0, 0, VIEW_W, SQUAD_Y - 6);
+        ctx.fillRect(0, 0, VIEW_W, SQUAD_Y);
       }
       if (phase === 'rest') drawRestPanel(ctx);
       if (phase === 'branch') drawBranchPanel(ctx);

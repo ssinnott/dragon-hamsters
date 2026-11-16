@@ -884,7 +884,13 @@ function afterTurn(c: Ctx): void {
   const e = activeMon(s, 'enemy');
   if (e.hp <= 0 && healthyBench(s, 'enemy')) {
     const idx = chooseEnemyReplacement(s);
-    if (idx >= 0) sendOut(c, 'enemy', idx, { text: true, entry: true });
+    if (idx >= 0) {
+      // A double knockout: the player's replacement is not in yet, so the newcomer's entry ability
+      // waits for it (submitSwitch) instead of fizzling on a fainted foe.
+      const playerDown = activeMon(s, 'player').hp <= 0 && healthyBench(s, 'player');
+      sendOut(c, 'enemy', idx, { text: true, entry: !playerDown });
+      if (playerDown) s.pendingEntry = s.enemy.team[idx].uid;
+    }
   }
   const p = activeMon(s, 'player');
   if (p.hp <= 0) {
@@ -1115,6 +1121,11 @@ export function submitSwitch(state: BattleState, index: number): BattleEvent[] {
   const cur = activeMon(state, 'player');
   if (cur.hp > 0) withdraw(c, cur, true);
   sendOut(c, 'player', index, { text: true, entry: true });
+  // the enemy replacement that came in on the same double knockout now meets its foe
+  const waiting = activeMon(state, 'enemy');
+  const pending = state.pendingEntry;
+  state.pendingEntry = null;
+  if (pending && waiting.uid === pending && waiting.hp > 0) entryAbility(c, waiting);
   state.phase = 'choose';
   checkOver(c);
   return c.ev;

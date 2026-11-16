@@ -2,7 +2,8 @@
 // picker, the mission run (node trail) and the results screen, each on a throwaway test save.
 //
 // URL: ?scene=board|briefing|run|results &mission=<id> &progress=<missions cleared in campaign order>
-//      &outcome=won|lost (results) &squad=tired|empty (briefing) &tutorial=1 (board) &at=<node> (run)
+//      &outcome=won|lost (results) &xp=a,b,c (results: XP for each squad dragon, default 900,3500,300)
+//      &squad=tired|empty (briefing) &tutorial=1 (board) &at=<node> (run)
 //      &real=1 (navigate to the real dialog/confirm/type chart/battle/evolution scenes) &auto=1
 //      (battles play themselves). With the stub navigation, the battle placeholder takes W / L / R.
 
@@ -51,7 +52,7 @@ function makeScene() {
       return createMissionRunScene!(run);
     }
     // fake a mission's worth of XP: some level-ups, a learned move, and damage
-    const amounts = [900, 3500, 300];
+    const amounts = (q.get('xp') ?? '900,3500,300').split(',').map((n) => Number(n) || 0);
     run.squad.forEach((id, i) => {
       const d = dragons.getDragon(s, id);
       run.xp[id].push(dragons.grantXp(d, Math.floor(amounts[i] * 0.4)));

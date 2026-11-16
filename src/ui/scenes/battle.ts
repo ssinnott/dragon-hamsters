@@ -1127,6 +1127,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       app.debug.battleUi = {
         menu: () => menu,
         busy: () => step !== null || queue.length > 0,
+        /** The message box's line (full text) and whether it has finished typing. */
+        text: () => tw.text,
+        textDone: () => tw.done,
         focus: () => group.focus,
         levelCard: () => (levelCard ? levelCard.age : -1),
         outro: () => (outro ? outro.age : -1),

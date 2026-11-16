@@ -10,11 +10,12 @@ import { setTextDefaults } from './lib/engine/text.ts';
 import { createInput } from './ui/input.ts';
 import { createSceneManager, type Scene } from './ui/scene.ts';
 import { app, type Nav } from './ui/app.ts';
-import { UI } from './ui/widgets.ts';
+import { UI, liveButtons } from './ui/widgets.ts';
 import { loadGame, newGame, saveGame } from './game/state.ts';
 import { freshSeed } from './game/rng.ts';
 import { ALL_TUTORIAL_FLAGS, type GameState } from './game/types.ts';
-import { addDragon, createDragon, markSeen } from './game/dragons.ts';
+import { addDragon, createDragon, evolveDragon, findDragon, grantXp, markSeen, pendingEvolution } from './game/dragons.ts';
+import { xpForLevel } from './battle/stats.ts';
 import { STARTERS } from './data/index.ts';
 import type { SpeciesId } from './data/schema.ts';
 import { isAudioUnlocked, setMusic, setSound, unlockAudio } from './audio/index.ts';
@@ -36,7 +37,6 @@ import { createBattleScene } from './ui/scenes/battle.ts';
 
 const DT = 1 / 60;
 const STARTER_LEVEL = 5;
-/** Every one-shot tutorial the screens show; the test API can mark them all seen. */
 
 // ---------------------------------------------------------------------------------------------
 // Debug hooks (index.html installs window.__game before the module graph loads)
@@ -138,6 +138,7 @@ function resetContext(): void {
 const loop = createLoop({
   update() {
     input.beginUpdate();
+    liveButtons.length = 0;
     try {
       app.time += DT;
       scenes.update(DT, input);
@@ -206,6 +207,8 @@ hooks.api = {
   state: () => app.state,
   scene: () => scenes.top()?.name ?? null,
   depth: () => scenes.depth,
+  /** A replace/reset fade is running (input is muted until it ends). */
+  busy: () => scenes.busy,
   step: (n: number = 1) => loop.step(n),
   click: (x: number, y: number) => input.injectClick(x, y),
   key: (k: string) => input.injectKey(k),
@@ -217,6 +220,28 @@ hooks.api = {
   },
   debug: () => app.debug,
   errors: () => hooks.errors.slice(),
+  /** Stop (false) or restart (true) the real-time loop; while stopped only step(n) advances the game. */
+  run: (on: boolean) => { if (on) loop.start(); else loop.stop(); return loop.running; },
+  /**
+   * Fast-forward a dragon to `level` through the real XP path (moves learned and auto-equipped),
+   * then evolve it as far as its new level allows (unless evolve is false). With `short` it stops
+   * that many XP before `level` (the next battle then levels it up). Returns its species and level.
+   */
+  train: (dragonId: string, level: number, evolve: boolean = true, short: number = 0) => {
+    const d = findDragon(app.state, dragonId);
+    if (!d) throw new Error(`no dragon '${dragonId}'`);
+    grantXp(d, xpForLevel(Math.max(d.level, Math.floor(level))) - Math.max(0, Math.floor(short)) - d.xp);
+    while (evolve && pendingEvolution(d)) evolveDragon(app.state, d);
+    return { id: d.id, speciesId: d.speciesId, level: d.level, moves: [...d.moves] };
+  },
+  /** A new dragon of `speciesId` at `level` joins the burrow (not the squad). Returns its id. */
+  adopt: (speciesId: SpeciesId, level: number) => {
+    const d = createDragon(app.state, speciesId, level);
+    addDragon(app.state, d);
+    return d.id;
+  },
+  /** The buttons the player could press after the latest update: label, sub, hotkey, rect, enabled. */
+  buttons: () => liveButtons.map((b) => ({ ...b, rect: { ...b.rect } })),
 };
 
 // ---------------------------------------------------------------------------------------------

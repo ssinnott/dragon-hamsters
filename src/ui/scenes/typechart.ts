@@ -26,7 +26,8 @@ export interface TypeChartFocus { attack?: readonly TypeId[]; defend?: readonly 
 // Layout
 // ---------------------------------------------------------------------------------------------
 
-const PANEL = { x: 6, y: 9, w: 628, h: 345 };
+// y 2: over the Burrow the panel hides the HUD row entirely instead of leaving a sliver of it
+const PANEL = { x: 6, y: 2, w: 628, h: 352 };
 const CELL = 16;
 const N = TYPE_IDS.length;
 /** Top-left of cell (0, 0). */
@@ -415,7 +416,8 @@ export function createTypeChartScene(focus?: TypeChartFocus): Scene {
     const shrugs = TYPE_IDS.filter((t) => mult(t, d) < 1);
     const zeroA = new Set(TYPE_IDS.filter((t) => mult(a, t) === 0));
     const zeroD = new Set(TYPE_IDS.filter((t) => mult(t, d) === 0));
-    const labels = [`${an} HITS HARD:`, `${an} IS WEAK VS:`, `${dn} FEARS:`, `${dn} SHRUGS OFF:`];
+    // (not "IS WEAK VS": the battle screen's WEAK TO means the opposite, taking double damage)
+    const labels = [`${an} HITS HARD:`, `${an} BARELY HURTS:`, `${dn} FEARS:`, `${dn} SHRUGS OFF:`];
     const lw = Math.max(...labels.map((l) => measureText(l)));
     const ly = b.y + 27;
     const mw = b.w - 16;

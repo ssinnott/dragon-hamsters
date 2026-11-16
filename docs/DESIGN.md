@@ -99,7 +99,7 @@ three needs, 0-100: **fullness**, **happiness**, **energy**.
 | Station | Activity | Energy | Effect |
 |---|---|---|---|
 | Snack Bar | feed one food from the pantry | 0 | fullness + happiness (x2 for its favourite food, and x2 again for FLUFF / COOKING, who love the Snack Bar); dragonfruit gives XP; no slot used |
-| Hamster Wheel | run | -20 | SPEED training, a little XP; LIGHTNING / WINGED love it |
+| Hamster Wheel | run | -20 | SPEED training, a little XP; LIGHTNING / WINGED / FIRE / BRAWL love it |
 | Treasure Tunnels | dig | -20 | ATTACK/DEFENSE training, loot (coins, food, rarely an item); EARTH/ROCK/METAL dig better |
 | Cozy Nest | nap | +50 | full HP, cure status |
 | Ball Pit | play | -15 | big happiness, SP.ATK/SP.DEF training, a little XP |
@@ -130,7 +130,9 @@ is caught. The first mission of the next org unlocks when the previous org's sho
 
 Level bands (average enemy level per mission index 1..5): cheese 5/7/9/11/14, crows 13/15/17/19/22,
 snakes 20/22/24/26/29, cats 27/29/31/33/36, ferrets 34/36/38/41/45. Minions sit at the band ±1,
-lieutenants +1, bosses +3. Starters begin at level 5.
+lieutenants +1, bosses +3. Starters begin at level 5. The very first case is the tutorial showdown:
+the Big Cheese alone at band +1 (LV6), no lieutenant, so any two starters can win it
+(`tools/gametest.ts` checks every starter pair wins at least 70% of autopilot runs).
 
 **Rewards**: coins, food, items, XP, and a chance at a new dragon the player does not own yet, drawn
 from the mission's themed pool (rescue: guaranteed). Replays pay 50% coins and halve the dragon
@@ -148,13 +150,19 @@ Every screen works with mouse/touch alone and with keyboard alone (arrows, Enter
 3. **Burrow**: the habitat, HUD (day, coins), station click -> choose dragon -> activity vignette ->
    result card. Buttons: MISSIONS, DRAGONS, SHOP, DEX, TYPES, SLEEP.
 4. **Roster / dragon card**: stats with bars, types, ability, personality, needs, backstory, the
-   4-move loadout editor over all known moves.
+   4-move loadout editor over all known moves. Learned moves equip themselves: into a free slot,
+   or, with four equipped, in place of the weakest one when the new move is better (power x STAB
+   x accuracy; one status move is kept, valued at 55). Results and Burrow cards say
+   "SWAPPED X FOR Y".
 5. **Dragondex**: all species; unseen ones are silhouettes.
 6. **Type chart**: the 16x16 grid with hover/selection explaining a row and a column.
 7. **Mission board**: five org tabs, five mission cards each (locked / available / cleared).
 8. **Briefing + squad**: briefing text, objective, mission type twist, **intel** (the org's theme
    types, or the exact roster for infiltrate), "BRING:" counter types, and squad selection where
-   each dragon shows a matchup grade (1-3 stars) against the intel.
+   each dragon shows a matchup grade (1-3 stars) against the intel. Three stars: their STAB does
+   not hit you super-effectively and you either hit them super-effectively or resist their STAB
+   while your STAB lands; one star: they hit you super-effectively and you have nothing
+   super-effective back. The battle's SWAP cards use the same grade and words.
 9. **Mission path**: the node trail across the location, current node highlighted.
 10. **Battle**: below.
 11. **Results**: rewards, XP bars filling, level ups, moves learned, evolutions, a new dragon's
@@ -202,7 +210,11 @@ src/art/        dragon, villain, backdrops, fx
 src/ui/         input, scene manager, widgets + icons, scenes/*
 src/audio/      sfx, tracks, index (the audio singleton)
 src/dev/        galleries for checking art in a browser
-tools/          server, build, smoke, contenttest, battletest, gametest, playtest
+tools/          server, build, smoke, contenttest, battletest, gametest, playtest, distcheck
 ```
 
-`npm run check` = typecheck + contenttest + battletest + gametest + smoke.
+`npm run check` = typecheck + contenttest + battletest + gametest + smoke. `npm run playtest` plays
+the real game end to end in headless Chromium (title, intro, every Burrow activity, shop, bag,
+roster, dex, type chart, case 1 with a hand-played first turn, then one case of every other gang on
+autoplay) and saves a screenshot of every screen to screenshots/playtest/. `npm run distcheck`
+builds dist/index.html and boots it from file:// to the title.

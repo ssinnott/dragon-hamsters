@@ -352,7 +352,8 @@ export function createRosterScene(dragonId?: string): Scene {
     const at = d.moves.indexOf(m);
     if (at >= 0) slotFlash[at] = 0.4;
     if (j >= 0 && slot < 4) slotFlash[j] = 0.4;
-    say(j >= 0 ? `SWAPPED SLOTS ${j + 1} AND ${slot + 1}!` : `${name} EQUIPPED IN SLOT ${at + 1}!`, '#3f8f4a');
+    const [lo, hi] = [Math.min(j, slot) + 1, Math.max(j, slot) + 1];
+    say(j >= 0 ? `SLOTS ${lo} + ${hi} SWAPPED!` : `${name} EQUIPPED IN SLOT ${at + 1}!`, '#3f8f4a');
     focusSlots();
   }
 
@@ -400,10 +401,12 @@ export function createRosterScene(dragonId?: string): Scene {
       sfx('back');
       return;
     }
-    if (chrome.update(input)) { settleFocus(); return; }
+    // (the chrome and the move grid show a focus ring only while the keyboard drives them:
+    // ButtonGroup.showFocus follows .keyboard)
+    if (chrome.update(input)) return;
     if (tab === MOVES_TAB) {
       moveGroup.keyboard = editing;
-      if (moveGroup.update(input)) { settleFocus(); return; }
+      if (moveGroup.update(input)) return;
     }
     if (!editing) {
       if (input.pressed('ArrowLeft')) switchTab(tab - 1);
@@ -414,14 +417,6 @@ export function createRosterScene(dragonId?: string): Scene {
 
     const p = input.pointer;
     if (p.pressed && p.inside && current() && hit(STAGE, p.x, p.y)) poke();
-    settleFocus();
-  }
-
-  /** Only show a focus ring where the keyboard actually is (or under the mouse). */
-  function settleFocus(): void {
-    const hc = chrome.buttons.findIndex((b) => b.hovered);
-    chrome.focus = hc;
-    if (!editing) moveGroup.focus = moveGroup.buttons.findIndex((b) => b.hovered);
   }
 
   // ---- drawing: list ---------------------------------------------------------------------------

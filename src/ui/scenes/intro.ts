@@ -782,6 +782,8 @@ export function createIntroScene(): Scene {
   return {
     name: 'intro',
     enter() {
+      // for tools/playtest.ts: which part of the intro is showing
+      app.debug.intro = { phase: () => phase, line: () => talk.index };
       const prev = app.state;
       const fresh = newGame(freshSeed(), prev?.playerName || 'AGENT');
       if (prev?.settings) fresh.settings = { ...prev.settings };

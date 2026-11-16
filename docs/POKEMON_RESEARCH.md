@@ -88,7 +88,7 @@ Stats are listed as HP/Atk/Def/SpA/SpD/Spe = BST. The average across all finals 
   - Appletun 110/85/80/100/80/30 (apple pie).
 - **Stat shape.** It takes the Chansey/Blissey shape (top HP, high SpD, low Atk), toned down so it can still deal damage. Its SpA of 0.95 matches the Alcremie/Appletun "cook attacks with heat and spice" style.
 - **Role.** Healing and buffing through food (snack, picnic and feast moves). It survives long enough to use them, as Report 1's template suggested (95/60/80/85/110/70 at 500 BST).
-- **Offense.** COOKING should not out-damage FIRE. It gets a modest 3 super-effective targets and pays with 3 weaknesses (Section 5).
+- **Offense.** COOKING should not out-damage FIRE. It gets a modest 3 super-effective targets and pays with 4 weaknesses, FIRE among them (Section 5; FIRE overcooking COOKING was added after the first draft).
 
 **SLIME (Poison + Bug + goo).**
 - **Stats.** Pokemon Poison is flat and slightly weak (484 final BST), and Bug is the weakest type (453). Pure-average stats would make SLIME a bad type. So SLIME takes the stat line of the goo and slug Pokemon instead:
@@ -369,12 +369,16 @@ PokeAPI confirms Quick Attack +1, ExtremeSpeed +2 and Protect +4.
   - Every attacking type hits 2–4 types for 2× and is resisted (0.5×) by 2–4 types.
   - It has at most 1 no-effect target, and 0.5× plus 0× is never more than 4.
   - Every defending type has 2–4 weaknesses.
-- **Totals:** 47 super-effective (18.4%), 52 resisted (20.3%), 4 immune (1.6%) and 153 neutral out of 256. Pokemon's shares are 15.7%, 18.8% and 2.5%.
+- **Totals:** 48 super-effective (18.8%), 52 resisted (20.3%), 4 immune (1.6%) and 152 neutral out of 256. Pokemon's shares are 15.7%, 18.8% and 2.5%.
+- **Change after the first draft (the chart in `src/data/types.ts` is the source of truth).** Two COOKING cells moved:
+  - **FIRE → COOKING is 2× (was 0.5×):** fire overcooks the cook's dinner. The first villain org, the Big Cheese Crew, is FLUFF / COOKING / EARTH, and with COOKING resisting FIRE the FIRE starter had no good answer to half of its first opponents (the Big Cheese himself is COOKING / FLUFF). Now FIRE, WATER, WINGED and SLIME all beat COOKING, which keeps its four weaknesses inside the 2–4 rule.
+  - **COOKING → COOKING is 0.5× (was 1×):** a chef shrugs off another chef's tricks. Losing the FIRE resistance left COOKING resisting only LEAF; the mirror resistance gives it a second one (like FIRE, WATER, LEAF and METAL) and keeps COOKING's attack resisted by 4 types (FIRE, WATER, METAL, COOKING).
+  - The kitchen triangle (COOKING > LEAF > WATER > COOKING) and every other clean triangle are unchanged; `tools/contenttest.ts` re-checks all the balance rules on the live chart.
 
 | Attacking type | 2× against | 0.5× against | 0× | Thematic justification (Pokemon basis unless marked "new") |
 |---|---|---|---|---|
 | FLUFF | DARKNESS, MIND | ROCK, METAL, BRAWL | – | New 2×: a big warm hug chases off the dark, and a fluffy distraction breaks any concentration. Normal had no 2× targets; FLUFF gets 2 because of the 2-minimum rule. ROCK and METAL resist as in Pokemon; new: pillow punches bounce off a brawler. |
-| FIRE | LEAF, FROST, METAL | FIRE, WATER, ROCK, COOKING | – | Burns plants, melts ice and metal. New: COOKING resists because fire is the cook's own tool. Dragon's resistance is gone. |
+| FIRE | LEAF, FROST, METAL, COOKING | FIRE, WATER, ROCK | – | Burns plants, melts ice and metal. New: overcooks the cook's dinner (COOKING; this was 0.5× in the first draft, see above). Dragon's resistance is gone. |
 | WATER | FIRE, EARTH, ROCK, COOKING | WATER, LEAF, WINGED | – | Douses fire, erodes earth and stone. New: floods the kitchen and makes the snacks soggy. New: water rolls off a duck's back (WINGED resists). |
 | LEAF | WATER, EARTH, ROCK | FIRE, LEAF, SLIME, COOKING | – | Drinks water; roots crack soil and stone. New: COOKING resists because chefs chop greens into salad. Flying, Steel and Dragon resistances dropped to cap at 4. |
 | LIGHTNING | WATER, WINGED | LIGHTNING, LEAF, SLIME | EARTH | Shocks water and birds; grounded by earth. New: rubbery goo insulates (SLIME resists). |
@@ -385,7 +389,7 @@ PokeAPI confirms Quick Attack +1, ExtremeSpeed +2 and Protect +4.
 | SLIME | LEAF, LIGHTNING, LIGHT, COOKING | SLIME, EARTH, WINGED | METAL | Weedkiller (Poison > Grass); goo gums up sparkle (Poison > Fairy). New: food poisoning (COOKING); goo gums up the circuits (LIGHTNING). Flying resists Bug; Steel is immune to Poison. Rock's resistance dropped to cap at 4. |
 | DARKNESS | MIND, LIGHT | BRAWL, DARKNESS | – | Preys on fearful minds (Dark > Psychic). New: darkness swallows light. LIGHT and DARKNESS are 2× against each other, like Pokemon's Dragon and Ghost mirrors, so whoever strikes first wins. |
 | LIGHT | BRAWL, DARKNESS | FIRE, SLIME, METAL | – | Fairy > Fighting/Dark: dazzles bullies, dispels the dark. Fire, Poison and Steel resist as in Pokemon. |
-| COOKING | LEAF, FROST, FLUFF | FIRE, WATER, METAL | – | All new. Chops veggies; thaws frozen food; no hamster can resist the smell of fresh treats. Fire is its tool, you can't burn soup, and pots and pans are metal. |
+| COOKING | LEAF, FROST, FLUFF | FIRE, WATER, METAL, COOKING | – | All new. Chops veggies; thaws frozen food; no hamster can resist the smell of fresh treats. Fire is its tool, you can't burn soup, pots and pans are metal, and a chef shrugs off another chef's tricks (COOKING, added after the first draft). |
 | METAL | FROST, ROCK, LIGHT | FIRE, WATER, LIGHTNING, METAL | – | Shatters ice and rock; tarnishes sparkle (Steel > Fairy). |
 | MIND | BRAWL, SLIME | MIND, METAL, FLUFF | DARKNESS | Outsmarts brawlers and sludge (Psychic > Fighting/Poison). New: nothing much goes on inside a fluffy head. Dark is immune as in Pokemon. |
 | BRAWL | FLUFF, ROCK, DARKNESS, METAL | SLIME, WINGED, MIND, LIGHT | – | Fighting > Normal/Rock/Dark/Steel. Ice dropped so FROST stays at 4 weaknesses. Ghost's immunity is gone with Ghost. |
@@ -395,7 +399,7 @@ Full grid (rows attack, columns defend; **2** = 2×, ½ = 0.5×, 0 = no effect, 
 | Atk \ Def | FLF | FIR | WAT | LEF | LTN | ERT | RCK | WNG | FRS | SLM | DRK | LGT | COK | MTL | MND | BRL |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | FLF | · | · | · | · | · | · | ½ | · | · | · | **2** | · | · | ½ | **2** | ½ |
-| FIR | · | ½ | ½ | **2** | · | · | ½ | · | **2** | · | · | · | ½ | **2** | · | · |
+| FIR | · | ½ | ½ | **2** | · | · | ½ | · | **2** | · | · | · | **2** | **2** | · | · |
 | WAT | · | **2** | ½ | ½ | · | **2** | **2** | ½ | · | · | · | · | **2** | · | · | · |
 | LEF | · | ½ | **2** | ½ | · | **2** | **2** | · | · | ½ | · | · | ½ | · | · | · |
 | LTN | · | · | **2** | ½ | ½ | 0 | · | **2** | · | ½ | · | · | · | · | · | · |
@@ -406,7 +410,7 @@ Full grid (rows attack, columns defend; **2** = 2×, ½ = 0.5×, 0 = no effect, 
 | SLM | · | · | · | **2** | **2** | ½ | · | ½ | · | ½ | · | **2** | **2** | 0 | · | · |
 | DRK | · | · | · | · | · | · | · | · | · | · | ½ | **2** | · | · | **2** | ½ |
 | LGT | · | ½ | · | · | · | · | · | · | · | ½ | **2** | · | · | ½ | · | **2** |
-| COK | **2** | ½ | ½ | **2** | · | · | · | · | **2** | · | · | · | · | ½ | · | · |
+| COK | **2** | ½ | ½ | **2** | · | · | · | · | **2** | · | · | · | ½ | ½ | · | · |
 | MTL | · | ½ | ½ | · | ½ | · | **2** | · | **2** | · | · | **2** | · | ½ | · | · |
 | MND | ½ | · | · | · | · | · | · | · | · | **2** | 0 | · | · | ½ | ½ | **2** |
 | BRL | **2** | · | · | · | · | · | **2** | ½ | · | ½ | **2** | ½ | · | **2** | ½ | · |
@@ -427,15 +431,15 @@ Full grid (rows attack, columns defend; **2** = 2×, ½ = 0.5×, 0 = no effect, 
 | SLIME | EARTH, WINGED, MIND | LEAF, LIGHTNING, SLIME, LIGHT, BRAWL | – | 1.03 |
 | DARKNESS | FLUFF, LIGHT, BRAWL | DARKNESS | MIND | 1.09 |
 | LIGHT | SLIME, DARKNESS, METAL | EARTH, BRAWL | – | 1.13 |
-| COOKING | WATER, WINGED, SLIME | FIRE, LEAF | – | 1.13 |
+| COOKING | FIRE, WATER, WINGED, SLIME | LEAF, COOKING | – | 1.19 |
 | METAL | FIRE, EARTH, BRAWL | FLUFF, ROCK, WINGED, FROST, LIGHT, COOKING, METAL, MIND | SLIME | 0.88 |
 | MIND | FLUFF, DARKNESS | MIND, BRAWL | – | 1.06 |
 | BRAWL | WINGED, LIGHT, MIND | FLUFF, ROCK, DARKNESS | – | 1.09 |
 
 - **Where weak typing is offset by stats:**
   - METAL stays the defensive type (8 resistances + 1 immunity, down from Steel's 10 + 1); its 0.60 Speed and 0.70 SpA pay for it.
-  - FROST, ROCK, LIGHT, COOKING and LEAF take the most damage on average. Their templates make up for it with high HP (FROST, COOKING), Def (ROCK) or SpD (LIGHT, LEAF).
-- **Offense** ranges from 0.97 (LIGHTNING, MIND) to 1.16 (WATER) average multiplier dealt.
+  - FROST, COOKING, ROCK, LIGHT and LEAF take the most damage on average. Their templates make up for it with high HP (FROST, COOKING), Def (ROCK) or SpD (LIGHT, LEAF).
+- **Offense** ranges from 0.97 (LIGHTNING, MIND) to 1.16 (FIRE, WATER) average multiplier dealt.
 
 **Clean triangles in our chart.** All 8 strict cycles the script found; each reverse matchup is 0.5× or 0×.
 

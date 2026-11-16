@@ -506,12 +506,13 @@ export function createBurrowScene(): Scene {
     MISSIONS.some((m) => m.id === FIRST_CASE) && (app.state.missions[FIRST_CASE]?.clears ?? 0) === 0;
 
   function hudButton(label: string, key: string, icon: IconFn, action: () => void, color?: string): Button {
-    const w = measureText(label) + 37;
+    // icon, label, a 4 px breath, then the keycap: the key letter must not read as part of the word
+    const w = measureText(label) + 40;
     const b = new Button({
       label, rect: { x: 0, y: 4, w, h: 20 }, hotkey: key, icon, align: 'left', color,
       onClick: () => { sfx('click'); action(); },
       decorate: (ctx, face) => {
-        drawKeycap(ctx, key.toUpperCase(), face.x + face.w - 13, face.y + Math.floor((face.h - 12) / 2));
+        drawKeycap(ctx, key.toUpperCase(), face.x + face.w - 14, face.y + Math.floor((face.h - 12) / 2));
       },
     });
     return b;
@@ -564,10 +565,25 @@ export function createBurrowScene(): Scene {
   // Walkers
   // ---------------------------------------------------------------------------------------------
 
-  function randomFloor(nearX?: number): { x: number; y: number } {
-    let x = FLOOR.x0 + Math.random() * (FLOOR.x1 - FLOOR.x0);
-    if (nearX !== undefined) x = Math.max(FLOOR.x0, Math.min(FLOOR.x1, nearX + (Math.random() - 0.5) * 320));
-    return { x, y: FLOOR.y0 + Math.random() * (FLOOR.y1 - FLOOR.y0) };
+  /**
+   * A spot on the floor (near nearX when given): the roomiest of a few random tries, judged by the
+   * distance to where everyone else is standing or heading, so a big burrow spreads out instead of
+   * piling up in one heap.
+   */
+  function randomFloor(nearX?: number, self?: Walker): { x: number; y: number } {
+    let best = { x: 0, y: 0 }, bestRoom = -1;
+    for (let k = 0; k < 6; k++) {
+      let x = FLOOR.x0 + Math.random() * (FLOOR.x1 - FLOOR.x0);
+      if (nearX !== undefined) x = Math.max(FLOOR.x0, Math.min(FLOOR.x1, nearX + (Math.random() - 0.5) * 320));
+      const p = { x, y: FLOOR.y0 + Math.random() * (FLOOR.y1 - FLOOR.y0) };
+      let room = Infinity;
+      for (const o of walkers.values()) {
+        if (o === self || o.state === 'sleep' || o.state === 'toNest') continue;
+        room = Math.min(room, Math.hypot(o.tx - p.x, (o.ty - p.y) * 2));
+      }
+      if (room > bestRoom) { bestRoom = room; best = p; }
+    }
+    return best;
   }
 
   function newWalker(d: OwnedDragon): Walker {
@@ -636,7 +652,7 @@ export function createBurrowScene(): Scene {
         if (w.timer <= 0) {
           if (d.needs.happiness >= JOYFUL_AT && Math.random() < 0.45) { w.state = 'hop'; w.timer = 1.3 + Math.random() * 0.8; }
           else {
-            const p = randomFloor(w.x);
+            const p = randomFloor(w.x, w);
             w.tx = p.x; w.ty = p.y; w.state = 'walk';
           }
         }
@@ -644,7 +660,7 @@ export function createBurrowScene(): Scene {
       case 'hop':
         w.timer -= dt;
         if (w.timer <= 0) {
-          if (w.y < FLOOR.y0 - 2) { const p = randomFloor(w.x); w.tx = p.x; w.ty = p.y; w.state = 'walk'; }
+          if (w.y < FLOOR.y0 - 2) { const p = randomFloor(w.x, w); w.tx = p.x; w.ty = p.y; w.state = 'walk'; }
           else { w.state = 'idle'; w.timer = 1 + Math.random() * 2; }
         }
         break;
@@ -905,6 +921,7 @@ export function createBurrowScene(): Scene {
     sfx('click');
     const group = new ButtonGroup();
     group.keyboard = false;
+    group.showFocus = true; // Enter (the list's activate) picks the row: the ring sits on GO
     const st: PanelState = {
       station: id, mode: 'dragons', dragonId: null, fromCard, rows: [], foods: [],
       dlist: null as unknown as ScrollList<DragonRow>, flist: null as unknown as ScrollList<FoodRow>,
@@ -1116,14 +1133,17 @@ export function createBurrowScene(): Scene {
       st.flist.draw(ctx);
     }
     // footer: feedback or a key hint
+    const goLabel = st.mode === 'foods' ? 'FEED!' : st.station === 'feed' ? 'NEXT' : 'GO!';
     const fy = P.y + P.h - 25;
     if (st.msgT > 0) {
       const lines = wrapText(st.msg, P.w - 190).slice(0, 2);
       lines.forEach((l, i) => drawText(ctx, l, P.x + 12, fy - (lines.length - 1) * 5 + i * 10, { color: UI.bad, shadow: false }));
     } else {
-      drawText(ctx, 'ARROWS + ENTER, OR CLICK AND GO!', P.x + 12, fy, { color: UI.textDim, shadow: false });
+      // name the button the player will actually see (GO!, NEXT or FEED!)
+      const what = st.mode === 'foods' ? 'SNACK' : 'DRAGON';
+      drawText(ctx, `CLICK A ${what}, THEN ${goLabel} (OR ENTER)`, P.x + 12, fy, { color: UI.textDim, shadow: false });
     }
-    st.group.buttons[0].spec.label = st.mode === 'foods' ? 'FEED!' : st.station === 'feed' ? 'NEXT' : 'GO!';
+    st.group.buttons[0].spec.label = goLabel;
     st.group.draw(ctx);
   }
 
@@ -1155,7 +1175,7 @@ export function createBurrowScene(): Scene {
     for (const o of order) {
       if (o === w || (o.state !== 'idle' && o.state !== 'walk' && o.state !== 'hop')) continue;
       if (Math.abs(o.x - to.x) < 44 && Math.abs(o.y - to.y) < 30) {
-        const p = randomFloor();
+        const p = randomFloor(undefined, o);
         if (Math.abs(p.x - to.x) < 70) p.x = to.x + (to.x < 320 ? 90 : -90);
         o.tx = p.x; o.ty = p.y; o.state = 'walk';
       }
@@ -1347,6 +1367,10 @@ export function createBurrowScene(): Scene {
     if (v.activity === 'nap') {
       if (d.hp > v.before.hp) rows.push(textRow('HP fully restored!', tint(UI.good, -0.35), iconPlus, 'heal'));
       if (v.before.status && !d.status) rows.push(textRow(`No longer ${STATUS_NAMES[v.before.status]}!`, tint(UI.good, -0.35), iconPlus, 'heal'));
+      // a nap that changed nothing still deserves a word, or it looks like the slot was wasted by a bug
+      if (d.hp <= v.before.hp && !v.before.status && dn('energy') <= 0) {
+        rows.push(textRow('Already full of beans! Naps help tired or hurt dragons.', UI.textDim, iconStar, 'select'));
+      }
     }
     // training
     if (res.training) {

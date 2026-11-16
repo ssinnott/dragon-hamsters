@@ -96,6 +96,12 @@ export interface BattleState {
   winner: Side | 'retreat' | null;
   /** Enemy swaps used this battle (smart AI swaps at most 2 times). */
   enemySwaps: number;
+  /**
+   * After a double knockout the enemy's replacement is sent out while the player still has to
+   * pick one: its entry ability (e.g. ATTACK down on the foe) waits here (its uid) and fires right
+   * after the player's replacement comes in (submitSwitch). Absent / null when nothing waits.
+   */
+  pendingEntry?: string | null;
   /** Every event so far. */
   log: BattleEvent[];
 }

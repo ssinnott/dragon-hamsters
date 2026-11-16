@@ -496,9 +496,10 @@ export function createBriefingScene(missionId: MissionId): Scene {
         const bw = typeBadgesWidth(set, { small: true }) + 6;
         if (gx + bw > maxX) { gx = x + 10; cy += 16; }
         if (cy > y + h - 46) break;
-        drawInset(ctx, gx, cy, bw, 15, { fill: '#ead6b0' });
+        // a darker well per crook, so a two-type crook reads as one thing and not two
+        drawInset(ctx, gx, cy, bw, 15, { fill: '#d8bd8c' });
         drawTypeBadges(ctx, set, gx + 3, cy + 2, { small: true });
-        gx += bw + 4;
+        gx += bw + 6;
       }
       cy += 20;
       // who runs the show (no levels: only an INFILTRATE scouts those)

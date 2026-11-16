@@ -420,6 +420,25 @@ advise('learnsets: no move is listed twice in one learnset', () => {
   return errs;
 });
 
+/** The DRAGONS screen's known-moves grid holds this many moves (2 columns x 7 rows). */
+const KNOWN_MOVES_GRID = 14;
+
+check(`learnsets: no evolution line learns more than ${KNOWN_MOVES_GRID} moves (the DRAGONS screen grid)`, () => {
+  const errs: string[] = [];
+  for (const s of SPECIES) {
+    if (s.evolvesFrom) continue;
+    const moves = new Set<string>();
+    const line: string[] = [];
+    for (let cur: typeof s | undefined = s; cur; cur = cur.evolvesTo ? speciesById.get(cur.evolvesTo.species) : undefined) {
+      line.push(cur.id);
+      for (const e of cur.learnset) moves.add(e.move);
+      if (line.length > 5) break;
+    }
+    if (moves.size > KNOWN_MOVES_GRID) errs.push(`line ${line.join(' > ')} learns ${moves.size} moves`);
+  }
+  return errs;
+});
+
 check('evolutions: links mirror each other and evolve levels are 2..MAX_LEVEL', () => {
   const errs: string[] = [];
   for (const s of SPECIES) {

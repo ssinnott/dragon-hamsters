@@ -18,12 +18,12 @@ export function effectiveness(attack: TypeId, defender: readonly TypeId[]): numb
 // personalities.ts export const PERSONALITIES: PersonalityDef[];
 // items.ts       export const FOODS: Record<FoodId, FoodDef>; export const ITEMS: Record<ItemId, ItemDef>;
 // activities.ts  export const ACTIVITIES: Record<ActivityId, ActivityDef>;
-// species.ts     export const SPECIES: SpeciesDef[]; export const STARTERS: SpeciesId[]; // [fire, leaf, water]
+// species.ts     export const SPECIES: SpeciesDef[]; export const STARTERS: SpeciesId[]; // [fire, leaf, water] (also re-exported by index.ts)
 // villains.ts    export const ORGS: Record<OrgId, OrgDef>; export const VILLAINS: Record<VillainId, VillainDef>;
 // missions.ts    export const MISSION_TYPES; export const LOCATIONS; export const MISSIONS: MissionDef[];
 // index.ts       getType/getMove/getAbility/getPersonality/getFood/getItem/getActivity/getSpecies/
 //                getOrg/getVillain/getMission/getMissionType/getLocation (throw on unknown id),
-//                isFood, SPECIES_BY_DEX, MISSIONS_IN_ORDER, and re-exports of every table.
+//                isFood, SPECIES_BY_DEX, MISSIONS_IN_ORDER, and re-exports of every table and STARTERS.
 ```
 
 ## src/battle (engine; pure, Node-safe)
@@ -43,10 +43,19 @@ export function bestTypeMultiplier(attackerTypes: readonly TypeId[], defenderTyp
 export function weaknesses(defenderTypes: readonly TypeId[]): TypeId[];   // attacking types that deal > 1x
 export function resistances(defenderTypes: readonly TypeId[]): TypeId[];  // attacking types that deal < 1x (incl. 0)
 export function immunities(defenderTypes: readonly TypeId[]): TypeId[];
-/** 1..3 stars: how well a combatant with these types and moves fares against `foeTypes` (offence and defence). */
+export interface MatchupParts { offence: number; stab: number; defence: number } // best move mult, best STAB mult, foe's best STAB on us
+export function matchupParts(selfTypes, selfMoves, foeTypes): MatchupParts;
+/**
+ * 1..3 stars: how well a combatant with these types and moves fares against `foeTypes`.
+ * 3 = the foe's STAB is not super-effective on it AND (one of its moves is super-effective, or it
+ *     resists the foe's STAB while its own STAB lands at least neutrally); WATER vs WATER is 2.
+ * 1 = the foe's STAB is super-effective and it has nothing super-effective back (or nothing that
+ *     can touch the foe). 2 = everything else. Battle swap cards and briefing squad picks both use it.
+ */
 export function matchupGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], foeTypes: readonly TypeId[]): 1 | 2 | 3;
-/** Average grade against several expected enemy type sets (mission intel). */
+/** Rounded average of matchupGrade over several expected enemy type sets (mission intel); one set = that set's grade. */
 export function intelGrade(selfTypes: readonly TypeId[], selfMoves: readonly MoveId[], intel: readonly (readonly TypeId[])[]): 1 | 2 | 3;
+export const GRADE_LABELS: Record<1 | 2 | 3, string>;       // 'GREAT MATCHUP!' / 'EVEN MATCHUP' / 'BAD MATCHUP', the one wording for star grades
 /** Types that would be good to bring against these (super-effective on most of them, ideally resisting them). */
 export function counterTypes(intelTypes: readonly TypeId[]): TypeId[];
 export function effectivenessLabel(mult: number): { text: string; color: string }; // 'SUPER X2' green, 'X1', 'WEAK X0.5' orange, 'NO EFFECT' grey, 'SUPER X4'
@@ -67,7 +76,11 @@ export function startBattle(state: BattleState): BattleEvent[];   // both leads 
 export function activeMon(state: BattleState, side: Side): BattleMon;
 export function legal(state: BattleState): { moves: boolean[]; switches: boolean[]; items: ItemId[]; retreat: boolean; mustSwitch: boolean };
 export function submitTurn(state: BattleState, action: PlayerAction): BattleEvent[];
-export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // when phase === 'switch'
+export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // when phase === 'switch'; fires a waiting enemy entry ability (state.pendingEntry, double knockouts)
+export function itemTargetOk(state: BattleState, item: ItemId, index: number): boolean; // the engine's item-target rule (legal().items, submitTurn); the battle scene's target cards use it
+// Events (types.ts): { t: 'volatile'; side; uid; seeded; stuck } whenever SEEDED / STUCK change (set by a move, STUCK
+// released when the trapper leaves). 'faint' / 'withdraw' / 'sendOut' clear volatile state (and 'faint' the status)
+// with no event of their own: a scene clears its copies when it plays them.
 
 // ai.ts
 export function chooseEnemyAction(state: BattleState): { kind: 'move'; slot: number } | { kind: 'switch'; index: number };
@@ -79,6 +92,11 @@ export function chooseEnemyReplacement(state: BattleState): number;
 ```ts
 // rng.ts
 export function stateRng(state: GameState): RngInstance; // draws advance state.seed so saves replay
+export function nextSeed(state: GameState): number;      // a battle seed drawn from the world stream
+export function freshSeed(): number;                     // a random non-zero 32-bit seed for a brand-new world (main.ts, intro)
+// types.ts (besides the save shapes)
+export const TUTORIAL_FLAGS: { burrow; board; roster; dex; typeChart };  // GameState.flags keys of the first-visit tutorials
+export const ALL_TUTORIAL_FLAGS: readonly TutorialFlag[];                 // the test API's newGame(..., { skipTutorials: true }) sets them all
 // state.ts
 export function newGame(seed: number, playerName?: string): GameState;   // no dragons yet; 200 coins; a starter pantry
 export interface Storage { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
@@ -92,9 +110,22 @@ export function dragonName(d: OwnedDragon): string;
 export function dragonStats(d: OwnedDragon): Stats;
 export function dragonTypes(d: OwnedDragon): TypeId[];
 export function isFainted(d: OwnedDragon): boolean;
-export interface XpReport { dragonId: string; xp: number; levelsGained: number[]; learned: MoveId[]; evolveTo: SpeciesId | null }
-export function grantXp(d: OwnedDragon, amount: number): XpReport;    // levels up, learns moves (auto-equip into free slots), keeps HP proportion
-export function evolve(state: GameState, d: OwnedDragon): SpeciesId;   // returns the old species; marks dex
+export interface MoveSwap { out: MoveId; in: MoveId }
+export interface XpReport { dragonId: string; xp: number; levelsGained: number[]; learned: MoveId[]; swapped: MoveSwap[]; evolveTo: SpeciesId | null }
+/**
+ * Levels up, learns moves, keeps the HP proportion. Auto-equip: a learned move goes into a free
+ * slot; with four equipped it replaces the weakest one if it is worth more (autoSwapFor), reported
+ * in `swapped` ("SWAPPED X FOR Y", see habitat.swapLines).
+ */
+export function grantXp(d: OwnedDragon, amount: number): XpReport;
+/** power x STAB 1.5 x acc/100 (x expected hits for multi-hit); fixed damage FIXED_MOVE_VALUE (50) x acc; status STATUS_MOVE_VALUE (55). */
+export function moveValue(types: readonly TypeId[], id: MoveId): number;
+/** The swap auto-equip would make (weakest equipped out; only the first status move counts 55, any other 0; a new status move only if none is equipped), or null. */
+export function autoSwapFor(d: OwnedDragon, move: MoveId): MoveSwap | null;
+export function foldSwaps(lists: readonly (readonly MoveSwap[] | undefined)[]): MoveSwap[]; // A->B then B->C reads A->C
+export interface EvolveReport { from: SpeciesId; to: SpeciesId; learned: MoveId[]; swapped: MoveSwap[] }
+export function evolveDragon(state: GameState, d: OwnedDragon): EvolveReport; // evolves and reports the moves learned/swapped
+export function evolve(state: GameState, d: OwnedDragon): SpeciesId;   // evolveDragon(...).from; marks dex
 export function setLoadout(d: OwnedDragon, moves: MoveId[]): void;      // validates subset of knownMoves, 1-4
 export function addTraining(d: OwnedDragon, gains: Partial<Stats>): Partial<Stats>; // respects caps; returns actual gains
 export function toMonInit(d: OwnedDragon): MonInit;
@@ -106,8 +137,12 @@ export function canDoActivity(state: GameState, dragonId: string, activity: Acti
 export function doActivity(state: GameState, dragonId: string, activity: ActivityId, food?: FoodId): ActivityResult;
 export function useItemOutside(state: GameState, item: ItemId, dragonId: string): { ok: boolean; line: string };
 export interface DayReport { day: number; lines: string[] }
-export function endDay(state: GameState): DayReport;
+export function endDay(state: GameState): DayReport;  // heals, cures, +80 energy (cap 100), -25 fullness, next day
 export function moodLine(d: OwnedDragon): string;  // e.g. 'HUNGRY!', 'SLEEPY', 'HAPPY'
+export const HUNGRY_AT = 30, GLUM_AT = 20, JOYFUL_AT = 80;  // the need thresholds behind moods (the burrow's body language uses them too)
+export function xpLines(d: OwnedDragon, r: XpReport): string[];   // result lines for an XP report (incl. swap lines)
+export function swapLines(swapped: readonly MoveSwap[]): string[]; // 'SWAPPED X FOR Y!' per swap
+// Feeding: a favourite food doubles happiness, and so does being a Snack Bar fan (ACTIVITIES.feed.likedBy: FLUFF, COOKING); they stack.
 // shop.ts
 export const SHOP: { id: FoodId | ItemId; price: number }[];
 export function buy(state: GameState, id: FoodId | ItemId, qty?: number): { ok: boolean; line: string };
@@ -118,10 +153,13 @@ export function canLaunch(state: GameState, id: MissionId, squad: string[]): { o
 export interface MissionRun {
   missionId: MissionId; squad: string[]; nodes: MissionNode[]; index: number;
   coins: number; defeated: VillainId[]; xp: Record<string, XpReport[]>; outcome: 'active' | 'won' | 'lost' | 'retreated';
+  supercharge?: StageChanges;   // what the chosen branch routes give the boss (sabotage rush: +1 ATK / +1 SP.ATK)
 }
 export function startMission(state: GameState, id: MissionId, squad: string[]): MissionRun; // spends energy/fullness, records squad
 export function currentNode(run: MissionRun): MissionNode | null;
-export function chooseBranch(run: MissionRun, option: number): void;   // splices the option's nodes in place of the branch
+export function chooseBranch(run: MissionRun, option: number): void;   // splices the option's nodes in place of the branch; records the route's supercharge on run.supercharge
+export function bossSupercharge(run: MissionRun, node: MissionNode): StageChanges | undefined; // boss node's own supercharge + run.supercharge (encounterSetup applies it)
+export function mergeStages(a?: StageChanges, b?: StageChanges): StageChanges | undefined;     // summed, clamped to -6..+6
 export function applyRest(state: GameState, run: MissionRun): string[];
 export function advance(run: MissionRun): void;
 export function encounterSetup(state: GameState, run: MissionRun): BattleSetup; // for the current battle/boss node
@@ -174,6 +212,8 @@ export interface ButtonSpec { label: string; rect: Rect; onClick: () => void; co
 export class Button { spec; hovered; constructor(spec: ButtonSpec); draw(ctx, focused: boolean): void }
 export class ButtonGroup {          // mouse hover/click + arrow-key focus (spatial nav) + Enter + hotkeys
   constructor(buttons?: Button[]); add(b: Button | ButtonSpec): Button; clear(): void; focus: number;
+  keyboard: boolean;                // arrows / Tab / Enter drive it (default true; hotkeys always work)
+  showFocus: boolean | null;        // draw the focus ring; null (default) follows `keyboard`
   update(input: Input): boolean;    // true if a button fired this update
   draw(ctx): void;
 }
@@ -182,15 +222,24 @@ export function drawBar(ctx, x, y, w, h, frac: number, color: string, opts?: { b
 export function drawHpBar(ctx, x, y, w, hp: number, maxHp: number, opts?: { boss?: boolean }): void;  // green > 50%, yellow > 20%, red
 export function drawTypeBadge(ctx, type: TypeId, x, y, opts?: { small?: boolean }): number;           // returns width
 export function drawTypeBadges(ctx, types: readonly TypeId[], x, y, opts?): number;
+export function typeBadgeWidth(type: TypeId, opts?: { small?: boolean }): number;                      // width without drawing
+export function typeBadgesWidth(types: readonly TypeId[], opts?: { small?: boolean; gap?: number }): number;
 export function drawEffectTag(ctx, mult: number, x, y): number;                                       // SUPER X2 etc, returns width
 export function drawStars(ctx, n: number, max: number, x, y): void;
 export function wrapText(text: string, maxWidth: number, size?: number): string[];
 export function drawWrapped(ctx, text: string, x, y, maxWidth: number, opts?: DrawTextOptions & { lineGap?: number }): number; // returns height
 export class Typewriter { constructor(cps?: number); set(text: string): void; update(dt: number): void; skip(): void; readonly done: boolean; readonly visible: string }
-export function drawMessageBox(ctx, x, y, w, h, text: string): void;
+export function drawMessageBox(ctx, x, y, w, h, text: string | Typewriter, opts?: { size?; arrow?; name?; fill?; indent?: number }): void; // indent: room for a portrait
 export function drawCoins(ctx, amount: number, x, y): number;
 export function drawStatusBadge(ctx, status: StatusId, x, y): number;
-export class ScrollList<T> { constructor(opts: { rect: Rect; rowH: number; items: () => T[]; drawRow: (ctx, item: T, r: Rect, selected: boolean, hovered: boolean) => void; onSelect?: (item: T, i: number) => void; onActivate?: (item: T, i: number) => void }); selected: number; update(input): void; draw(ctx): void }
+export class ScrollList<T> { constructor(opts: { rect: Rect; rowH: number; items: () => T[]; drawRow: (ctx, item: T, r: Rect, selected: boolean, hovered: boolean) => void; onSelect?: (item: T, i: number) => void; onActivate?: (item: T, i: number) => void; onClick?: (item: T, i: number) => void /* single click, not a drag */ }); selected: number; update(input): void; draw(ctx): void }
+export function movePowerLabel(m: MoveDef): string;      // the power, or '-' for status and fixed-damage moves (everywhere a power is shown)
+export function drawKeycap(ctx, key: string, x, y): number;  // hotkey hint key cap
+export interface LiveButton { label: string; sub?: string; hotkey?: string; rect: Rect; enabled: boolean }
+export const liveButtons: LiveButton[];  // every visible button of every ButtonGroup that updated this step (= what the player can press)
+export const STAGE_SHORT: Record<StageStat, string>;
+export function itemEffectText(def: ItemDef): string;    // 'HEALS 50% HP', 'BATTLE: +1 ATK +1 SP.ATK'
+export function foodEffectText(def: FoodDef, opts?: { happyMult?: number; sep?: string }): string; // 'FULL +35 HAPPY +8'
 // icons.ts
 export function drawTypeIcon(ctx, type: TypeId, cx, cy, r: number): void;
 export function drawFoodIcon(ctx, id: FoodId, cx, cy, s?: number): void;
@@ -199,6 +248,14 @@ export function drawCoinIcon(ctx, cx, cy, r?: number): void;
 export function drawOrgEmblem(ctx, org: OrgId, cx, cy, r: number): void;
 export function drawActivityIcon(ctx, id: ActivityId, cx, cy, s?: number): void;
 export function drawLock(ctx, cx, cy, s?: number): void;
+export function pixelSprite(key: string, rows: readonly string[], pal: Record<string, string>): HTMLCanvasElement; // ink-outlined mask sprite, cached
+export function blitSprite(ctx, s: HTMLCanvasElement, cx, cy, scale?: number): void;
+export const MISSION_TYPE_COLOR: Record<MissionTypeId, string>;
+export function drawMissionTypeIcon(ctx, type: MissionTypeId, cx, cy, scale?: number): void;    // board, briefing
+export const MISSION_NODE_FILL: Record<MissionNode['kind'], string>;
+export function missionNodeSprite(kind: MissionNode['kind'], t?: number): HTMLCanvasElement;   // mission run trail
+export function drawMissionNodeIcon(ctx, kind, cx, cy, t?: number, scale?: number): void;
+export function drawTickIcon(ctx, cx, cy): void;
 ```
 
 ## src/art (browser)
@@ -219,11 +276,20 @@ export function drawDragon(ctx, v: DragonVisual, x: number, y: number, opts?: Cr
 export function dragonHeight(v: DragonVisual, scale?: number): number;
 export function drawVillain(ctx, v: VillainVisual, x: number, y: number, opts?: CreatureOpts): void;
 export function villainHeight(v: VillainVisual, scale?: number): number;
+export function openEyesTime(v: DragonVisual): number;            // an idle t with open eyes (still frames)
+export function dragonPhase(v: DragonVisual): number;             // the blink / bob phase poseState is driven with
+export interface DragonHeadGeo { hx: number; hy: number; hr: number; eyeRy: number; phase: number }
+export function dragonHeadGeo(v: DragonVisual): DragonHeadGeo;    // head space for overlays (the Chief's patch and mouth)
+export interface SpriteBox { l: number; r: number; t: number; b: number }
+export function measureDragon(v: DragonVisual): SpriteBox;        // real drawn bounds at scale 1, cached (browser)
+export function fitDragon(v: DragonVisual, maxW: number, maxH: number, maxScale: number): { scale: number; dx: number; dy: number };
 // backdrops.ts
 export function drawBattleBackdrop(ctx, loc: LocationDef, t: number): void;   // full 640x360
 export function drawPlatform(ctx, cx: number, cy: number, w: number, loc: LocationDef): void;
 export function drawBurrow(ctx, t: number): void;                              // habitat background
 export const STATIONS: Record<ActivityId, { x: number; y: number; w: number; h: number }>; // hit boxes in the burrow
+export function stationSignRect(id: ActivityId): { x: number; y: number; w: number; h: number }; // each station's name sign (hotkey caps sit on it)
+export function drawWallBackdrop(ctx, opts?: { seed?: number; pebbles?: boolean }): void;      // the plain burrow wall (DRAGONS, DEX)
 export function drawStation(ctx, id: ActivityId, t: number, opts?: { highlight?: boolean; busy?: boolean }): void;
 export function drawTitleBackdrop(ctx, t: number): void;
 export function drawMapBackdrop(ctx, loc: LocationDef, t: number): void;       // mission path screen
@@ -253,3 +319,36 @@ export function moveSfx(type: TypeId): SfxName;
 export function setSound(on: boolean): void; export function setMusic(on: boolean): void;
 export function unlockAudio(): void;   // call from the first user gesture
 ```
+
+## The debug / test surface (src/main.ts, browser)
+
+`window.__game` is installed by index.html before the module graph loads (`ready`, `errors`) and
+`api` is filled in by src/main.ts. tools/smoke.ts, tools/playtest.ts and tools/distcheck.ts drive the
+real game through it.
+
+```ts
+window.__game.api = {
+  state(): GameState; scene(): string | null; depth(): number;
+  busy(): boolean;                       // a replace/reset fade is running (input is muted)
+  step(n?: number): void;                // n fixed updates + 1 render
+  run(on: boolean): boolean;             // stop / restart the real-time rAF loop (stopped: only step() advances)
+  click(x: number, y: number): void;     // injected click in 640x360 game coordinates
+  key(k: string): void;                  // injected key tap ('Enter', 'Escape', 'a', '1', ...)
+  buttons(): LiveButton[];               // what the player could press after the latest update
+  newGame(seed?, starters? | opts?, opts?: { skipTutorials?: boolean }): GameState;
+  goto(name: keyof Nav, ...args): void;
+  train(dragonId: string, level: number, evolve?: boolean, short?: number): { id; speciesId; level; moves };
+                                         // real XP path (moves learned / auto-equipped), then evolve; `short` stops that many XP before `level`
+  adopt(speciesId: SpeciesId, level: number): string;   // a new dragon joins the burrow; returns its id
+  debug(): AppContext['debug']; errors(): string[];
+};
+// app.debug (scenes publish; the playtest reads and sets):
+//   autoplay: boolean                                   the battle scene picks its own actions, 12x speed
+//   intro    { phase(): 'talk'|'pick'|'react'|'leaving'; line(): number }
+//   burrow   { mode(); dragon(id); station(activity) }  station centre to click
+//   run      { phase(); node(): MissionNode['kind'] | null; index() }
+//   battle   BattleState;  battleUi { menu(); busy(); text(); textDone(); focus(); levelCard(); outro(); banners(); time(); inject(evs) }
+//   results  { stage(): 'report'|'evolving'|'reveal'|'leaving'; animating() }
+//   evolution { evolved(); revealT(); t() }
+```
+

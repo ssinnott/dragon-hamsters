@@ -320,10 +320,12 @@ export class Button {
     if (left) drawText(ctx, s.label, tx, ty, opts);
     else drawText(ctx, s.label, tx + Math.floor((textW - labelW) / 2), ty, opts);
     if (s.sub) {
-      const subColor = enabled ? mixColor(textColor, face, 0.38) : UI.disabledText;
+      // Dark text can fade toward the face and stay readable; light text on a mid-tone face (coral
+      // FIGHT, green BUY) cannot, so a light sub keeps the label's colour and its drop shadow.
+      const subColor = !enabled ? UI.disabledText : darkText ? mixColor(textColor, face, 0.3) : textColor;
       const sy = ty + 7 * size + subGap;
       const sx = left ? tx : tx + Math.floor((textW - subW) / 2);
-      drawText(ctx, s.sub, sx, sy, { color: subColor, shadow: false });
+      drawText(ctx, s.sub, sx, sy, { color: subColor, shadow: enabled && !darkText, shadowColor });
     }
     s.decorate?.(ctx, { x: fx, y: fy, w: fw, h: fh }, enabled);
   }
@@ -340,6 +342,23 @@ function hotkeyPressed(input: Input, key: string): boolean {
   if (key === 'Escape') return input.back();
   return input.pressed(key);
 }
+
+/** One button the player could press right now, as tools/playtest.ts sees it. */
+export interface LiveButton {
+  label: string;
+  sub?: string;
+  hotkey?: string;
+  rect: Rect;
+  enabled: boolean;
+}
+
+/**
+ * Every visible button of every ButtonGroup that ran its update in the latest fixed step. Only the
+ * top scene updates, so this is exactly what the player can press at that moment. src/main.ts
+ * empties it before each update; window.__game.api.buttons() hands out a copy, which lets the
+ * playtest click "LAUNCH" where a player would instead of hard-coding coordinates.
+ */
+export const liveButtons: LiveButton[] = [];
 
 /**
  * A set of buttons with mouse hover/click, keyboard focus (arrow keys move spatially to the
@@ -440,9 +459,16 @@ export class ButtonGroup {
   /** Handle input; true if a button fired this update. */
   update(input: Input): boolean {
     const dt = 1 / 60;
-    for (const b of this.buttons) if (b.pressT > 0) b.pressT = Math.max(0, b.pressT - dt);
+    for (const b of this.buttons) {
+      if (b.pressT > 0) b.pressT = Math.max(0, b.pressT - dt);
+      if (!b.isVisible) continue;
+      const s = b.spec;
+      liveButtons.push({ label: s.label, sub: s.sub, hotkey: s.hotkey, rect: { ...s.rect }, enabled: b.isEnabled });
+    }
     const p = input.pointer;
-    const moved = p.x !== this.lastX || p.y !== this.lastY;
+    // The first update only records where the pointer rests: a mouse left over some button on the
+    // previous screen must not steal the focus from the button this screen opens on.
+    const moved = !Number.isNaN(this.lastX) && (p.x !== this.lastX || p.y !== this.lastY);
     this.lastX = p.x; this.lastY = p.y;
 
     let hover = -1;
