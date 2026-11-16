@@ -78,7 +78,6 @@ const SIGN = ['......p......', '.wwwwwwwwww..', 'wwwwwwwwwww..', '.wwwwwwwwww..'
 const SCROLL = ['.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.', '..ppppppppp..', '..plllllllp..', '..ppppppppp..', '..pllllllpp..',
   '..ppppppppp..', '.rrrrrrrrrrr.', 'rRrrrrrrrrrRr', '.rrrrrrrrrrr.'];
 const TICK = ['......g', '.....gg', 'g...gg.', 'gg.gg..', '.ggg...', '..g....'];
-const FLAG = ['pfff', 'pfffff', 'pfff', 'p', 'p', 'p', 'p'];
 
 const ICON_PAL: Record<string, string> = {
   c: '#fff0d6', s: '#c8b49a', b: '#8a5a3c', k: INK,
@@ -212,7 +211,7 @@ export function createMissionRunScene(run: MissionRun): Scene {
     label: 'GO!', rect: { x: ACTION.x + ACTION.w - 124, y: ACTION.y + 9, w: 114, h: 28 }, size: 2, color: UI.accent,
     visible: () => phase === 'idle', onClick: () => go(),
   });
-  const retreatBtn = group.add({
+  group.add({
     label: 'RETREAT', rect: { x: VIEW_W - 92, y: 10, w: 82, h: 22 }, hotkey: 'Escape', color: '#d4685a',
     visible: () => phase === 'idle', onClick: () => askRetreat(),
   });
