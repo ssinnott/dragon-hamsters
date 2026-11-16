@@ -50,8 +50,14 @@ export interface BattleMon {
   xp: number;
   types: TypeId[];
   ability: AbilityId;
-  /** Computed stats at `level` (hp is max HP). */
+  /** Computed stats at `level` (hp is max HP). Recomputed from the fields below on level up. */
   stats: Stats;
+  /** IVs, EVs and personality, kept so a mid-battle level up can recompute `stats`. */
+  genes: Stats;
+  training: Stats;
+  personality: string | null;
+  /** Training points earned this battle from defeated foes (applied by syncFromBattle, caps there). */
+  trainingGain: Partial<Stats>;
   hp: number;
   moves: MoveSlot[];
   status: StatusId | null;
