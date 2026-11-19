@@ -27,12 +27,18 @@ Burrow (feed, train, rest)  ->  Mission board  ->  briefing + squad of 3  ->  mi
      +-------------------------------- results <-------------------------- battles, rest stops, boss
 ```
 
-A **day** lasts until you choose SLEEP in the Burrow. Each dragon gets two activity slots per day;
-missions cost energy and fullness, so a squad can usually run one or two missions a day before it
-needs to sleep. Sleeping heals everyone, cures status, restores **80 energy** (capped at 100), and
-costs 25 fullness. The numbers are tuned so a full day (wheel 20 + play 15 + one mission 30 = 65
-energy) is paid back by one night with room to spare: at +60 a busy dragon slowly ran dry and had
-to spend slots napping.
+A **day** lasts until you choose SLEEP in the Burrow, and runs **one case at most**: launching a
+squad shuts the mission board until everyone has slept (the `mustSleep` flag, set at launch so a
+lost or retreated case counts too, and saved with the game). Back home the MISSIONS button sends
+Chief Nibbles' "one case a day" reminder and SLEEP glows. The day's shape is: activities, the case,
+a snack, bed. Each dragon gets two activity slots per day. Sleeping heals everyone, cures status,
+restores **all energy**, and costs **8 fullness**.
+
+The numbers are tuned so needs are easy to keep up: the most a day can spend is two activities
+(at most 20 energy each) and one case (30), well inside a full night's recharge, and the busiest
+day (night 8 + wheel 6 + dig 6 + case 10 = 30 fullness) is covered by one bag of Sunflower Seeds
+(30). An idle dragon lasts for days on one snack. (Earlier tuning, with 25 fullness a night and
+missions back to back, left dragons waking up hungry every morning and running out of energy.)
 
 ## Rule of five
 

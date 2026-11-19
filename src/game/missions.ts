@@ -7,7 +7,7 @@ import {
 } from '../data/schema.ts';
 import { MISSIONS, MISSIONS_IN_ORDER, getFood, getItem, getMission, getSpecies, getVillain, isFood } from '../data/index.ts';
 import type { BattleSetup, BattleState, MonInit } from '../battle/types.ts';
-import { MAX_LEVEL, MISSION_ENERGY, MISSION_FULLNESS, SQUAD_SIZE, type GameState, type OwnedDragon } from './types.ts';
+import { MAX_LEVEL, MISSION_ENERGY, MISSION_FULLNESS, MUST_SLEEP_FLAG, SQUAD_SIZE, type GameState, type OwnedDragon } from './types.ts';
 import {
   addDragon, createDragon, dragonName, dragonStats, dragonTypes, findDragon, markSeen, syncFromBattle, toMonInit,
   type AfterBattle, type XpReport,
@@ -41,10 +41,16 @@ export function nextMission(state: GameState): MissionDef | null {
   return MISSIONS_IN_ORDER.find((m) => missionStatus(state, m.id) === 'available') ?? null;
 }
 
+/** Whether today's case has been run: the board stays shut until the burrow sleeps (endDay). */
+export function mustSleep(state: GameState): boolean {
+  return state.flags[MUST_SLEEP_FLAG] === true;
+}
+
 /** Can this squad (1-3 distinct healthy, rested, fed dragons) go on this mission? */
 export function canLaunch(state: GameState, id: MissionId, squad: string[]): { ok: boolean; reason?: string } {
   if (!MISSIONS.some((m) => m.id === id)) return { ok: false, reason: 'UNKNOWN MISSION' };
   if (missionStatus(state, id) === 'locked') return { ok: false, reason: 'MISSION LOCKED' };
+  if (mustSleep(state)) return { ok: false, reason: 'ONE CASE A DAY: SLEEP FIRST' };
   if (squad.length < 1) return { ok: false, reason: 'PICK AT LEAST ONE DRAGON' };
   if (squad.length > SQUAD_SIZE) return { ok: false, reason: `A SQUAD HAS AT MOST ${SQUAD_SIZE} DRAGONS` };
   if (new Set(squad).size !== squad.length) return { ok: false, reason: 'EACH DRAGON CAN ONLY GO ONCE' };
@@ -108,6 +114,8 @@ export function startMission(state: GameState, id: MissionId, squad: string[]): 
     xp[did] = [];
   }
   state.squad = [...squad];
+  // Set at launch, not on the way home, so a lost, retreated or abandoned case counts too.
+  state.flags[MUST_SLEEP_FLAG] = true;
   return { missionId: id, squad: [...squad], nodes: clone(def.nodes), index: 0, coins: 0, defeated: [], xp, outcome: 'active' };
 }
 

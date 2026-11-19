@@ -713,6 +713,11 @@ function renderDragon(g: CanvasRenderingContext2D, D: DC): void {
   drawHorns(g, D, false);
   drawTail(g, D);
   drawFeet(g, D, false);
+  if (G.extras.has('whiskersLong')) {
+    g.save(); g.translate(D.hx, D.hy); g.rotate(st.tilt);
+    drawWhiskers(g, D, true);
+    g.restore();
+  }
   drawBodyBlob(g, D);
   if (ex.has('shell')) drawShell(g, D);
   if (ex.has('apron')) drawApron(g, D);
@@ -1261,12 +1266,12 @@ function drawHead(g: CanvasRenderingContext2D, D: DC): void {
     g.moveTo(e2x - erx * 0.8, e2y - ery * 1.3); g.quadraticCurveTo(e2x, e2y - ery * 1.55, e2x + erx * 0.8, e2y - ery * 1.2);
     strokeLine(g, P.bodySh, D.ow * 1.6);
   }
+  if (ex.has('whiskersLong')) drawWhiskers(g, D, false);
   // nose
   g.beginPath(); addEll(g, hr * 0.99, hr * 0.27, 1.45, 1.05, 0.2);
   ink(g, P.nose, D.ow * 0.6);
   g.beginPath(); addCirc(g, hr * 0.94, hr * 0.2, 0.42); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill();
   drawMouth(g, D);
-  if (ex.has('whiskersLong')) drawWhiskers(g, D);
   if (ex.has('monocle')) drawMonocle(g, D, e1x, e1y, ery);
   if (ex.has('goggles')) drawGoggles(g, D);
   g.restore();
@@ -1734,20 +1739,31 @@ function drawMask(g: CanvasRenderingContext2D, D: DC): void {
   g.beginPath(); addEll(g, 0.16 * hr, -0.05 * hr, erx * 1.35, ery * 1.22); addEll(g, 0.68 * hr, -0.09 * hr, erx * 1.1, ery * 1.18); g.fill();
 }
 
-function drawWhiskers(g: CanvasRenderingContext2D, D: DC): void {
+/**
+ * Long whiskers, in head space. They all root on the snout, under the nose, and fan forward, so
+ * none of them crosses the eyes, the cheek blush, the mouth or the paws. The far pair is drawn
+ * behind the head (only the tips past the far cheek show); the near pair is drawn before the nose
+ * and mouth, which sit on top of its roots.
+ */
+function drawWhiskers(g: CanvasRenderingContext2D, D: DC, far: boolean): void {
   const { G, P, t } = D;
-  const hr = G.hr, sw = Math.sin(t * 2) * 0.8;
-  const col = light(P.belly, 0.3);
-  for (let i = 0; i < 2; i++) {
-    const y0 = hr * (0.38 + i * 0.16);
-    g.beginPath();
-    addTaperQuad(g, hr * 0.9, y0, hr * 1.6, y0 - 1 + i * 2, hr * 2.0 + sw, y0 + 5 + i * 3 + sw, 1.3, 0.3, 8);
-    ink(g, col, D.ow * 0.7);
+  const hr = G.hr, sw = Math.sin(t * 2) * 0.6;
+  const rx = hr * 0.98, ry = hr * 0.36;
+  if (far) {
+    const col = mix(light(P.belly, 0.15), P.bodySh, 0.25);
+    for (let i = 0; i < 2; i++) {
+      const tipY = hr * (-0.1 + i * 0.6) + sw;
+      g.beginPath();
+      addTaperQuad(g, rx - hr * 0.2, ry, hr * 1.65, ry - hr * 0.15 + i * hr * 0.1, hr * 2.15 + sw * 0.5, tipY, 1.0, 0.3, 8);
+      ink(g, col, D.ow * 0.7);
+    }
+    return;
   }
-  for (let i = 0; i < 2; i++) {
-    const y0 = hr * (0.42 + i * 0.16);
+  const col = light(P.belly, 0.3);
+  for (let i = 0; i < 3; i++) {
+    const tipY = hr * (0.05 + i * 0.5) + sw * (1 + i * 0.3);
     g.beginPath();
-    addTaperQuad(g, -hr * 0.2, y0, -hr * 0.85, y0 - 0.5, -hr * 1.3 - sw, y0 + 4 + i * 2, 1.1, 0.3, 8);
+    addTaperQuad(g, rx, ry + i * 0.5, hr * 1.75, ry - hr * 0.2 + i * hr * 0.1, hr * 2.4 + sw - i * hr * 0.15, tipY, 1.3, 0.3, 8);
     ink(g, col, D.ow * 0.7);
   }
 }

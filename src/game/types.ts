@@ -16,7 +16,12 @@ export const SLOTS_PER_DAY = 2;
 /** Energy each squad dragon spends to go on a mission; a dragon below this cannot be sent. */
 export const MISSION_ENERGY = 30;
 /** Fullness each squad dragon spends on a mission. */
-export const MISSION_FULLNESS = 20;
+export const MISSION_FULLNESS = 10;
+/**
+ * GameState.flags key set when a squad launches and cleared by SLEEP: a squad back from a case
+ * (won, lost or retreated) ends the agency's day, so the board stays shut until everyone has slept.
+ */
+export const MUST_SLEEP_FLAG = 'mustSleep';
 /** EV caps, as in Pokemon. */
 export const TRAINING_CAP_STAT = 252;
 export const TRAINING_CAP_TOTAL = 510;

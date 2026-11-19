@@ -27,7 +27,7 @@ import { estimateDamage } from '../src/battle/damage.ts';
 import { intelGrade, moveEffectiveness } from '../src/battle/matchup.ts';
 import type { BattleState } from '../src/battle/types.ts';
 import {
-  MAX_LEVEL, MISSION_ENERGY, MISSION_FULLNESS, SAVE_KEY, SAVE_VERSION, SLOTS_PER_DAY, SQUAD_SIZE,
+  MAX_LEVEL, MISSION_ENERGY, MISSION_FULLNESS, MUST_SLEEP_FLAG, SAVE_KEY, SAVE_VERSION, SLOTS_PER_DAY, SQUAD_SIZE,
   TRAINING_CAP_STAT, TRAINING_CAP_TOTAL,
   type GameState, type OwnedDragon,
 } from '../src/game/types.ts';
@@ -38,14 +38,14 @@ import {
   evolveDragon, foldSwaps, grantXp, isFainted, moveValue, setLoadout, syncFromBattle, toMonInit, type XpReport,
 } from '../src/game/dragons.ts';
 import {
-  CARE_PACKAGE_PER_DRAGON, HAPPINESS_DRIFT, HAPPINESS_SETTLE, canDoActivity, cheapestFood, doActivity, endDay, moodLine,
+  CARE_PACKAGE_PER_DRAGON, HAPPINESS_DRIFT, HAPPINESS_SETTLE, HUNGRY_AT, NIGHT_ENERGY, NIGHT_FULLNESS, canDoActivity, cheapestFood, doActivity, endDay, moodLine,
   needsCarePackage, swapLines as swapLinesFor, useItemOutside,
 } from '../src/game/habitat.ts';
 import { SHOP, buy } from '../src/game/shop.ts';
 import {
   FAINT_HAPPINESS, INTEL_WEIGHT, PICK_LEVEL_GAP, abandonMission, advance, applyRest, canLaunch, chooseBranch, completeMission,
   currentNode, encounterSetup, finishBattle, intelTypes, missionGrade, missionIntel, missionStatus, nextMission, rankForMission,
-  recommendSquad, startMission, tooLowFor, tuckeredAfterWin, type MissionRun,
+  mustSleep, recommendSquad, startMission, tooLowFor, tuckeredAfterWin, type MissionRun,
 } from '../src/game/missions.ts';
 import { defeatAdvice } from '../src/game/advice.ts';
 
@@ -738,7 +738,7 @@ test('items outside battle', () => {
 test('endDay', () => {
   const s = gameWithStarters(61, 10);
   const [a, b] = s.dragons;
-  a.hp = 1; a.status = 'burn'; a.needs = { fullness: 20, happiness: 50, energy: 10 }; a.slotsUsed = 2;
+  a.hp = 1; a.status = 'burn'; a.needs = { fullness: NIGHT_FULLNESS - 5, happiness: 50, energy: 10 }; a.slotsUsed = 2;
   b.hp = 0; b.needs = { fullness: 90, happiness: 50, energy: 70 }; b.slotsUsed = 1;
   const r = endDay(s);
   eq(s.day, 2, 'day advanced');
@@ -748,10 +748,10 @@ test('endDay', () => {
     eq(d.status, null, 'cured');
     eq(d.slotsUsed, 0, 'slots reset');
   }
-  eq(a.needs.energy, 90, 'energy +80');
+  eq(a.needs.energy, Math.min(100, 10 + NIGHT_ENERGY), 'a night restores energy');
   eq(b.needs.energy, 100, 'energy capped');
   eq(a.needs.fullness, 0, 'fullness floored');
-  eq(b.needs.fullness, 65, 'fullness -25');
+  eq(b.needs.fullness, 90 - NIGHT_FULLNESS, 'a night spends fullness');
   eq(a.needs.happiness, 35, 'starving costs happiness');
   eq(b.needs.happiness, 50, 'fed dragon keeps happiness');
   ok(r.lines.some((l) => l.includes(dragonName(a)) && /starving|hungry|tummy/i.test(l)), 'report names the hungry dragon');
@@ -763,6 +763,32 @@ test('endDay', () => {
   eq(moodLine(a), 'SLEEPY', 'mood sleepy');
   a.needs.energy = 100; a.needs.happiness = 90;
   ok(moodLine(a).length > 0 && moodLine(a) !== 'HUNGRY!', 'mood happy');
+});
+
+test('needs: one snack a day keeps a busy dragon fed (issue: needs were hard to keep up)', () => {
+  // A full day: two slot activities, a case, a night. The cheapest snack must cover it, and one
+  // night must pay back the most energy a day can spend (the two dearest activities and a case).
+  const acts = (['wheel', 'dig', 'play', 'nap'] as ActivityId[]).map(getActivity);
+  const dearest = [...acts].sort((x, y) => y.fullness - x.fullness).slice(0, SLOTS_PER_DAY);
+  const burn = NIGHT_FULLNESS + MISSION_FULLNESS + dearest.reduce((t, x) => t + x.fullness, 0);
+  const seeds = FOODS[cheapestFood()].fullness;
+  ok(burn <= seeds, `a busy day burns ${burn} fullness; the cheapest snack gives ${seeds}`);
+  const tiring = [...acts].sort((x, y) => y.energy - x.energy).slice(0, SLOTS_PER_DAY);
+  const spent = MISSION_ENERGY + tiring.reduce((t, x) => t + Math.max(0, x.energy), 0);
+  ok(spent <= NIGHT_ENERGY, `a full day spends ${spent} energy; a night gives back ${NIGHT_ENERGY}`);
+  // Two weeks of that routine with one snack each morning: nobody ever wakes up hungry or sleepy.
+  const s = gameWithStarters(64, 10);
+  for (let day = 0; day < 14; day++) {
+    for (const d of s.dragons) {
+      ok(d.needs.fullness > HUNGRY_AT, `day ${day}: ${dragonName(d)} woke up at ${d.needs.fullness} fullness`);
+      ok(d.needs.energy >= 100, `day ${day}: ${dragonName(d)} woke up rested`);
+      s.food.seeds = Math.max(s.food.seeds, 1);
+      ok(doActivity(s, d.id, 'feed', 'seeds').ok, 'breakfast');
+      ok(doActivity(s, d.id, 'wheel').ok && doActivity(s, d.id, 'dig').ok, 'two activities');
+      d.needs.energy -= MISSION_ENERGY; d.needs.fullness = Math.max(0, d.needs.fullness - MISSION_FULLNESS);
+    }
+    endDay(s);
+  }
 });
 
 test('endDay: happiness settles overnight', () => {
@@ -791,7 +817,7 @@ test('endDay: a broke burrow with a bare pantry gets a care package (no starvati
   // Spend every coin on battle items and eat the whole pantry.
   s.coins = 0;
   for (const f of FOOD_IDS) s.food[f] = 0;
-  for (const d of s.dragons) d.needs.fullness = 10;
+  for (const d of s.dragons) d.needs.fullness = NIGHT_FULLNESS;
   const seeds = cheapestFood();
   eq(FOODS[seeds].price, Math.min(...FOOD_IDS.map((f) => FOODS[f].price)), 'the care package is the cheapest snack');
   ok(needsCarePackage(s), 'care package due');
@@ -931,6 +957,22 @@ test('missions: status, canLaunch, intel', () => {
   a.hp = dragonStats(a).hp;
   ok(canLaunch(s, first.id, [a.id, b.id]).ok, 'healthy squad ok');
   ok(SQUAD_SIZE === 3, 'squad size');
+
+  // One case a day: launching shuts the board until SLEEP, whatever the case's outcome.
+  {
+    const s2 = clone(s);
+    ok(!mustSleep(s2), 'a fresh day has no bedtime');
+    const run = startMission(s2, first.id, [s2.dragons[0].id]);
+    abandonMission(s2, run);
+    ok(mustSleep(s2), 'launching (even a retreat) means bedtime');
+    for (const d of s2.dragons) d.needs = { fullness: 100, happiness: 60, energy: 100 };
+    ok(/SLEEP/.test(canLaunch(s2, first.id, [s2.dragons[1].id]).reason ?? ''), 'no second case today, even with a fresh dragon');
+    const reloaded = parseSave(JSON.stringify(s2));
+    ok(reloaded && mustSleep(reloaded), 'bedtime survives a save and reload');
+    endDay(s2);
+    ok(!mustSleep(s2), 'sleep opens the board again');
+    ok(canLaunch(s2, first.id, [s2.dragons[1].id]).ok, 'a new day, a new case');
+  }
 
   // Intel: one entry per distinct villain across every encounter, branch options included.
   for (const m of MISSIONS) {
@@ -1479,7 +1521,7 @@ test('missions: branches splice and supercharge', () => {
   const bi = m.nodes.findIndex((n) => n.kind === 'branch');
   const branch = m.nodes[bi];
   if (branch.kind !== 'branch') return;
-  const refresh = (): void => { for (const d of s.dragons) d.needs = { fullness: 100, happiness: 60, energy: 100 }; };
+  const refresh = (): void => { for (const d of s.dragons) d.needs = { fullness: 100, happiness: 60, energy: 100 }; delete s.flags[MUST_SLEEP_FLAG]; };
   branch.options.forEach((opt, oi) => {
     refresh();
     const run = startMission(s, m.id, [s.dragons[0].id]);
@@ -1517,6 +1559,7 @@ test('missions: the boss is caught in the showdown (its caught line) and escapes
   for (const x of MISSIONS) s.missions[x.id] = { clears: 1, firstClearDay: 1 };
   for (const m of MISSIONS) {
     s.dragons.forEach((d) => { d.needs = { fullness: 100, happiness: 60, energy: 100 }; });
+    delete s.flags[MUST_SLEEP_FLAG];
     const run = startMission(s, m.id, [s.dragons[0].id]);
     run.nodes = run.nodes.filter((n) => n.kind === 'boss');
     run.index = 0;
@@ -1559,6 +1602,7 @@ test('sabotage: rushing supercharges the boss, cutting the power does not', () =
     eq(br.options.filter((o) => o.supercharge).length, 1, `${mdef.id}: only the rush route supercharges`);
     br.options.forEach((opt, oi) => {
       for (const d of s.dragons) { d.needs = { fullness: 100, happiness: 60, energy: 100 }; d.hp = dragonStats(d).hp; }
+      delete s.flags[MUST_SLEEP_FLAG];
       const run = startMission(s, mdef.id, s.dragons.map((d) => d.id));
       // Walk the real path: the branch is chosen through chooseBranch, the boss built by encounterSetup.
       let bossSetup: ReturnType<typeof encounterSetup> | null = null;

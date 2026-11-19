@@ -671,6 +671,12 @@ async function playthrough(port: number): Promise<void> {
   await arrive('burrow');
   await step(60);
   await shot('burrow-after-case-1');
+  // one case a day: back home, MISSIONS is refused with Chief Nibbles' bedtime reminder
+  await key('m', 6);
+  await until('the bedtime reminder', (x) => x.scene === 'dialog' || x.scene === 'board', 120);
+  if ((await snap()).scene === 'board') fail('the board opened on the day a case was run: one case a day');
+  await readDialogs('burrow-bedtime');
+  await arrive('burrow');
   await sleep(true);
 
   // --- fast-forward: one case from every other gang ----------------------------------------------

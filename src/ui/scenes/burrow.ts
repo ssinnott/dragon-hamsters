@@ -33,6 +33,7 @@ import {
   GLUM_AT, HUNGRY_AT, JOYFUL_AT, canDoActivity, doActivity, endDay, moodLine, needsCarePackage, swapLines, type ActivityResult, type DayReport,
 } from '../../game/habitat.ts';
 import { dragonName, dragonStats, dragonTypes, findDragon, isFainted, xpProgress } from '../../game/dragons.ts';
+import { mustSleep } from '../../game/missions.ts';
 import { MISSION_ENERGY, SLOTS_PER_DAY, TUTORIAL_FLAGS, type OwnedDragon } from '../../game/types.ts';
 
 type Ctx = CanvasRenderingContext2D;
@@ -481,6 +482,15 @@ const HUD_HINTS: Record<string, string> = {
   SLEEP: 'SLEEP: end the day. Everyone heals, recharges and gets fresh activity slots.',
 };
 
+const BEDTIME_LINES = [
+  'Whoa there, agent! The squad only just got back from a case.',
+  'One case a day: tired agents make sloppy spies. Feed everyone, use any activity slots left, then press SLEEP.',
+  'The case board opens again in the morning.',
+];
+
+/** The hint strip while the squad is back from today's case (the board is shut until SLEEP). */
+const BEDTIME_TIP = 'THE SQUAD IS HOME! One case a day: have a snack, then press SLEEP [Z]. The case board opens again tomorrow.';
+
 const TIPS = [
   'Click a dragon to see how it feels, or press 1-5 to visit a station.',
   'A dragon dreaming of seeds is hungry. The Snack Bar never uses up an activity slot!',
@@ -533,7 +543,14 @@ export function createBurrowScene(): Scene {
   // ---------------------------------------------------------------------------------------------
 
   const nagging = (): boolean =>
-    MISSIONS.some((m) => m.id === FIRST_CASE) && (app.state.missions[FIRST_CASE]?.clears ?? 0) === 0;
+    !mustSleep(app.state) && MISSIONS.some((m) => m.id === FIRST_CASE) && (app.state.missions[FIRST_CASE]?.clears ?? 0) === 0;
+
+  /** One case a day: back from one, the board stays shut and Chief Nibbles sends everyone to bed. */
+  function openMissions(): void {
+    if (!mustSleep(app.state)) { app.nav.board(); return; }
+    sfx('error');
+    app.nav.dialog(BEDTIME_LINES, undefined, 'chief');
+  }
 
   function hudButton(label: string, key: string, icon: IconFn, action: () => void, color?: string): Button {
     // icon, label, a 4 px breath, then the keycap: the key letter must not read as part of the word
@@ -551,7 +568,7 @@ export function createBurrowScene(): Scene {
   function buildHud(): void {
     const nav = app.nav;
     hudButtons.push(
-      hudButton('MISSIONS', 'm', iconGlass, () => nav.board(), UI.accent),
+      hudButton('MISSIONS', 'm', iconGlass, openMissions, UI.accent),
       hudButton('DRAGONS', 'd', iconPaw, () => nav.roster()),
       hudButton('DEX', 'x', iconBook, () => nav.dex()),
       hudButton('TYPES', 't', iconGrid, () => nav.typeChart()),
@@ -1851,6 +1868,21 @@ export function createBurrowScene(): Scene {
     } else {
       missions.spec.color = UI.accent;
     }
+    // back from today's case: SLEEP glows instead
+    const sleepBtn = hudButtons.find((b) => b.spec.label === 'SLEEP');
+    if (sleepBtn) {
+      if (mustSleep(app.state) && mode === 'hub') {
+        const pulse = Math.round((0.5 + 0.5 * Math.sin(app.time * 4)) * 6) / 6;
+        sleepBtn.spec.color = tint('#b8a8e8', 0.35 * pulse);
+        const b = sleepBtn.spec.rect;
+        ctx.save();
+        ctx.globalAlpha = 0.2 + 0.4 * pulse;
+        fillRoundRect(ctx, b.x - 4, b.y - 3, b.w + 8, b.h + 7, 5, '#c8b8ff');
+        ctx.restore();
+      } else {
+        sleepBtn.spec.color = '#b8a8e8';
+      }
+    }
     hub.draw(ctx);
     if (nag) {
       const b = missions.spec.rect;
@@ -1884,9 +1916,11 @@ export function createBurrowScene(): Scene {
       } else if (f === optionsBtn) {
         return 'OPTIONS [O]: sound, music, text speed, and back to the title screen.';
       } else {
+        if (mustSleep(app.state) && f.spec.label === 'MISSIONS') return 'MISSIONS: closed until morning. One case a day, so SLEEP first!';
         return HUD_HINTS[f.spec.label] ?? '';
       }
     }
+    if (mustSleep(app.state)) return BEDTIME_TIP;
     return TIPS[Math.floor(app.time / 7) % TIPS.length];
   }
 

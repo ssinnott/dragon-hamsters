@@ -146,7 +146,7 @@ export function canDoActivity(state: GameState, dragonId: string, activity: Acti
 export function doActivity(state: GameState, dragonId: string, activity: ActivityId, food?: FoodId): ActivityResult;
 export function useItemOutside(state: GameState, item: ItemId, dragonId: string): { ok: boolean; line: string };
 export interface DayReport { day: number; lines: string[] }
-export function endDay(state: GameState): DayReport;  // heals, cures, +80 energy (cap 100), -25 fullness, happiness settles, next day
+export function endDay(state: GameState): DayReport;  // heals, cures, full energy, -8 fullness, happiness settles, clears mustSleep, next day
 export const HAPPINESS_SETTLE = 50, HAPPINESS_DRIFT = 10;  // each night happiness above 50 drops by 10 (never below 50)
 // The care package: a morning with nothing in the pantry and coins < cheapest food x dragons brings
 // CARE_PACKAGE_PER_DRAGON of the cheapest food per dragon (so a broke, starving burrow is never stuck).
@@ -164,13 +164,14 @@ export function buy(state: GameState, id: FoodId | ItemId, qty?: number): { ok: 
 // missions.ts
 export type MissionStatus = 'locked' | 'available' | 'cleared';
 export function missionStatus(state: GameState, id: MissionId): MissionStatus;
-export function canLaunch(state: GameState, id: MissionId, squad: string[]): { ok: boolean; reason?: string };
+export function mustSleep(state: GameState): boolean;  // today's case has been run: the board is shut until endDay
+export function canLaunch(state: GameState, id: MissionId, squad: string[]): { ok: boolean; reason?: string }; // refuses while mustSleep
 export interface MissionRun {
   missionId: MissionId; squad: string[]; nodes: MissionNode[]; index: number;
   coins: number; defeated: VillainId[]; xp: Record<string, XpReport[]>; outcome: 'active' | 'won' | 'lost' | 'retreated';
   supercharge?: StageChanges;   // what the chosen branch routes give the boss (sabotage rush: +1 ATK / +1 SP.ATK)
 }
-export function startMission(state: GameState, id: MissionId, squad: string[]): MissionRun; // spends energy/fullness, records squad
+export function startMission(state: GameState, id: MissionId, squad: string[]): MissionRun; // spends energy/fullness, records squad, sets mustSleep
 export function currentNode(run: MissionRun): MissionNode | null;
 export function chooseBranch(run: MissionRun, option: number): void;   // splices the option's nodes in place of the branch; records the route's supercharge on run.supercharge
 export function bossSupercharge(run: MissionRun, node: MissionNode): StageChanges | undefined; // boss node's own supercharge + run.supercharge (encounterSetup applies it)
