@@ -1,4 +1,4 @@
-// Battle HUD drawing: the enemy and player boxes, the WEAK TO row, the always-on MATCHUP strip,
+// Battle HUD drawing (doubles): the foe and ally cards (two of each), the FOES LEFT counter, the enemy and player boxes, the WEAK TO row, the always-on MATCHUP strip,
 // team pips, the ability banner, the level-up card, the outro banner, and the faces of the menu
 // buttons (moves, team cards, items). Pure drawing: the scene owns all state and passes it in.
 import { drawText, measureText } from '../../lib/engine/text.ts';
@@ -198,9 +198,9 @@ export function drawEnemyBox(ctx: Ctx, v: MonView, team: readonly MonView[], act
   if (pipsBelow) drawPips(ctx, team, activeUid, x + B.w - 8 - pipsW, y + 33, 'enemy');
 }
 
-/** The WEAK TO row under the enemy box: small badges, biggest multipliers first. */
-export function drawWeakRow(ctx: Ctx, v: MonView, slide: number): void {
-  const W = LAYOUT.weakRow;
+/** The WEAK TO row under the enemy box (or at `at`): small badges, biggest multipliers first. */
+export function drawWeakRow(ctx: Ctx, v: MonView, slide: number, at: { x: number; y: number } = LAYOUT.weakRow): void {
+  const W = at;
   const weak = weaknesses(v.types).sort((a, b) => typeEffectiveness(b, v.types) - typeEffectiveness(a, v.types));
   const label = 'WEAK TO:';
   const lw = measureText(label);
@@ -581,3 +581,110 @@ export function drawItemFace(ctx: Ctx, face: Rect, enabled: boolean, item: ItemI
   drawText(ctx, c, face.x + face.w - 6 - measureText(c), face.y + Math.floor((face.h - 7) / 2), { color: enabled ? UI.accent : UI.disabledText, shadow: false });
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Doubles: two foes and two dragons on the field
+// ---------------------------------------------------------------------------------------------
+
+/** Where the doubles HUD sits (640 x 360; the bottom panel starts at LAYOUT.band). */
+export const DOUBLES = {
+  /** Foe cards, top left, one under the other. */
+  foeCard: { x: 6, y: 6, w: 212, h: 35, gap: 3 },
+  /** The FOES LEFT counter and the WEAK TO row under the foe cards. */
+  foesLeft: { x: 6, y: 83 },
+  weakRow: { x: 6, y: 101 },
+  /** Ally cards, right, above the bottom panel. */
+  allyCard: { x: 376, y: 170, w: 258, h: 42, gap: 2 },
+  /** Ground points per field slot (slot 0 in front, slot 1 behind and to the side). */
+  enemyGround: [{ x: 448, y: 160 }, { x: 562, y: 140 }],
+  playerGround: [{ x: 112, y: 248 }, { x: 250, y: 232 }],
+  enemyPlatform: { x: 505, y: 158, w: 246 },
+  playerPlatform: { x: 180, y: 246, w: 304 },
+  /** Art is drawn a little smaller with two on a side. */
+  scale: 0.8,
+} as const;
+
+/** A gold (focus) or red (target) frame around a card, with a little pointer on its left edge. */
+function drawCardMark(ctx: Ctx, x: number, y: number, w: number, h: number, color: string, t: number): void {
+  const hop = Math.round(Math.abs(Math.sin(t * 5)) * 2);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+  ctx.restore();
+  fillRoundRect(ctx, x - 9 - hop, y + Math.floor(h / 2) - 5, 8, 10, 2, UI.ink);
+  ctx.fillStyle = color;
+  for (let k = 0; k < 4; k++) ctx.fillRect(x - 8 - hop + k, y + Math.floor(h / 2) - 3 + k, 1, 7 - k * 2);
+}
+
+/**
+ * A compact foe card: crown, name, LV, HP bar, small type badges and status. `target`: the foe the
+ * move being picked will hit (red frame); `dim`: a foe that is not being aimed at.
+ */
+export function drawFoeCard(
+  ctx: Ctx, v: MonView, pos: number, slide: number, t: number, opts: { target?: boolean; dim?: boolean } = {},
+): void {
+  const B = DOUBLES.foeCard;
+  const x = Math.round(B.x - (1 - slide) * (B.w + 12)), y = B.y + pos * (B.h + B.gap);
+  drawPanel(ctx, x, y, B.w, B.h, { fill: opts.dim ? tint(UI.night, -0.25) : UI.night });
+  let nx = x + 7;
+  if (v.isBoss) { drawCrown(ctx, nx, y + 5); nx += 12; }
+  drawText(ctx, v.name, nx, y + 4, { color: v.isBoss ? UI.goldLight : UI.textLight });
+  drawLevel(ctx, v.level, x + B.w - 7, y + 4);
+  drawHpBar(ctx, x + 7, y + 14, B.w - 14, v.shownHp, v.maxHp, { boss: v.isBoss });
+  const bw = drawTypeBadges(ctx, v.types, x + 7, y + 24, { small: true });
+  drawStatusPop(ctx, v, x + 7 + bw + 4, y + 23, x + B.w - 6);
+  if (opts.target) drawCardMark(ctx, x, y, B.w, B.h, '#ff6a5c', t);
+}
+
+/** A compact ally card: name, status, LV, HP bar and numbers, XP bar. `focus`: whose order is being given. */
+export function drawAllyCard(
+  ctx: Ctx, v: MonView, pos: number, slide: number, t: number, opts: { focus?: boolean; team?: readonly MonView[]; activeUids?: readonly string[] } = {},
+): void {
+  const B = DOUBLES.allyCard;
+  const x = Math.round(B.x + (1 - slide) * (B.w + 12)), y = B.y + pos * (B.h + B.gap);
+  drawPanel(ctx, x, y, B.w, B.h, { fill: UI.night });
+  drawText(ctx, v.name, x + 8, y + 4, { color: UI.textLight });
+  const lvW = drawLevel(ctx, v.level, x + B.w - 8, y + 4);
+  drawStatusPop(ctx, v, x + 8 + measureText(v.name) + 5, y + 2, x + B.w - 8 - lvW - 4);
+  const barW = 170;
+  drawHpBar(ctx, x + 8, y + 15, barW, v.shownHp, v.maxHp);
+  const hpNow = Math.max(0, Math.round(v.shownHp));
+  const low = v.maxHp > 0 && v.hp / v.maxHp <= 0.2 && v.hp > 0;
+  const blink = low && Math.floor(t * 3) % 2 === 0;
+  const hpText = `${hpNow}/${v.maxHp}`;
+  drawText(ctx, hpText, x + B.w - 8 - measureText(hpText), y + 16, { color: blink ? UI.hpRed : UI.textLight });
+  drawText(ctx, 'XP', x + 8, y + 28, { color: UI.textLightDim });
+  drawBar(ctx, x + 22, y + 29, barW - 14, 5, xpFrac(v), UI.info);
+  if (opts.team) drawTeamPips(ctx, opts.team, opts.activeUids ?? [], x + B.w - 8 - (opts.team.length * 9 - 2), y + 28, 'player');
+  if (opts.focus) drawCardMark(ctx, x, y, B.w, B.h, UI.gold, t);
+}
+
+/** Team pips with any number of combatants out (each ringed in gold). */
+export function drawTeamPips(ctx: Ctx, team: readonly MonView[], activeUids: readonly string[], x: number, y: number, side: 'player' | 'enemy'): number {
+  team.forEach((m, i) => drawPips(ctx, [m], activeUids.includes(m.uid) ? m.uid : null, x + i * 9, y, side));
+  return team.length ? team.length * 9 - 2 : 0;
+}
+
+/**
+ * FOES LEFT: how many foes are still standing in this fight (including the ones not sent out
+ * yet), in big numbers, with a pip for every foe (fainted ones grey, the ones out ringed in gold).
+ */
+export function drawFoesLeft(ctx: Ctx, team: readonly MonView[], activeUids: readonly string[], slide: number): void {
+  const L = DOUBLES.foesLeft;
+  const left = team.filter((m) => !m.fainted).length;
+  const label = 'FOES LEFT:';
+  const num = String(left);
+  const pipsW = team.length * 9 - 2;
+  const w = 6 + measureText(label) + 5 + measureText(num) * 2 + 7 + pipsW + 6;
+  const x = Math.round(L.x - (1 - slide) * (w + 12)), y = L.y;
+  fillRoundRect(ctx, x, y + 1, w, 17, 3, 'rgba(27, 20, 38, 0.25)');
+  fillRoundRect(ctx, x, y, w, 16, 3, UI.ink);
+  fillRoundRect(ctx, x + 1, y + 1, w - 2, 14, 2, UI.nightDark);
+  ctx.fillStyle = UI.nightLight;
+  ctx.fillRect(x + 3, y + 1, w - 6, 1);
+  drawText(ctx, label, x + 6, y + 5, { color: UI.textLightDim });
+  const nx = x + 6 + measureText(label) + 5;
+  drawText(ctx, num, nx, y + 1, { size: 2, color: left <= 1 ? GOOD : UI.goldLight, shadowColor: UI.ink });
+  drawTeamPips(ctx, team, activeUids, nx + measureText(num) * 2 + 7, y + 5, 'enemy');
+}

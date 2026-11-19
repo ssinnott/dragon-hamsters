@@ -2,7 +2,7 @@
 
 *Secret agents of the Burrow.* A Pokemon-style creature game where every creature is a small dragon
 hamster. Raise a burrow of them, feed and train them, and send squads of three on secret missions
-against five villain gangs. Battles are Pokemon single battles with a sixteen-type
+against five villain gangs. Battles are Pokemon double battles (two dragons against two foes) with a sixteen-type
 rock-paper-scissors chart that the enemies follow too, and that stays on screen for the whole fight.
 
 Strict TypeScript on the shared [game-engine](https://github.com/ssinnott/game-engine), vendored

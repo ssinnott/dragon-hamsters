@@ -289,12 +289,15 @@ async function playBattle(tag: string, o: { manual: boolean; shoot: boolean; bos
   if (o.manual) {
     // the rock-paper-scissors helpers a new player reaches for: the SWAP cards (star grades) and
     // the [?] type chart opened on this very matchup
-    await press('SWAP', 4);
-    await until('the swap cards', (x) => x.battle?.menu === 'swap', 30, 1);
-    await step(10);
-    await shot(`${tag}-battle-swap-cards`);
-    await key('Escape', 4);
-    await until('the battle menu again', (x) => x.battle?.menu === 'main', 30, 1);
+    // (doubles: with both of a two-dragon squad on the field there is nobody to swap in)
+    if ((await snap()).buttons.some((b) => b.label === 'SWAP' && b.enabled)) {
+      await press('SWAP', 4);
+      await until('the swap cards', (x) => x.battle?.menu === 'swap', 30, 1);
+      await step(10);
+      await shot(`${tag}-battle-swap-cards`);
+      await key('Escape', 4);
+      await until('the battle menu again', (x) => x.battle?.menu === 'main', 30, 1);
+    }
     await press('TYPES', 6);
     await arrive('typechart', 60);
     await step(20);
@@ -304,16 +307,42 @@ async function playBattle(tag: string, o: { manual: boolean; shoot: boolean; bos
     await press('FIGHT', 4);
     await until('the move menu', (x) => x.battle?.menu === 'fight', 30, 1);
     await shot(`${tag}-battle-moves`);
-    const slot: number = await page.evaluate(async () => {
-      const url = '/src/ui/battle/auto.ts';
-      const auto = await import(url);
-      return auto.bestMove((window as any).__game.api.debug().battle);
-    });
-    const s2 = await snap();
-    const btn = s2.buttons.find((b) => b.hotkey === String(slot + 1) && b.enabled);
-    if (!btn) fail(`no move button ${slot + 1} in the FIGHT menu`);
-    note(`first battle turn by hand: FIGHT -> move ${slot + 1}`);
-    await clickRect(btn.rect, 2);
+    // doubles: every dragon on the field gets an order (FIGHT -> its best move -> AIM at a foe)
+    for (let order = 0; order < 2; order++) {
+      if (order > 0) {
+        const cur = await snap();
+        if (cur.battle?.menu !== 'main' || cur.battle.busy) break;   // the turn is already playing
+        await press('FIGHT', 4);
+        await until('the move menu', (x) => x.battle?.menu === 'fight', 30, 1);
+      }
+      const best: { slot: number; target: number } = await page.evaluate(async () => {
+        const url = '/src/ui/battle/auto.ts';
+        const auto = await import(url);
+        const g = (window as any).__game.api.debug();
+        const b = g.battle;
+        // the dragon giving its order: the first standing one, then the second
+        const live = b.player.slots.map((i: number, k: number) => (i >= 0 && b.player.team[i].hp > 0 ? k : -1)).filter((k: number) => k >= 0);
+        const ui = g.battleUi;
+        return auto.bestMoveAndTarget(b, live[ui.orders ? ui.orders() : 0] ?? live[0]);
+      });
+      const s2 = await snap();
+      const btn = s2.buttons.find((b) => b.hotkey === String(best.slot + 1) && b.enabled);
+      if (!btn) fail(`no move button ${best.slot + 1} in the FIGHT menu`);
+      note(`first battle turn by hand, dragon ${order + 1}: FIGHT -> move ${best.slot + 1}`);
+      await clickRect(btn.rect, 4);
+      const s3 = await snap();
+      if (s3.battle?.menu === 'aim') {
+        if (order === 0) await shot(`${tag}-battle-aim`);
+        const aim = s3.buttons.find((b) => b.hotkey === String(best.target + 1) && b.enabled) ?? s3.buttons.find((b) => b.enabled && b.hotkey === '1');
+        if (!aim) fail('no target button in the AIM menu');
+        note(`  AIM -> foe ${best.target + 1}`);
+        await clickRect(aim.rect, 4);
+      }
+      if (order === 0) {
+        const s4 = await snap();
+        if (s4.battle?.menu === 'main') await shot(`${tag}-battle-second-order`);
+      }
+    }
     // photograph the move landing, and the line that judges the hit (super effective...) if any
     let used = false, judged = false;
     for (let i = 0; i < 400; i += 2) {

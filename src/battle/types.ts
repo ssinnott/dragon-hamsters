@@ -1,4 +1,6 @@
 // The battle engine's runtime contract. The engine (src/battle/battle.ts) is pure and synchronous:
+// Battles are doubles: each side fields up to FIELD_SLOTS combatants at once (fewer when its team
+// is smaller), and every move aimed at a foe picks which one (spread moves hit them all).
 // the UI hands it one decision, it resolves a whole turn and returns the events that happened, in
 // order. The battle scene animates those events one by one; it never computes outcomes itself.
 // The state object is mutated in place and is not saved (missions keep no mid-battle state).
@@ -27,6 +29,8 @@ export interface Volatile {
   /** uid of the combatant that trapped this one. */
   stuckBy: string | null;
   seeded: boolean;
+  /** uid of the combatant that planted the seeds (it soaks up the stolen HP while it is out). */
+  seededBy: string | null;
   protecting: boolean;
   /** Consecutive successful protects, for the 1/3^n chance. */
   protectChain: number;
@@ -74,10 +78,17 @@ export interface BattleMon {
   participated: boolean;
 }
 
+/** Combatants on the field per side (doubles). */
+export const FIELD_SLOTS = 2;
+
 export interface SideState {
   team: BattleMon[];
-  /** Index into team of the active combatant. */
-  active: number;
+  /**
+   * The field: one entry per field slot (min(FIELD_SLOTS, team size), fixed at battle start), each
+   * an index into `team`, or -1 once nobody is left to fill it. A slot may hold a fainted
+   * combatant until its replacement comes in.
+   */
+  slots: number[];
 }
 
 export interface BattleState {
@@ -91,26 +102,34 @@ export interface BattleState {
   canRetreat: boolean;
   /**
    * 'choose': waiting for submitTurn.
-   * 'switch': the player's active fainted (or pivoted) and they must call submitSwitch.
+   * 'switch': a player dragon on the field fainted (or pivoted) and its replacement must be
+   *   picked with submitSwitch, once per slot in `switchSlots`.
    * 'over': finished; see winner.
    */
   phase: 'choose' | 'switch' | 'over';
+  /** In phase 'switch': the player's field slots still waiting for a replacement, in order. */
+  switchSlots: number[];
   winner: Side | 'retreat' | null;
   /** Enemy swaps used this battle (smart AI swaps at most 2 times). */
   enemySwaps: number;
   /**
-   * After a double knockout, or a foe knocked out while the player's dragon tags out after a
-   * pivot, the enemy's replacement is sent out while the player still has to pick one: its entry
-   * ability (e.g. ATTACK down on the foe) waits here (its uid) and fires right after the player's
-   * replacement comes in (submitSwitch). Absent / null when nothing waits.
+   * Enemy replacements sent out while the player still has to pick one (after a knockout on both
+   * sides, or a foe knocked out while a dragon tags out after a pivot): their entry abilities
+   * (e.g. ATTACK down on the foes) wait here (uids) and fire once the player's last replacement is
+   * in (submitSwitch).
    */
-  pendingEntry?: string | null;
+  pendingEntry: string[];
   /** Every event so far. */
   log: BattleEvent[];
 }
 
+/**
+ * One field dragon's decision. `slot` is the move slot; `target` the foe's FIELD slot for a move
+ * aimed at a foe (ignored by self moves and spread moves; a fainted target is swapped for the
+ * other foe). Items target a TEAM index. A retreat speaks for the whole squad.
+ */
 export type PlayerAction =
-  | { kind: 'move'; slot: number }
+  | { kind: 'move'; slot: number; target?: number }
   | { kind: 'switch'; index: number }
   | { kind: 'item'; item: ItemId; target: number }
   | { kind: 'retreat' };
@@ -128,9 +147,11 @@ export type PlayerAction =
  */
 export type BattleEvent =
   | { t: 'text'; text: string }
-  | { t: 'sendOut'; side: Side; uid: string; index: number }
-  | { t: 'withdraw'; side: Side; uid: string }
-  | { t: 'useMove'; side: Side; uid: string; move: MoveId }
+  /** `index` is the team index, `slot` the field slot it fills. */
+  | { t: 'sendOut'; side: Side; uid: string; index: number; slot: number }
+  | { t: 'withdraw'; side: Side; uid: string; slot: number }
+  /** `targets`: the uids the move is aimed at (empty for a self move). */
+  | { t: 'useMove'; side: Side; uid: string; move: MoveId; targets: string[] }
   /** `effectiveness` is the type multiplier (0, 0.25, 0.5, 1, 2, 4). */
   | { t: 'damage'; side: Side; uid: string; amount: number; hp: number; maxHp: number; effectiveness: number; crit: boolean; source: 'move' | 'status' | 'recoil' | 'seed' | 'confusion' }
   | { t: 'heal'; side: Side; uid: string; amount: number; hp: number; maxHp: number }
@@ -183,4 +204,6 @@ export interface BattleSetup {
   items: Partial<Record<ItemId, number>>;
   aiLevel: AiLevel;
   canRetreat: boolean;
+  /** Combatants on the field per side: FIELD_SLOTS (doubles, the default) or 1 (singles). */
+  fieldSlots?: number;
 }

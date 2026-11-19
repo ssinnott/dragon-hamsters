@@ -17,7 +17,7 @@ export function emptyStages(): Record<StageStat, number> {
 }
 
 export function freshVolatile(): Volatile {
-  return { confused: 0, flinch: false, stuck: false, stuckBy: null, seeded: false, protecting: false, protectChain: 0, turnsIn: 0 };
+  return { confused: 0, flinch: false, stuck: false, stuckBy: null, seeded: false, seededBy: null, protecting: false, protectChain: 0, turnsIn: 0 };
 }
 
 /** The content definition behind a combatant: base stats, types, XP yield and learnset. */

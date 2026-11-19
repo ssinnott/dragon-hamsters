@@ -23,6 +23,7 @@ import {
 import { xpForLevel, levelForXp } from '../src/battle/stats.ts';
 import { defaultMoves } from '../src/battle/build.ts';
 import { activeMon, createBattle, legal, startBattle, submitSwitch, submitTurn } from '../src/battle/battle.ts';
+import { autoTurn } from '../src/ui/battle/auto.ts';
 import { estimateDamage } from '../src/battle/damage.ts';
 import { intelGrade, moveEffectiveness } from '../src/battle/matchup.ts';
 import type { BattleState } from '../src/battle/types.ts';
@@ -113,25 +114,9 @@ function speciesOfType(pred: (s: SpeciesDef) => boolean): SpeciesDef | undefined
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 // ---------------------------------------------------------------------------------------------
-// The autopilot: never swaps by choice, always picks the move with the best expected damage.
+// The autopilot: never swaps by choice; each dragon on the field picks the move and target with
+// the best expected damage (the scene's autoplay, src/ui/battle/auto.ts).
 // ---------------------------------------------------------------------------------------------
-
-function bestMoveSlot(battle: BattleState): number {
-  const me = activeMon(battle, 'player');
-  const foe = activeMon(battle, 'enemy');
-  const lg = legal(battle);
-  let best = -1;
-  let bestScore = -1;
-  me.moves.forEach((slot, i) => {
-    if (!lg.moves[i]) return;
-    const est = estimateDamage(me, foe, slot.id);
-    const acc = getMove(slot.id).accuracy;
-    const score = ((est.min + est.max) / 2) * (Math.min(100, acc) / 100);
-    if (score > bestScore) { bestScore = score; best = i; }
-  });
-  // No usable move at all: slot 0 (the engine turns it into its out-of-PP struggle).
-  return best >= 0 ? best : 0;
-}
 
 /** Fight a battle to the end. Throws if it does not end in a sane number of turns. */
 function autopilot(battle: BattleState, maxTurns = 400): void {
@@ -146,7 +131,7 @@ function autopilot(battle: BattleState, maxTurns = 400): void {
       submitSwitch(battle, idx);
       continue;
     }
-    submitTurn(battle, { kind: 'move', slot: bestMoveSlot(battle) });
+    submitTurn(battle, autoTurn(battle));
   }
 }
 
@@ -1208,13 +1193,15 @@ test('missions: lifecycle through the real battle engine', () => {
   const active = activeMon(battle, 'player');
   if (healItem && battle.phase === 'choose' && legal(battle).items.includes(healItem)) {
     active.hp = Math.max(1, Math.floor(active.stats.hp / 3));
-    submitTurn(battle, { kind: 'item', item: healItem, target: battle.player.active });
+    // the first dragon on the field eats; any partner attacks
+    const [, ...rest] = autoTurn(battle);
+    submitTurn(battle, [{ kind: 'item', item: healItem, target: battle.player.slots[0] }, ...rest]);
   }
   let steps = 0;
   while (battle.phase !== 'over') {
     if (++steps > 400) throw new Error('battle did not end');
     if (battle.phase === 'switch') submitSwitch(battle, legal(battle).switches.findIndex(Boolean));
-    else submitTurn(battle, { kind: 'move', slot: bestMoveSlot(battle) });
+    else submitTurn(battle, autoTurn(battle));
   }
   eq(battle.winner, 'player', 'over-levelled squad wins');
   const after = finishBattle(s, run, battle);
@@ -1574,7 +1561,7 @@ test('missions: the boss is caught in the showdown (its caught line) and escapes
     setup.enemy = [{ ...boss, hp: 1 }];
     const battle = createBattle(setup);
     startBattle(battle);
-    for (let turn = 0; turn < 20 && battle.phase === 'choose'; turn++) submitTurn(battle, { kind: 'move', slot: bestMoveSlot(battle) });
+    for (let turn = 0; turn < 20 && battle.phase === 'choose'; turn++) submitTurn(battle, autoTurn(battle));
     eq(battle.winner, 'player', `${m.id}: the boss went down`);
     const lines = battle.log.flatMap((e) => (e.t === 'text' ? [e.text] : []));
     ok(lines.includes(`${v.name.toUpperCase()}: "${v.caught.toUpperCase()}"`), `${m.id}: says its caught line`);
