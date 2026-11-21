@@ -1,4 +1,5 @@
-// The battle engine: Pokemon-style single battles, pure and synchronous. The UI hands in one
+// The battle engine: Pokemon-style double battles (two on two; fewer when a team is smaller), pure
+// and synchronous. The UI hands in one
 // decision; the engine resolves the whole turn and returns what happened as events, in order.
 // All randomness comes from state.rng (seeded with setup.seed): same seed + same actions =>
 // identical events. Rules: docs/DESIGN.md "Battle rules"; shapes: src/battle/types.ts.
@@ -7,7 +8,7 @@ import { ITEM_IDS } from '../data/schema.ts';
 import { getAbility, getItem, getType, getVillain } from '../data/index.ts';
 import { MAX_LEVEL } from '../game/types.ts';
 import { makeRng } from '../lib/engine/rng.ts';
-import type { BattleEvent, BattleMon, BattleSetup, BattleState, PlayerAction, Side, SideState } from './types.ts';
+import { FIELD_SLOTS, type BattleEvent, type BattleMon, type BattleSetup, type BattleState, type PlayerAction, type Side, type SideState } from './types.ts';
 import { buildMon, computeStats, emptyStages, freshVolatile, monDef, STAGE_STATS } from './build.ts';
 import {
   CONFUSION_HIT, STRUGGLE, abilityOf, absorbs, battleMove, calcDamage, effectiveStat, findEffect, isDamaging,
@@ -15,7 +16,7 @@ import {
 } from './damage.ts';
 import { typeEffectiveness } from './matchup.ts';
 import { accStageMult, xpForLevel, xpYield } from './stats.ts';
-import { chooseEnemyAction, chooseEnemyReplacement } from './ai.ts';
+import { chooseEnemyActions, chooseEnemyReplacement } from './ai.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Per-call context and text helpers
@@ -32,14 +33,14 @@ interface Ctx {
   snapOut: Set<string>;
   /** uids whose faint has been announced during this call. */
   fainted: Set<string>;
-  /** The player's active used a pivot move and will be swapped after the turn. */
-  pivot: boolean;
+  /** Player field slots whose dragon used a pivot move and will be swapped after the turn. */
+  pivots: Set<number>;
 }
 
 type EffectResult = 'applied' | 'failed' | 'blocked' | 'none';
 
 function newCtx(s: BattleState): Ctx {
-  return { s, ev: [], pending: new Set(), entered: new Set(), snapOut: new Set(), fainted: new Set(), pivot: false };
+  return { s, ev: [], pending: new Set(), entered: new Set(), snapOut: new Set(), fainted: new Set(), pivots: new Set() };
 }
 
 function emit(c: Ctx, e: BattleEvent): void {
@@ -89,20 +90,64 @@ const LOAF_LINES = [
 const sideOf = (s: BattleState, side: Side): SideState => (side === 'player' ? s.player : s.enemy);
 const otherSide = (side: Side): Side => (side === 'player' ? 'enemy' : 'player');
 
-export function activeMon(state: BattleState, side: Side): BattleMon {
+/**
+ * A combatant on the field. With `slot`, whoever holds that field slot (fainted or not); without,
+ * the first one still standing (or the first slot's, when nobody is). Never undefined.
+ */
+export function activeMon(state: BattleState, side: Side, slot?: number): BattleMon {
   const st = sideOf(state, side);
-  return st.team[st.active];
+  if (slot !== undefined) {
+    const i = st.slots[slot] ?? -1;
+    return st.team[i >= 0 ? i : 0];
+  }
+  const live = st.slots.find((i) => i >= 0 && st.team[i].hp > 0);
+  return st.team[live ?? st.slots.find((i) => i >= 0) ?? 0];
 }
 
-const foeOf = (s: BattleState, m: BattleMon): BattleMon => activeMon(s, otherSide(m.side));
-const isActive = (s: BattleState, m: BattleMon): boolean => activeMon(s, m.side) === m;
+/** The combatants on the field and still standing, in field-slot order. */
+export function fieldMons(state: BattleState, side: Side): BattleMon[] {
+  const st = sideOf(state, side);
+  return st.slots.filter((i) => i >= 0 && st.team[i].hp > 0).map((i) => st.team[i]);
+}
+
+/** The field slot `m` stands in, or -1. */
+export function fieldSlotOf(state: BattleState, m: BattleMon): number {
+  const st = sideOf(state, m.side);
+  return st.slots.findIndex((i) => i >= 0 && st.team[i] === m);
+}
+
+/** Field slots whose combatant is still standing. */
+export function liveSlots(state: BattleState, side: Side): number[] {
+  const st = sideOf(state, side);
+  return st.slots.map((i, k) => (i >= 0 && st.team[i].hp > 0 ? k : -1)).filter((k) => k >= 0);
+}
+
+const isActive = (s: BattleState, m: BattleMon): boolean => fieldSlotOf(s, m) >= 0;
+
+/**
+ * The foe a combatant's foe-only effects fall on when it is not aiming at anyone in particular
+ * (seeds, entry abilities, self moves' foe effects): the one across from it, else any still up.
+ */
+function primaryFoe(s: BattleState, m: BattleMon): BattleMon | null {
+  const foes = sideOf(s, otherSide(m.side));
+  const k = fieldSlotOf(s, m);
+  const across = k >= 0 ? foes.slots[k] ?? -1 : -1;
+  if (across >= 0 && foes.team[across].hp > 0) return foes.team[across];
+  return fieldMons(s, otherSide(m.side))[0] ?? null;
+}
+
 /** Reads the phase through a call so TypeScript does not keep a stale narrowing across the turn. */
 const isOver = (s: BattleState): boolean => s.phase === 'over';
 const allFainted = (s: BattleState, side: Side): boolean => sideOf(s, side).team.every((m) => m.hp <= 0);
 
-function healthyBench(s: BattleState, side: Side): boolean {
+/** Team indices that could come in: standing and not on the field. */
+export function benchIndices(s: BattleState, side: Side): number[] {
   const st = sideOf(s, side);
-  return st.team.some((m, i) => i !== st.active && m.hp > 0);
+  return st.team.map((m, i) => (m.hp > 0 && !st.slots.includes(i) ? i : -1)).filter((i) => i >= 0);
+}
+
+function healthyBench(s: BattleState, side: Side): boolean {
+  return benchIndices(s, side).length > 0;
 }
 
 /** Tell the scene a combatant's SEEDED / STUCK flags changed. */
@@ -333,27 +378,27 @@ function entryAbility(c: Ctx, m: BattleMon): void {
   if (m.hp <= 0) return;
   const ab = abilityOf(m);
   if (ab.kind === 'entry') {
-    const target = ab.who === 'self' ? m : foeOf(c.s, m);
-    if (target.hp <= 0) return;
+    const targets = ab.who === 'self' ? [m] : fieldMons(c.s, otherSide(m.side));
+    if (!targets.length) return;
     abilityEvent(c, m);
     say(c, `${poss(m)} ${abName(m)} KICKED IN!`);
-    applyStages(c, target, ab.changes, ab.who === 'foe');
+    for (const t of targets) applyStages(c, t, ab.changes, ab.who === 'foe');
   } else if (ab.kind === 'pressure') {
     abilityEvent(c, m);
     say(c, `${who(m)} IS PUTTING ON THE PRESSURE!`);
   }
 }
 
-function sendOut(c: Ctx, side: Side, index: number, opts: { text: boolean; entry: boolean }): void {
+function sendOut(c: Ctx, side: Side, slot: number, index: number, opts: { text: boolean; entry: boolean }): void {
   const st = sideOf(c.s, side);
-  st.active = index;
+  st.slots[slot] = index;
   const m = st.team[index];
   m.volatile = freshVolatile();
   const first = !m.participated;
   m.participated = true;
   c.entered.add(m.uid);
   if (opts.text) say(c, side === 'player' ? `GO! ${NAME(m)}!` : `THE FOE SENT OUT ${NAME(m)}!`);
-  emit(c, { t: 'sendOut', side, uid: m.uid, index });
+  emit(c, { t: 'sendOut', side, uid: m.uid, index, slot });
   if (first && STAGE_STATS.some((k) => m.stages[k] !== 0)) {
     const changes: StageChanges = {};
     for (const k of STAGE_STATS) if (m.stages[k] !== 0) changes[k] = m.stages[k];
@@ -376,21 +421,20 @@ function withdraw(c: Ctx, m: BattleMon, text: boolean): void {
     say(c, `${poss(m)} ${abName(m)} SHOOK OFF ITS ${STATUS_NOUN[m.status]}!`);
     cureStatus(c, m);
   }
-  emit(c, { t: 'withdraw', side: m.side, uid: m.uid });
+  emit(c, { t: 'withdraw', side: m.side, uid: m.uid, slot: fieldSlotOf(c.s, m) });
   m.stages = emptyStages();
   m.volatile = freshVolatile();
   releaseTrapped(c, m);
 }
 
 /** The boss AI's counter-swap: the rock-paper-scissors moment, announced as such. */
-function enemySwap(c: Ctx, index: number): void {
+function enemySwap(c: Ctx, slot: number, index: number): void {
   const s = c.s;
-  const old = activeMon(s, 'enemy');
+  const old = activeMon(s, 'enemy', slot);
   const incoming = s.enemy.team[index];
-  const p = activeMon(s, 'player');
   let threat: TypeId | null = null;
   let best = 1;
-  if (p.hp > 0) {
+  for (const p of fieldMons(s, 'player')) {
     for (const t of p.types) {
       const e = typeEffectiveness(t, old.types);
       if (e > best) {
@@ -402,7 +446,7 @@ function enemySwap(c: Ctx, index: number): void {
   if (threat) say(c, `${who(old)} SAW YOUR ${getType(threat).name.toUpperCase()} TYPE COMING AND SWAPPED IN ${NAME(incoming)}!`);
   else say(c, `THE FOE SWAPPED ${NAME(old)} FOR ${NAME(incoming)}!`);
   withdraw(c, old, false);
-  sendOut(c, 'enemy', index, { text: false, entry: true });
+  sendOut(c, 'enemy', slot, index, { text: false, entry: true });
   s.enemySwaps++;
 }
 
@@ -500,7 +544,7 @@ function contactPunish(c: Ctx, holder: BattleMon, attacker: BattleMon): void {
 }
 
 /** The damage part of a move: hits, crits, sturdy/endure, thaw, contact abilities, effectiveness text. */
-function dealDamage(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef): number {
+function dealDamage(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef, spread = false): number {
   const s = c.s;
   const typeless = isTypeless(move);
   const eff0 = typeless ? 1 : typeEffectiveness(move.type, foe.types);
@@ -526,7 +570,7 @@ function dealDamage(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef): num
   let eff = eff0;
   for (let i = 0; i < hits; i++) {
     if (foe.hp <= 0 || user.hp <= 0) break;
-    const r = calcDamage(s, user, foe, move);
+    const r = calcDamage(s, user, foe, move, spread ? { spread: true } : undefined);
     eff = r.effectiveness;
     const { dealt, saved } = hitFor(c, foe, r.damage, r.effectiveness, r.crit);
     total += dealt;
@@ -665,6 +709,7 @@ function applyEffect(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef, e: 
         return 'blocked';
       }
       foe.volatile.seeded = true;
+      foe.volatile.seededBy = user.uid;
       volatileEvent(c, foe);
       say(c, `${who(foe)} WAS SEEDED!`);
       return 'applied';
@@ -712,60 +757,107 @@ function absorbHit(c: Ctx, holder: BattleMon): void {
 }
 
 function enemyPivot(c: Ctx, user: BattleMon): void {
-  const idx = chooseEnemyReplacement(c.s);
-  if (idx < 0) return;
+  const slot = fieldSlotOf(c.s, user);
+  const idx = chooseEnemyReplacement(c.s, slot);
+  if (slot < 0 || idx < 0) return;
   withdraw(c, user, true);
-  sendOut(c, 'enemy', idx, { text: true, entry: true });
+  sendOut(c, 'enemy', slot, idx, { text: true, entry: true });
 }
 
-/** Resolves a move after the user has been cleared to act. */
-function executeMove(c: Ctx, user: BattleMon, move: MoveDef): void {
+/** Effects that land on the target (once per foe hit); the rest act on the user, once per move. */
+function onTarget(e: MoveDef['effects'][number]): boolean {
+  switch (e.kind) {
+    case 'inflict': case 'confuse': case 'flinch': case 'firstTurn': case 'trap': case 'seed': return true;
+    case 'stages': return e.who === 'foe';
+    default: return false;
+  }
+}
+
+/**
+ * Who a move hits: nobody for a self move; every foe still up for a spread move; otherwise the foe
+ * in `targetSlot`, or the other one when that one is down (or no slot was given).
+ */
+function moveTargets(s: BattleState, user: BattleMon, move: MoveDef, targetSlot: number): BattleMon[] {
+  if (move.target !== 'foe') return [];
+  const side = otherSide(user.side);
+  const foes = fieldMons(s, side);
+  if (move.spread) return foes;
+  const st = sideOf(s, side);
+  const i = targetSlot >= 0 ? st.slots[targetSlot] ?? -1 : -1;
+  if (i >= 0 && st.team[i].hp > 0) return [st.team[i]];
+  const other = primaryFoe(s, user);
+  return other ? [other] : [];
+}
+
+/** Protect, absorb, immunity and the accuracy roll for one target. False: the move does not land on it. */
+function lands(c: Ctx, user: BattleMon, foe: BattleMon, move: MoveDef, spread: boolean): boolean {
   const s = c.s;
-  const foe = foeOf(s, user);
-  const foeWasUp = foe.hp > 0;
+  const damaging = isDamaging(move);
+  if (foe.volatile.protecting) {
+    emit(c, { t: 'protect', side: foe.side, uid: foe.uid });
+    say(c, `${who(foe)} PROTECTED ITSELF!`);
+    return false;
+  }
+  if (absorbs(foe, move)) {
+    absorbHit(c, foe);
+    return false;
+  }
+  if (damaging && !isTypeless(move) && typeEffectiveness(move.type, foe.types) === 0) {
+    say(c, spread ? `IT DOESN'T AFFECT ${who(foe)}...` : 'IT HAD NO EFFECT!');
+    return false;
+  }
+  if (!findEffect(move, 'sureHit')) {
+    const stage = clampStage(user.stages.acc - foe.stages.eva);
+    const acc = Math.min(100, move.accuracy * accStageMult(stage));
+    if (!(s.rng.int(0, 99) < acc)) {
+      emit(c, { t: 'miss', side: foe.side, uid: foe.uid });
+      say(c, spread ? `${who(foe)} AVOIDED THE ATTACK!` : damaging ? `${poss(user)} ATTACK MISSED!` : 'BUT IT MISSED!');
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Resolves a move after the user has been cleared to act. `targetSlot`: the foe's field slot (-1: any). */
+function executeMove(c: Ctx, user: BattleMon, move: MoveDef, targetSlot = -1): void {
+  const s = c.s;
   const damaging = isDamaging(move);
   if (findEffect(move, 'firstTurn') && user.volatile.turnsIn !== 0) {
     say(c, 'BUT IT FAILED!');
     return;
   }
-  if (move.target === 'foe') {
-    if (foe.hp <= 0) {
-      say(c, 'BUT THERE WAS NO TARGET!');
-      return;
-    }
-    if (foe.volatile.protecting) {
-      emit(c, { t: 'protect', side: foe.side, uid: foe.uid });
-      say(c, `${who(foe)} PROTECTED ITSELF!`);
-      return;
-    }
-    if (absorbs(foe, move)) {
-      absorbHit(c, foe);
-      return;
-    }
-    if (damaging && !isTypeless(move) && typeEffectiveness(move.type, foe.types) === 0) {
-      say(c, 'IT HAD NO EFFECT!');
-      return;
-    }
-    if (!findEffect(move, 'sureHit')) {
-      const stage = clampStage(user.stages.acc - foe.stages.eva);
-      const acc = Math.min(100, move.accuracy * accStageMult(stage));
-      if (!(s.rng.int(0, 99) < acc)) {
-        emit(c, { t: 'miss', side: foe.side, uid: foe.uid });
-        say(c, damaging ? `${poss(user)} ATTACK MISSED!` : 'BUT IT MISSED!');
-        return;
-      }
-    }
+  const targets = moveTargets(s, user, move, targetSlot);
+  if (move.target === 'foe' && !targets.length) {
+    say(c, 'BUT THERE WAS NO TARGET!');
+    return;
   }
+  const spread = targets.length > 1;
+  const hit = targets.filter((foe) => lands(c, user, foe, move, spread));
+  if (move.target === 'foe' && !hit.length) return;
+  // Self moves still have a foe in mind for their foe-side effects (e.g. wiping stat changes).
+  const primary = hit[0] ?? primaryFoe(s, user) ?? user;
 
-  const dealt = damaging ? dealDamage(c, user, foe, move) : 0;
   let applied = 0;
   let blocked = 0;
   let pivot = false;
-  for (const e of move.effects) {
-    const r = applyEffect(c, user, foe, move, e, damaging, dealt);
+  const tally = (e: MoveDef['effects'][number], r: EffectResult): void => {
     if (r === 'applied') applied++;
     if (r === 'blocked') blocked++;
     if (e.kind === 'pivot' && r === 'applied') pivot = true;
+  };
+  if (!spread) {
+    const dealt = damaging ? dealDamage(c, user, primary, move) : 0;
+    for (const e of move.effects) tally(e, applyEffect(c, user, primary, move, e, damaging, dealt));
+  } else {
+    // Each foe takes its hit and its own side effects; the user's own effects (recoil, drain,
+    // self stages, pivot) happen once, on the total.
+    let total = 0;
+    for (const foe of hit) {
+      const dealt = damaging ? dealDamage(c, user, foe, move, true) : 0;
+      total += dealt;
+      for (const e of move.effects) if (onTarget(e)) tally(e, applyEffect(c, user, foe, move, e, damaging, dealt));
+    }
+    for (const e of move.effects) if (!onTarget(e)) tally(e, applyEffect(c, user, primary, move, e, damaging, total));
   }
   if (move.id === STRUGGLE.id && user.hp > 0) {
     say(c, `${who(user)} IS HIT WITH RECOIL!`);
@@ -773,17 +865,17 @@ function executeMove(c: Ctx, user: BattleMon, move: MoveDef): void {
   }
   if (!damaging && applied === 0 && blocked === 0) say(c, 'BUT IT FAILED!');
 
-  if (foeWasUp) faintCheck(c, foe, user);
-  faintCheck(c, user, foe);
+  for (const foe of hit) faintCheck(c, foe, user);
+  faintCheck(c, user, primary);
   if (checkOver(c)) return;
   if (pivot && user.hp > 0 && isActive(s, user) && healthyBench(s, user.side)) {
     if (user.side === 'enemy') enemyPivot(c, user);
-    else c.pivot = true;
+    else c.pivots.add(fieldSlotOf(s, user));
   }
 }
 
 /** One combatant's move action for the turn (slot index; Struggle when nothing has PP). */
-function runMoveAction(c: Ctx, user: BattleMon, slotIndex: number): void {
+function runMoveAction(c: Ctx, user: BattleMon, slotIndex: number, targetSlot = -1): void {
   c.pending.delete(user.uid);
   const s = c.s;
   if (s.phase === 'over' || user.hp <= 0 || !isActive(s, user)) return;
@@ -795,26 +887,27 @@ function runMoveAction(c: Ctx, user: BattleMon, slotIndex: number): void {
     checkOver(c);
     return;
   }
+  const aimed = moveTargets(s, user, move, targetSlot);
   if (slot) {
-    const foe = foeOf(s, user);
-    const cost = foe.hp > 0 && abilityOf(foe).kind === 'pressure' ? 2 : 1;
+    const cost = aimed.some((f) => f.hp > 0 && abilityOf(f).kind === 'pressure') ? 2 : 1;
     slot.pp = Math.max(0, slot.pp - cost);
   } else {
     say(c, `${who(user)} HAS NO MOVES LEFT!`);
   }
   say(c, `${who(user)} USED ${move.name.toUpperCase()}!`);
-  if (slot) emit(c, { t: 'useMove', side: user.side, uid: user.uid, move: slot.id });
-  executeMove(c, user, move);
+  if (slot) emit(c, { t: 'useMove', side: user.side, uid: user.uid, move: slot.id, targets: aimed.map((m) => m.uid) });
+  executeMove(c, user, move, targetSlot);
 }
 
 // ---------------------------------------------------------------------------------------------
 // End of turn
 // ---------------------------------------------------------------------------------------------
 
+/** Everyone on the field still standing, fastest first (ties: the player's side, then field slot). */
 function bySpeed(s: BattleState): BattleMon[] {
-  const p = activeMon(s, 'player');
-  const e = activeMon(s, 'enemy');
-  return effectiveStat(e, 'spe') > effectiveStat(p, 'spe') ? [e, p] : [p, e];
+  const mons = [...fieldMons(s, 'player'), ...fieldMons(s, 'enemy')];
+  const key = (m: BattleMon): number => (m.side === 'player' ? 0 : 10) + fieldSlotOf(s, m);
+  return mons.sort((a, b) => effectiveStat(b, 'spe') - effectiveStat(a, 'spe') || key(a) - key(b));
 }
 
 function endOfTurn(c: Ctx): void {
@@ -833,8 +926,10 @@ function endOfTurn(c: Ctx): void {
     if (m.hp <= 0 || !m.volatile.seeded) continue;
     say(c, `${poss(m)} HEALTH IS SAPPED BY THE SEEDS!`);
     const lost = hurt(c, m, Math.max(1, Math.floor(m.stats.hp / 8)), 'seed');
-    const other = foeOf(s, m);
-    if (lost > 0 && other.hp > 0 && other.hp < other.stats.hp) {
+    // The seeder soaks it up while it is on the field; otherwise whoever stands across.
+    const seeder = fieldMons(s, otherSide(m.side)).find((f) => f.uid === m.volatile.seededBy);
+    const other = seeder ?? primaryFoe(s, m);
+    if (lost > 0 && other && other.hp > 0 && other.hp < other.stats.hp) {
       say(c, `${who(other)} SOAKED UP THE STOLEN HEALTH!`);
       heal(c, other, lost);
     }
@@ -878,32 +973,41 @@ function endOfTurn(c: Ctx): void {
   }
 }
 
-/** Replacements after the turn: the AI sends its next fighter, the player may have to choose. */
+/** Field slots on `side` that need someone new: their combatant is down (or the slot is empty). */
+function emptySlots(s: BattleState, side: Side): number[] {
+  const st = sideOf(s, side);
+  return st.slots.map((i, k) => (i < 0 || st.team[i].hp <= 0 ? k : -1)).filter((k) => k >= 0);
+}
+
+/** Replacements after the turn: the AI fills its empty slots, the player may have to choose. */
 function afterTurn(c: Ctx): void {
   const s = c.s;
   if (s.phase === 'over') return;
-  const e = activeMon(s, 'enemy');
-  if (e.hp <= 0 && healthyBench(s, 'enemy')) {
-    // The player's active is on its way out: knocked out too (a double knockout), or tagging out
-    // after a pivot. Its real replacement is not in yet, so the AI does not pick against the
-    // leaving dragon, and the newcomer's entry ability waits for the replacement (submitSwitch)
-    // instead of fizzling on a fainted foe or hitting one whose stages the withdraw wipes.
-    const playerLeaving = healthyBench(s, 'player') && (activeMon(s, 'player').hp <= 0 || c.pivot);
-    const idx = chooseEnemyReplacement(s, playerLeaving);
-    if (idx >= 0) {
-      sendOut(c, 'enemy', idx, { text: true, entry: !playerLeaving });
-      if (playerLeaving) s.pendingEntry = s.enemy.team[idx].uid;
-    }
+  // The player's slots that will change hands: knocked out (with someone to send), or tagging
+  // out after a pivot. As many as the bench can fill, in slot order.
+  const bench = benchIndices(s, 'player').length;
+  const wanted = [...new Set([...emptySlots(s, 'player'), ...[...c.pivots].filter((k) => k >= 0 && activeMon(s, 'player', k).hp > 0)])]
+    .sort((a, b) => a - b).slice(0, bench);
+  const playerLeaving = wanted.length > 0;
+  for (const slot of emptySlots(s, 'enemy')) {
+    if (!healthyBench(s, 'enemy')) break;
+    // The player's replacements are not in yet, so the AI does not pick against leaving dragons
+    // (send order decides, as after a double knockout), and the newcomer's entry ability waits for
+    // them (submitSwitch) instead of fizzling on a fainted foe or hitting one about to withdraw.
+    const idx = chooseEnemyReplacement(s, slot, playerLeaving);
+    if (idx < 0) break;
+    sendOut(c, 'enemy', slot, idx, { text: true, entry: !playerLeaving });
+    if (playerLeaving) s.pendingEntry.push(s.enemy.team[idx].uid);
   }
-  const p = activeMon(s, 'player');
-  if (p.hp <= 0) {
-    s.phase = healthyBench(s, 'player') ? 'switch' : s.phase;
-    if (s.phase === 'switch') say(c, 'WHO WILL YOU SEND OUT NEXT?');
-  } else if (c.pivot && healthyBench(s, 'player')) {
+  if (wanted.length) {
     s.phase = 'switch';
-    say(c, `${who(p)} IS READY TO TAG OUT!`);
+    s.switchSlots = wanted;
+    const first = activeMon(s, 'player', wanted[0]);
+    if (first.hp > 0 && c.pivots.has(wanted[0])) say(c, `${who(first)} IS READY TO TAG OUT!`);
+    else say(c, 'WHO WILL YOU SEND OUT NEXT?');
   } else {
     s.phase = 'choose';
+    s.switchSlots = [];
   }
   checkOver(c);
 }
@@ -914,8 +1018,8 @@ function afterTurn(c: Ctx): void {
 
 /**
  * Can the player use `item` on team member `index` right now? Heals need a hurt, conscious target;
- * revives a fainted one; cures a status (or the active one's confusion); stat items the active
- * dragon, with room left on a stage they raise. legal().items and submitTurn use the same rule.
+ * revives a fainted one; cures a status (or a field dragon's confusion); stat items a dragon on
+ * the field, with room left on a stage they raise. legal().items and submitTurn use the same rule.
  */
 export function itemTargetOk(s: BattleState, item: ItemId, index: number): boolean {
   const team = s.player.team;
@@ -925,9 +1029,9 @@ export function itemTargetOk(s: BattleState, item: ItemId, index: number): boole
   switch (eff.kind) {
     case 'heal': return m.hp > 0 && m.hp < m.stats.hp;
     case 'revive': return m.hp <= 0;
-    case 'cure': return m.hp > 0 && (m.status !== null || (index === s.player.active && m.volatile.confused > 0));
+    case 'cure': return m.hp > 0 && (m.status !== null || (s.player.slots.includes(index) && m.volatile.confused > 0));
     case 'stages':
-      return index === s.player.active && m.hp > 0
+      return s.player.slots.includes(index) && m.hp > 0
         && STAGE_STATS.some((k) => { const v = eff.changes[k] ?? 0; return (v > 0 && m.stages[k] < 6) || (v < 0 && m.stages[k] > -6); });
   }
 }
@@ -953,6 +1057,10 @@ function useItem(c: Ctx, item: ItemId, index: number): void {
       break;
     }
     case 'revive': {
+      // A dragon revived where it fell leaves its field slot: it waits on the bench, and the slot
+      // is filled at the end of the turn like any other.
+      const k = s.player.slots.indexOf(index);
+      if (k >= 0) s.player.slots[k] = -1;
       m.hp = Math.max(1, Math.floor(m.stats.hp * eff.fraction));
       m.status = null;
       m.statusTurns = 0;
@@ -984,61 +1092,94 @@ export function createBattle(setup: BattleSetup): BattleState {
   const player = setup.player.map((m, i) => buildMon(m, 'player', i));
   const enemy = setup.enemy.map((m, i) => buildMon(m, 'enemy', i));
   for (const m of [...player, ...enemy]) if (m.status === 'snooze') m.statusTurns = rng.int(1, 3);
-  const firstUp = (team: BattleMon[]): number => Math.max(0, team.findIndex((m) => m.hp > 0));
+  // The leads: the first ones standing, one per field slot.
+  const leads = (team: BattleMon[]): number[] => {
+    const up = team.map((m, i) => (m.hp > 0 ? i : -1)).filter((i) => i >= 0);
+    const n = Math.max(1, Math.min(setup.fieldSlots ?? FIELD_SLOTS, FIELD_SLOTS, team.length));
+    return Array.from({ length: n }, (_, k) => up[k] ?? (k === 0 ? 0 : -1));
+  };
   return {
     rng,
     turn: 0,
-    player: { team: player, active: firstUp(player) },
-    enemy: { team: enemy, active: firstUp(enemy) },
+    player: { team: player, slots: leads(player) },
+    enemy: { team: enemy, slots: leads(enemy) },
     aiLevel: setup.aiLevel,
     items: { ...setup.items },
     canRetreat: setup.canRetreat,
     phase: 'choose',
+    switchSlots: [],
     winner: null,
     enemySwaps: 0,
+    pendingEntry: [],
     log: [],
   };
 }
 
-/** Sends out both leads (foe first) and runs entry abilities in speed order. */
+/** Sends out the leads (foes first) and runs entry abilities in speed order. */
 export function startBattle(state: BattleState): BattleEvent[] {
   const c = newCtx(state);
   if (checkOver(c)) return c.ev;
-  sendOut(c, 'enemy', state.enemy.active, { text: true, entry: false });
-  sendOut(c, 'player', state.player.active, { text: true, entry: false });
+  for (const side of ['enemy', 'player'] as const) {
+    sideOf(state, side).slots.forEach((i, k) => {
+      if (i >= 0 && sideOf(state, side).team[i].hp > 0) sendOut(c, side, k, i, { text: true, entry: false });
+    });
+  }
   for (const m of bySpeed(state)) entryAbility(c, m);
   state.phase = 'choose';
   return c.ev;
 }
 
-export function legal(state: BattleState): { moves: boolean[]; switches: boolean[]; items: ItemId[]; retreat: boolean; mustSwitch: boolean } {
+export interface Legal {
+  /** The player's field slot these answers are for. */
+  slot: number;
+  moves: boolean[];
+  /** Team indices that may come in. */
+  switches: boolean[];
+  items: ItemId[];
+  retreat: boolean;
+  mustSwitch: boolean;
+  /** Foe field slots a single-target move may aim at. */
+  targets: boolean[];
+}
+
+/**
+ * What the player may do. In 'choose', for the dragon in field slot `slot` (default: the first one
+ * standing); in 'switch', for the next slot waiting for a replacement.
+ */
+export function legal(state: BattleState, slot?: number): Legal {
   const p = state.player;
-  const me = p.team[p.active];
-  const bench = p.team.map((m, i) => i !== p.active && m.hp > 0);
-  if (state.phase === 'over') {
-    return { moves: me.moves.map(() => false), switches: p.team.map(() => false), items: [], retreat: false, mustSwitch: false };
-  }
-  if (state.phase === 'switch') {
-    return { moves: me.moves.map(() => false), switches: bench, items: [], retreat: false, mustSwitch: true };
-  }
+  const targets = state.enemy.slots.map((i) => i >= 0 && state.enemy.team[i].hp > 0);
+  const k = state.phase === 'switch' ? state.switchSlots[0] ?? 0 : slot ?? liveSlots(state, 'player')[0] ?? 0;
+  const me = activeMon(state, 'player', k);
+  const benchSet = new Set(benchIndices(state, 'player'));
+  const bench = p.team.map((_, i) => benchSet.has(i));
+  const none = { slot: k, moves: me.moves.map(() => false), switches: p.team.map(() => false), items: [] as ItemId[], retreat: false, mustSwitch: false, targets };
+  if (state.phase === 'over') return none;
+  if (state.phase === 'switch') return { ...none, switches: bench, mustSwitch: true };
+  if (me.hp <= 0) return none;
   // With no PP left anywhere every button is live: whichever is pressed, the dragon struggles on.
   const anyPp = me.moves.some((m) => m.pp > 0);
   return {
+    slot: k,
     moves: me.moves.map((m) => (anyPp ? m.pp > 0 : true)),
     switches: me.volatile.stuck ? bench.map(() => false) : bench,
     items: usableItems(state),
     retreat: state.canRetreat,
     mustSwitch: false,
+    targets,
   };
 }
 
-function validate(state: BattleState, action: PlayerAction): void {
-  const L = legal(state);
-  const me = activeMon(state, 'player');
+function validate(state: BattleState, action: PlayerAction, slot: number): void {
+  const L = legal(state, slot);
+  const me = activeMon(state, 'player', slot);
   switch (action.kind) {
     case 'move': {
       const ok = Number.isInteger(action.slot) && (me.moves.length === 0 ? action.slot === 0 : L.moves[action.slot] === true);
       if (!ok) throw new Error(`illegal move slot ${action.slot}`);
+      if (action.target !== undefined && !(Number.isInteger(action.target) && action.target >= 0 && action.target < state.enemy.slots.length)) {
+        throw new Error(`illegal target ${action.target}`);
+      }
       return;
     }
     case 'switch':
@@ -1066,70 +1207,111 @@ function chosenMove(m: BattleMon, slot: number): MoveDef {
   return any ? battleMove(any.id) : STRUGGLE;
 }
 
-export function submitTurn(state: BattleState, action: PlayerAction): BattleEvent[] {
+/**
+ * Resolve a turn. `actions`: one per player field slot still standing, in slot order (liveSlots);
+ * a single action is fine when only one dragon is up. Any retreat ends the battle at once.
+ */
+export function submitTurn(state: BattleState, actions: PlayerAction | PlayerAction[]): BattleEvent[] {
   if (state.phase !== 'choose') throw new Error(`submitTurn during phase '${state.phase}'`);
-  validate(state, action);
+  const list = Array.isArray(actions) ? actions : [actions];
+  const mine = liveSlots(state, 'player');
+  if (list.some((a) => a.kind === 'retreat')) {
+    validate(state, { kind: 'retreat' }, mine[0] ?? 0);
+  } else {
+    if (list.length !== mine.length) throw new Error(`submitTurn: ${mine.length} action(s) needed, got ${list.length}`);
+    list.forEach((a, k) => validate(state, a, mine[k]));
+    const ins = list.filter((a) => a.kind === 'switch').map((a) => (a.kind === 'switch' ? a.index : -1));
+    if (new Set(ins).size !== ins.length) throw new Error('two dragons cannot swap in the same teammate');
+    const uses: Partial<Record<ItemId, number>> = {};
+    for (const a of list) if (a.kind === 'item') uses[a.item] = (uses[a.item] ?? 0) + 1;
+    for (const id of ITEM_IDS) if ((uses[id] ?? 0) > (state.items[id] ?? 0)) throw new Error(`not enough ${id} for every order`);
+  }
   const c = newCtx(state);
   state.turn++;
-  const me = activeMon(state, 'player');
 
-  if (action.kind === 'retreat') {
+  if (list.some((a) => a.kind === 'retreat')) {
     endBattle(c, 'retreat');
     return c.ev;
   }
 
   // Both sides decide "at the same time": the AI sees the field as the turn starts.
-  const ai = chooseEnemyAction(state);
-  const foe = activeMon(state, 'enemy');
-  const queue: { mon: BattleMon; slot: number }[] = [];
-  if (action.kind === 'move') queue.push({ mon: me, slot: action.slot });
-  if (ai.kind === 'move') queue.push({ mon: foe, slot: ai.slot });
+  const ai = chooseEnemyActions(state);
+  const queue: { mon: BattleMon; slot: number; target: number }[] = [];
+  list.forEach((a, k) => {
+    if (a.kind === 'move') queue.push({ mon: activeMon(state, 'player', mine[k]), slot: a.slot, target: a.target ?? -1 });
+  });
+  for (const a of ai) if (a.action.kind === 'move') queue.push({ mon: activeMon(state, 'enemy', a.slot), slot: a.action.slot, target: a.action.target });
   for (const q of queue) c.pending.add(q.mon.uid);
 
-  // Switches and items go before any move: the player's first, then the AI's.
-  if (action.kind === 'switch') {
-    withdraw(c, me, true);
-    sendOut(c, 'player', action.index, { text: true, entry: true });
-  } else if (action.kind === 'item') {
-    useItem(c, action.item, action.target);
-  }
-  if (ai.kind === 'switch') {
-    const target = state.enemy.team[ai.index];
-    if (target && target.hp > 0 && ai.index !== state.enemy.active && !foe.volatile.stuck) enemySwap(c, ai.index);
+  // Switches and items go before any move: the player's first (in slot order), then the AI's.
+  list.forEach((a, k) => {
+    if (a.kind === 'switch') {
+      const me = activeMon(state, 'player', mine[k]);
+      withdraw(c, me, true);
+      sendOut(c, 'player', mine[k], a.index, { text: true, entry: true });
+    } else if (a.kind === 'item') {
+      if (itemTargetOk(state, a.item, a.target)) useItem(c, a.item, a.target);
+    }
+  });
+  for (const a of ai) {
+    if (a.action.kind !== 'switch') continue;
+    const cur = activeMon(state, 'enemy', a.slot);
+    const target = state.enemy.team[a.action.index];
+    if (target && target.hp > 0 && !state.enemy.slots.includes(a.action.index) && cur.hp > 0 && !cur.volatile.stuck) enemySwap(c, a.slot, a.action.index);
   }
 
-  // Moves: priority, then effective speed, then a coin flip.
-  if (queue.length === 2) {
-    const [a, b] = queue;
+  // Moves: priority, then effective speed, then a coin flip (drawn only for a real tie).
+  const before = (a: (typeof queue)[number], b: (typeof queue)[number]): boolean => {
     const pa = priorityOf(a.mon, chosenMove(a.mon, a.slot));
     const pb = priorityOf(b.mon, chosenMove(b.mon, b.slot));
+    if (pa !== pb) return pa > pb;
     const sa = effectiveStat(a.mon, 'spe');
     const sb = effectiveStat(b.mon, 'spe');
-    const bFirst = pb > pa || (pb === pa && (sb > sa || (sb === sa && state.rng.next() < 0.5)));
-    if (bFirst) queue.reverse();
+    if (sa !== sb) return sa > sb;
+    return !(state.rng.next() < 0.5);
+  };
+  // insertion sort: a two-entry queue compares exactly once, as the singles engine did
+  for (let i = 1; i < queue.length; i++) {
+    const cur = queue[i];
+    let j = i - 1;
+    while (j >= 0 && !before(queue[j], cur)) {
+      queue[j + 1] = queue[j];
+      j--;
+    }
+    queue[j + 1] = cur;
   }
   for (const q of queue) {
     if (isOver(state)) break;
-    runMoveAction(c, q.mon, q.slot);
+    runMoveAction(c, q.mon, q.slot, q.target);
   }
   if (!isOver(state) && !checkOver(c)) endOfTurn(c);
   if (!isOver(state)) afterTurn(c);
   return c.ev;
 }
 
+/** In phase 'switch': send team member `index` into the next field slot waiting for one. */
 export function submitSwitch(state: BattleState, index: number): BattleEvent[] {
   if (state.phase !== 'switch') throw new Error(`submitSwitch during phase '${state.phase}'`);
   if (legal(state).switches[index] !== true) throw new Error(`illegal switch to ${index}`);
   const c = newCtx(state);
-  const cur = activeMon(state, 'player');
-  if (cur.hp > 0) withdraw(c, cur, true);
-  sendOut(c, 'player', index, { text: true, entry: true });
-  // the enemy replacement that came in on the same double knockout now meets its foe
-  const waiting = activeMon(state, 'enemy');
-  const pending = state.pendingEntry;
-  state.pendingEntry = null;
-  if (pending && waiting.uid === pending && waiting.hp > 0) entryAbility(c, waiting);
-  state.phase = 'choose';
+  const slot = state.switchSlots.shift() ?? 0;
+  const cur = activeMon(state, 'player', slot);
+  if (cur.hp > 0 && state.player.slots[slot] >= 0) withdraw(c, cur, true);
+  sendOut(c, 'player', slot, index, { text: true, entry: true });
+  // nobody left to send for the rest: those slots stay empty
+  state.switchSlots = state.switchSlots.filter(() => healthyBench(state, 'player'));
+  if (state.switchSlots.length) {
+    say(c, 'WHO WILL YOU SEND OUT NEXT?');
+  } else {
+    // enemy replacements that came in meanwhile now meet their foes
+    const waiting = state.pendingEntry;
+    state.pendingEntry = [];
+    for (const uid of waiting) {
+      const m = state.enemy.team.find((x) => x.uid === uid);
+      if (m && m.hp > 0 && isActive(state, m)) entryAbility(c, m);
+    }
+    state.phase = 'choose';
+  }
   checkOver(c);
   return c.ev;
 }

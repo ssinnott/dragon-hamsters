@@ -1018,6 +1018,14 @@ check('missions: enemy levels are 1..MAX_LEVEL', () => {
   return errs;
 });
 
+check('missions: every fight is two on two (at least two foes per encounter)', () => {
+  const errs: string[] = [];
+  for (const m of MISSIONS) for (const { label, enc } of encounters(m.nodes)) {
+    if (enc.enemies.length < 2) errs.push(`mission '${m.id}' node '${label}': only ${enc.enemies.length} foe(s)`);
+  }
+  return errs;
+});
+
 advise('missions: board levels follow the design bands', () => {
   const errs: string[] = [];
   const bands: Record<string, number[]> = {

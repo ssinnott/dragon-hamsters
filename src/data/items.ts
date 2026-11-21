@@ -5,27 +5,27 @@ import type { FoodDef, FoodId, ItemDef, ItemId } from './schema.ts';
 
 export const FOODS: Record<FoodId, FoodDef> = {
   seeds: {
-    id: 'seeds', name: 'Sunflower Seeds', price: 5, fullness: 20, happiness: 4, xp: 0,
+    id: 'seeds', name: 'Sunflower Seeds', price: 5, fullness: 30, happiness: 4, xp: 0,
     description: 'Stripy sunflower seeds. Cheap, crunchy and filling.',
     color: '#e2c878', accent: '#3a2c1c',
   },
   carrot: {
-    id: 'carrot', name: 'Crunchy Carrot', price: 10, fullness: 35, happiness: 8, xp: 0,
+    id: 'carrot', name: 'Crunchy Carrot', price: 10, fullness: 50, happiness: 8, xp: 0,
     description: 'A fresh, crunchy carrot. Keeps little teeth in tip-top shape.',
     color: '#f07a26', accent: '#3e9a34',
   },
   berries: {
-    id: 'berries', name: 'Blueberry Bundle', price: 15, fullness: 15, happiness: 25, xp: 0,
+    id: 'berries', name: 'Blueberry Bundle', price: 15, fullness: 20, happiness: 25, xp: 0,
     description: 'A bundle of juicy blueberries. A sweet treat that lifts any mood.',
     color: '#4a5cd0', accent: '#2a8a3a',
   },
   cheese: {
-    id: 'cheese', name: 'Cheese Cube', price: 22, fullness: 45, happiness: 15, xp: 0,
+    id: 'cheese', name: 'Cheese Cube', price: 22, fullness: 70, happiness: 15, xp: 0,
     description: 'A chunky cube of cheese. Very filling. Do not tell the mice.',
     color: '#f2d040', accent: '#c09a1a',
   },
   dragonfruit: {
-    id: 'dragonfruit', name: 'Dragonfruit', price: 45, fullness: 30, happiness: 30, xp: 150,
+    id: 'dragonfruit', name: 'Dragonfruit', price: 45, fullness: 40, happiness: 30, xp: 150,
     description: 'A rare, magical fruit. Every bite teaches something new: +150 XP.',
     color: '#e8408e', accent: '#6cc040',
   },

@@ -72,6 +72,7 @@ function mv(id: string, spec: MoveSpec): void {
 }
 mv('test-wait', { type: 'FLUFF', category: 'status', power: 0, target: 'self', pp: 64 });
 mv('test-tackle', { type: 'FLUFF', category: 'physical', power: 40, pp: 64 });
+mv('test-spread', { type: 'FLUFF', category: 'special', power: 80, contact: false, spread: true, pp: 64 });
 mv('test-strike', { type: 'FLUFF', category: 'physical', power: 80, contact: false });
 mv('test-plain140', { type: 'FLUFF', category: 'physical', power: 140, contact: false });
 mv('test-flame', { type: 'FIRE', category: 'special', power: 90 });
@@ -170,7 +171,7 @@ for (const t of TYPE_IDS) REAL_CHART[t] = { ...(CHART[t] ?? {}) };
 setChart(TEST_CHART);
 
 // Now the modules under test (they pull in src/data/index.ts, which sees the fixtures).
-const { createBattle, startBattle, submitTurn, submitSwitch, legal, activeMon } = await import('../src/battle/battle.ts');
+const { createBattle, startBattle, submitTurn, submitSwitch, legal, activeMon, liveSlots, itemTargetOk, fieldMons, fieldSlotOf } = await import('../src/battle/battle.ts');
 const { calcDamage, computeDamage, estimateDamage, effectiveStat, critStage, critChance, STRUGGLE } = await import('../src/battle/damage.ts');
 const M = await import('../src/battle/matchup.ts');
 const { buildMon, defaultMoves, computeStats } = await import('../src/battle/build.ts');
@@ -224,11 +225,13 @@ function eInit(o: Partial<MonInit> = {}): MonInit {
 interface MkOpts {
   p?: Partial<MonInit>[]; e?: Partial<MonInit>[]; seed?: number; ai?: AiLevel;
   items?: Partial<Record<ItemId, number>>; retreat?: boolean; setup?: (s: BattleState) => void; noStart?: boolean;
+  /** Field slots per side: 1 (singles, what the rule scenarios below test) unless a doubles test says 2. */
+  slots?: number;
 }
 function mk(o: MkOpts = {}): BattleState {
   const st = createBattle({
     seed: o.seed ?? 1, player: (o.p ?? [{}]).map(pInit), enemy: (o.e ?? [{}]).map(eInit),
-    items: o.items ?? {}, aiLevel: o.ai ?? 'minion', canRetreat: o.retreat ?? true,
+    items: o.items ?? {}, aiLevel: o.ai ?? 'minion', canRetreat: o.retreat ?? true, fieldSlots: o.slots ?? 1,
   });
   o.setup?.(st);
   if (!o.noStart) startBattle(st);
@@ -666,7 +669,7 @@ test('player switch and item go before moves', () => {
   eq(dmgTo(evs, 'p1').length, 1, 'the incoming dragon takes the hit');
   eq(dmgTo(evs, 'p0').length, 0, 'the old one does not');
   check(has(evs, 'TESTBLOB, COME BACK!') && has(evs, 'GO! TESTBLOB!'), 'switch lines');
-  eq(st.player.active, 1, 'active index');
+  eq(st.player.slots[0], 1, 'active index');
 });
 
 test('moves resolve fully in order; a fainted combatant does not act', () => {
@@ -1024,7 +1027,7 @@ test('pivot: player chooses after the turn; enemy swaps at once', () => {
   check(st.player.team[0].hp > 0, 'pivoted dragon is fine');
   const st2 = mk({ p: [{ moves: ['test-tackle'] }], e: [{ moves: ['test-pivot'] }, {}], setup: (s) => { slow(s); bigHp(s.enemy.team[1]); } });
   evs = submitTurn(st2, mvA());
-  eq(st2.enemy.active, 1, 'enemy swapped immediately');
+  eq(st2.enemy.slots[0], 1, 'enemy swapped immediately');
   eq(dmgTo(evs, 'e1').length, 1, 'the player\'s move hits the newcomer');
   eq(st2.phase, 'choose', 'player keeps choosing');
   const st3 = mk({ p: [{ moves: ['test-pivot'] }], setup: (s) => { fast(s); bigHp(s.enemy.team[0]); } });
@@ -1046,22 +1049,22 @@ test('pivot knockout: the foe\'s replacement waits for the dragon that really co
   let st = mk({ ai: 'elite', p: [{ moves: ['test-pivot'] }, {}], e: [{}, { ability: 'test-intimidate' }, {}], setup });
   let evs = submitTurn(st, mvA());
   eq(st.phase, 'switch', 'the pivot still tags out');
-  eq(st.enemy.active, 1, 'replacement by send order, not by its matchup vs the leaving FIRE dragon');
+  eq(st.enemy.slots[0], 1, 'replacement by send order, not by its matchup vs the leaving FIRE dragon');
   check(!evs.some((e) => e.t === 'ability'), 'no entry ability on the leaving dragon');
   eq(st.player.team[0].stages.atk, 0, 'the leaving dragon keeps its ATTACK');
-  eq(st.pendingEntry, st.enemy.team[1].uid, 'entry ability waits');
+  eq(st.pendingEntry, [st.enemy.team[1].uid], 'entry ability waits');
   evs = submitSwitch(st, 1);
   check(evs.some((e) => e.t === 'ability' && e.uid === st.enemy.team[1].uid), 'entry ability fires after the swap');
   eq(P(st).uid, 'p1', 'the replacement is in');
   eq(P(st).stages.atk, -1, 'the replacement gets the ATTACK drop');
-  eq(st.pendingEntry ?? null, null, 'nothing waits any more');
+  eq(st.pendingEntry, [], 'nothing waits any more');
   // Without a pivot the AI still picks by matchup (WATER vs the FIRE dragon that stays).
   st = mk({ ai: 'elite', p: [{ moves: ['test-tackle'] }, {}], e: [{}, {}, { ability: 'test-intimidate' }], setup });
   evs = submitTurn(st, mvA());
-  eq(st.enemy.active, 2, 'plain knockout: best matchup');
+  eq(st.enemy.slots[0], 2, 'plain knockout: best matchup');
   eq(st.phase, 'choose', 'plain knockout: no switch');
   eq(P(st).stages.atk, -1, 'plain knockout: entry fires at once');
-  check(!st.pendingEntry, 'plain knockout: nothing waits');
+  check(!st.pendingEntry.length, 'plain knockout: nothing waits');
   // The foe falls to its burn at the end of a turn in which the player pivoted: same rule.
   st = mk({
     p: [{ moves: ['test-pivot'] }, {}], e: [{ moves: ['test-wait'] }, { ability: 'test-intimidate' }],
@@ -1069,7 +1072,7 @@ test('pivot knockout: the foe\'s replacement waits for the dragon that really co
   });
   evs = submitTurn(st, mvA());
   check(has(evs, 'IS HURT BY ITS BURN!'), 'burn at the end of the turn');
-  eq(st.enemy.active, 1, 'replaced after the burn');
+  eq(st.enemy.slots[0], 1, 'replaced after the burn');
   eq(st.phase, 'switch', 'still tags out');
   eq(st.player.team[0].stages.atk, 0, 'end-of-turn KO: the leaving dragon is untouched');
   submitSwitch(st, 1);
@@ -1264,7 +1267,7 @@ test('enemy replacement and the end', () => {
   const st = mk({ e: [{}, {}], setup: (s) => { fast(s); s.enemy.team[0].hp = 1; } });
   const evs = submitTurn(st, mvA());
   check(has(evs, 'THE FOE SENT OUT TEST GOON!'), 'replacement line');
-  eq(st.enemy.active, 1, 'next enemy');
+  eq(st.enemy.slots[0], 1, 'next enemy');
   eq(st.phase, 'choose', 'battle goes on');
   E(st).hp = 1;
   const evs2 = submitTurn(st, mvA());
@@ -1282,7 +1285,7 @@ test('double knockouts', () => {
   // Both actives go down with teammates left: the AI replaces, the player must switch.
   st = mk({ p: [{ moves: ['test-recoil'] }, {}], e: [{}, {}], setup: (s) => { fast(s); s.player.team[0].hp = 1; s.enemy.team[0].hp = 1; } });
   evs = submitTurn(st, mvA());
-  eq(st.enemy.active, 1, 'enemy replaced');
+  eq(st.enemy.slots[0], 1, 'enemy replaced');
   eq(st.phase, 'switch', 'player must switch');
   check(evs.filter((e) => e.t === 'faint').length === 2, 'two faints');
   // The enemy's replacement has an entry ability: it waits for the player's replacement, then fires.
@@ -1293,11 +1296,11 @@ test('double knockouts', () => {
   evs = submitTurn(st, mvA());
   eq(st.phase, 'switch', 'double KO: player must switch');
   check(!evs.some((e) => e.t === 'ability'), 'entry ability does not fizzle on the fainted active');
-  eq(st.pendingEntry, st.enemy.team[1].uid, 'entry ability waits');
+  eq(st.pendingEntry, [st.enemy.team[1].uid], 'entry ability waits');
   evs = submitSwitch(st, 1);
   check(evs.some((e) => e.t === 'ability' && e.uid === st.enemy.team[1].uid), 'entry ability fires after the player switches in');
   eq(P(st).stages.atk, -1, "the player's replacement gets the ATTACK drop");
-  eq(st.pendingEntry ?? null, null, 'nothing waits any more');
+  eq(st.pendingEntry, [], 'nothing waits any more');
   const sendAt = evs.findIndex((e) => e.t === 'sendOut' && e.side === 'player');
   check(sendAt >= 0 && sendAt < evs.findIndex((e) => e.t === 'ability'), 'after the send-out');
   // Burn finishes the last foe while the player is also finished by seeds the same turn end.
@@ -1451,16 +1454,16 @@ test('elite AI picks the best expected damage most of the time', () => {
 
 test('boss AI: KOs, heals, buffs', () => {
   let st = mk({ ai: 'boss', e: [{ moves: ['test-buff', 'test-tackle'] }], setup: (s) => { s.player.team[0].hp = 3; } });
-  eq(chooseEnemyAction(st), { kind: 'move', slot: 1 }, 'takes the KO');
+  eq(chooseEnemyAction(st), { kind: 'move', slot: 1, target: 0 }, 'takes the KO');
   st = mk({ ai: 'boss', p: [{ moves: ['test-wait'] }], e: [{ moves: ['test-tackle', 'test-heal'] }], setup: (s) => { s.enemy.team[0].hp = Math.floor(s.enemy.team[0].stats.hp * 0.3); bigHp(s.player.team[0]); } });
-  eq(chooseEnemyAction(st), { kind: 'move', slot: 1 }, 'heals when low');
+  eq(chooseEnemyAction(st), { kind: 'move', slot: 1, target: 0 }, 'heals when low');
   st = mk({ ai: 'boss', p: [{ moves: ['test-wait'] }], e: [{ moves: ['test-tackle', 'test-buff'] }], setup: (s) => bigHp(s.player.team[0]) });
-  eq(chooseEnemyAction(st), { kind: 'move', slot: 1 }, 'buffs when safe');
+  eq(chooseEnemyAction(st), { kind: 'move', slot: 1, target: 0 }, 'buffs when safe');
   st.enemy.team[0].stages.atk = 2;
-  eq(chooseEnemyAction(st), { kind: 'move', slot: 0 }, 'stops buffing at +2');
+  eq(chooseEnemyAction(st), { kind: 'move', slot: 0, target: 0 }, 'stops buffing at +2');
   st = mk({ ai: 'boss', e: [{ moves: ['test-firstturn', 'test-tackle'] }], setup: (s) => bigHp(s.player.team[0]) });
   st.enemy.team[0].volatile.turnsIn = 3;
-  eq(chooseEnemyAction(st), { kind: 'move', slot: 1 }, 'no first-turn move later on');
+  eq(chooseEnemyAction(st), { kind: 'move', slot: 1, target: 0 }, 'no first-turn move later on');
 });
 
 test('boss AI counter-swaps: the rock-paper-scissors moment', () => {
@@ -1478,7 +1481,7 @@ test('boss AI counter-swaps: the rock-paper-scissors moment', () => {
   eq(chooseEnemyAction(st), { kind: 'switch', index: 1 }, 'swaps to the resisting teammate');
   const evs = submitTurn(st, mvA());
   check(has(evs, "THE FOE'S TEST GOON SAW YOUR FIRE TYPE COMING AND SWAPPED IN TEST GOON!"), 'the swap line');
-  eq(st.enemy.active, 1, 'swapped');
+  eq(st.enemy.slots[0], 1, 'swapped');
   eq(st.enemySwaps, 1, 'counted');
   check(evs.findIndex((e) => e.t === 'sendOut') < evs.findIndex((e) => e.t === 'useMove'), 'swap before moves');
   check(dmgTo(evs, 'e1').length > 0 && dmgTo(evs, 'e1')[0].effectiveness === 0.5, 'the fire move hits the water type for x0.5');
@@ -1626,6 +1629,135 @@ function validate(st: BattleState, evs: BattleEvent[], tag: string): string | nu
   return null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Doubles: two on the field per side (what the game plays)
+// ---------------------------------------------------------------------------------------------
+
+type Ev<K extends BattleEvent['t']> = Extract<BattleEvent, { t: K }>;
+const evsOf = <K extends BattleEvent['t']>(evs: BattleEvent[], t: K): Ev<K>[] => evs.filter((e): e is Ev<K> => e.t === t);
+const moveHits = (evs: BattleEvent[]): string[] => evsOf(evs, 'damage').filter((e) => e.source === 'move').map((e) => e.uid);
+const W = (): PlayerAction => ({ kind: 'move', slot: 0 });
+
+test('doubles: two leads a side, each in its own field slot', () => {
+  const st = mk({ slots: 2, p: [{}, {}, {}], e: [{}, {}, {}] });
+  eq(st.player.slots, [0, 1], 'player leads');
+  eq(st.enemy.slots, [0, 1], 'enemy leads');
+  eq(evsOf(st.log, 'sendOut').map((e) => `${e.side}:${e.slot}:${e.index}`), ['enemy:0:0', 'enemy:1:1', 'player:0:0', 'player:1:1'], 'foes first, slot by slot');
+  eq(legal(st, 0).targets, [true, true], 'both foes can be aimed at');
+  eq(liveSlots(st, 'player'), [0, 1], 'two orders to give');
+  throws(() => submitTurn(st, W()), 'one order for two dragons');
+  // fewer than two on a side: one slot (a lone dragon still fights two foes)
+  const solo = mk({ slots: 2, p: [{}], e: [{}, {}] });
+  eq(solo.player.slots, [0], 'a lone dragon fills one slot');
+  eq(liveSlots(solo, 'enemy'), [0, 1], 'against two');
+  // a fainted lead is skipped
+  const skip = mk({ slots: 2, p: [{ hp: 0 }, {}, {}], e: [{}] });
+  eq(skip.player.slots, [1, 2], 'leads are the first two standing');
+});
+
+test('doubles: a single-target move hits the chosen foe; a fallen target is swapped for the other', () => {
+  const st = mk({ slots: 2, p: [{ moves: ['test-strike'] }, { moves: ['test-wait'] }], e: [{}, {}] });
+  const [e0, e1] = st.enemy.team;
+  let evs = submitTurn(st, [{ kind: 'move', slot: 0, target: 1 }, W()]);
+  eq(moveHits(evs), [e1.uid], 'only the foe in slot 1 is hit');
+  eq(evsOf(evs, 'useMove').find((e) => e.side === 'player')?.targets, [e1.uid], 'useMove names its target');
+  e1.hp = 0; // gone before the move lands: the other foe takes it
+  evs = submitTurn(st, [{ kind: 'move', slot: 0, target: 1 }, W()]);
+  eq(moveHits(evs), [e0.uid], 'retargeted to the foe still standing');
+  throws(() => submitTurn(st, [{ kind: 'move', slot: 0, target: 5 }, W()]), 'a target outside the field');
+});
+
+test('doubles: a spread move hits both foes for 0.75x each, full power on a lone foe', () => {
+  const st = mk({ slots: 2, p: [{ moves: ['test-spread'] }], e: [{}, {}] });
+  const p = P(st), e = E(st);
+  const full = calcDamage(st, p, e, getMove('test-spread'), { forceCrit: false, randomFactor: 100 }).damage;
+  const each = calcDamage(st, p, e, getMove('test-spread'), { forceCrit: false, randomFactor: 100, spread: true }).damage;
+  eq(each, Math.max(1, Math.floor(full * 0.75)), 'spread damage is 0.75x');
+  const evs = submitTurn(st, W());
+  eq(new Set(moveHits(evs)), new Set(st.enemy.team.map((m) => m.uid)), 'both foes hit');
+  eq(moveHits(evs).length, 2, 'once each');
+  eq(evsOf(evs, 'useMove')[0].targets.length, 2, 'aimed at both');
+  const lone = mk({ slots: 2, p: [{ moves: ['test-spread'] }], e: [{}] });
+  const hits = evsOf(submitTurn(lone, W()), 'damage').filter((d) => d.source === 'move');
+  eq(hits.length, 1, 'a lone foe is hit once');
+  within(hits[0].amount, Math.floor(full * 0.85) - 1, Math.ceil(full * 1.5) + 1, 'at full power (or a crit)');
+});
+
+test('doubles: moves go by priority then speed across all four', () => {
+  const st = mk({
+    slots: 2,
+    p: [{ moves: ['test-tackle'] }, { moves: ['test-tackle'], startStages: { spe: 2 } }],
+    e: [{ moves: ['test-tackle'], startStages: { spe: 1 } }, { moves: ['test-tackle'], startStages: { spe: -1 } }],
+  });
+  const order = evsOf(submitTurn(st, [W(), W()]), 'useMove').map((e) => e.uid);
+  eq(order, [st.player.team[1].uid, st.enemy.team[0].uid, st.player.team[0].uid, st.enemy.team[1].uid], 'fastest first');
+  const q = mk({ slots: 2, p: [{ moves: ['test-quick'] }, { moves: ['test-tackle'], startStages: { spe: 6 } }], e: [{}, {}] });
+  eq(evsOf(submitTurn(q, [W(), W()]), 'useMove')[0].uid, q.player.team[0].uid, 'priority beats speed');
+});
+
+test('doubles: knockouts are refilled slot by slot', () => {
+  // the foes' spread move knocks both player leads out at once
+  const setup = (s: BattleState): void => { s.player.team[0].hp = 1; s.player.team[1].hp = 1; };
+  const st = mk({ slots: 2, ai: 'elite', p: [{}, {}, {}, {}], e: [{ moves: ['test-spread'], level: 60 }, {}], setup });
+  submitTurn(st, [{ kind: 'move', slot: 0, target: 0 }, { kind: 'move', slot: 0, target: 0 }]);
+  eq(st.phase, 'switch', 'replacements needed');
+  eq(st.switchSlots, [0, 1], 'one per empty slot');
+  check(legal(st).mustSwitch, 'legal says so');
+  throws(() => submitSwitch(st, 1), 'a fainted dragon cannot come in');
+  submitSwitch(st, 2);
+  eq(st.phase, 'switch', 'still one to go');
+  eq(st.switchSlots, [1], 'slot 1 next');
+  throws(() => submitSwitch(st, 2), 'the one already out cannot come in twice');
+  submitSwitch(st, 3);
+  eq(st.phase, 'choose', 'both slots filled');
+  eq(st.player.slots, [2, 3], 'new leads in place');
+  // only one on the bench for two empty slots: fill one, fight on with one
+  const short = mk({ slots: 2, ai: 'elite', p: [{}, {}, {}], e: [{ moves: ['test-spread'], level: 60 }, {}], setup });
+  submitTurn(short, [W(), W()]);
+  eq(short.switchSlots, [0], 'as many as the bench can fill');
+  submitSwitch(short, 2);
+  eq(short.phase, 'choose', 'fighting on');
+  eq(liveSlots(short, 'player'), [0], 'one dragon left on the field');
+  // the enemy refills its own slot from the bench
+  const foes = mk({ slots: 2, p: [{ moves: ['test-plain140'], level: 60 }, {}], e: [{ level: 5 }, {}, {}] });
+  submitTurn(foes, [{ kind: 'move', slot: 0, target: 0 }, W()]);
+  eq(foes.enemy.slots, [2, 1], 'the fallen foe was replaced in its own slot');
+});
+
+test('doubles: an entry ability lowers every foe; seeds feed the one that planted them', () => {
+  const st = mk({ slots: 2, p: [{}, {}], e: [{ ability: 'test-intimidate' }, {}] });
+  eq(st.player.team.map((m) => m.stages.atk), [-1, -1], 'both player dragons are intimidated');
+  const sd = mk({ slots: 2, p: [{ moves: ['test-wait'] }, { moves: ['test-seed'] }], e: [{}, {}] });
+  sd.player.team[0].hp = Math.floor(sd.player.team[0].stats.hp / 2);
+  sd.player.team[1].hp = Math.floor(sd.player.team[1].stats.hp / 2);
+  submitTurn(sd, [W(), { kind: 'move', slot: 0, target: 0 }]);
+  const heals = evsOf(sd.log, 'heal');
+  check(heals.length > 0 && heals.every((h) => h.uid === sd.player.team[1].uid), 'the seeder (not the dragon across) soaks it up');
+});
+
+test('doubles: orders are checked as a set', () => {
+  const st = mk({ slots: 2, p: [{}, {}, {}], e: [{}, {}], items: { seedcake: 1 } });
+  throws(() => submitTurn(st, [{ kind: 'switch', index: 2 }, { kind: 'switch', index: 2 }]), 'two dragons swapping in the same teammate');
+  throws(() => submitTurn(st, [{ kind: 'switch', index: 1 }, W()]), 'swapping in a dragon already on the field');
+  st.player.team[0].hp = 1; st.player.team[1].hp = 1;
+  throws(() => submitTurn(st, [{ kind: 'item', item: 'seedcake', target: 0 }, { kind: 'item', item: 'seedcake', target: 1 }]), 'two cakes from a bag of one');
+  const evs = submitTurn(st, [{ kind: 'retreat' }, W()]);
+  check(evs.some((e) => e.t === 'end' && e.winner === 'retreat'), 'a retreat speaks for everyone');
+});
+
+test('doubles: the AI aims at a dragon still standing and takes a KO on either one', () => {
+  const st = mk({ slots: 2, ai: 'boss', p: [{}, {}], e: [{ moves: ['test-strike'], level: 50 }] });
+  st.player.team[1].hp = 1;
+  const a = chooseEnemyAction(st);
+  eq(a, { kind: 'move', slot: 0, target: 1 }, 'the boss finishes the weakened dragon in slot 1');
+  for (let n = 0; n < 20; n++) {
+    const m = mk({ slots: 2, seed: n + 3, p: [{}, {}], e: [{ moves: ['test-tackle'] }, { moves: ['test-tackle'] }] });
+    m.player.team[0].hp = 0;
+    const act = chooseEnemyAction(m, 0);
+    check(act.kind === 'move' && act.target === 1, `minion ${n} aims at the one still standing`);
+  }
+});
+
 test('fuzz: 500 random battles', () => {
   const realSpecies = SPECIES.filter((s) => !s.id.startsWith('test-'));
   const realVillains = Object.values(VILLAINS).filter((v) => !v.id.startsWith('test-'));
@@ -1683,36 +1815,47 @@ test('fuzz: 500 random battles', () => {
     }
     const items: Partial<Record<ItemId, number>> = {};
     for (const id of ITEM_IDS) if (r.chance(0.5)) items[id] = r.int(1, 3);
-    const st = createBattle({ seed: n + 1, player, enemy, items, aiLevel: r.pick(levels) ?? 'minion', canRetreat: r.chance(0.5) });
-    const tag = `battle ${n}`;
+    const fieldSlots = r.chance(0.7) ? 2 : 1;
+    const st = createBattle({ seed: n + 1, player, enemy, items, aiLevel: r.pick(levels) ?? 'minion', canRetreat: r.chance(0.5), fieldSlots });
+    const tag = `battle ${n} (${fieldSlots === 2 ? 'doubles' : 'singles'})`;
     firstError = validate(st, startBattle(st), `${tag} start`);
     let turns = 0;
     while (!firstError && st.phase !== 'over' && turns < 300) {
-      const L = legal(st);
       let evs: BattleEvent[];
-      if (L.mustSwitch) {
+      if (st.phase === 'switch') {
+        const L = legal(st);
         const opts = L.switches.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
         evs = submitSwitch(st, r.pick(opts) ?? 0);
       } else {
         turns++;
-        const roll = r.next();
-        const sw = L.switches.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
-        const moves = L.moves.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
-        let action: PlayerAction = { kind: 'move', slot: r.pick(moves) ?? 0 };
-        if (roll < 0.1 && sw.length) action = { kind: 'switch', index: r.pick(sw) ?? sw[0] };
-        else if (roll < 0.17 && L.items.length) {
-          const item = r.pick(L.items) as ItemId;
-          const kind = ITEMS[item].effect.kind;
-          const targets = st.player.team.map((m, i) => {
-            const ok = kind === 'heal' ? m.hp > 0 && m.hp < m.stats.hp
-              : kind === 'revive' ? m.hp <= 0
-                : kind === 'cure' ? m.hp > 0 && (m.status !== null || (i === st.player.active && m.volatile.confused > 0))
-                  : i === st.player.active;
-            return ok ? i : -1;
-          }).filter((i) => i >= 0);
-          if (targets.length) action = { kind: 'item', item, target: r.pick(targets) ?? targets[0] };
-        } else if (roll < 0.175 && L.retreat) action = { kind: 'retreat' };
-        evs = submitTurn(st, action);
+        // One order per dragon still on the field: moves at a random foe, sometimes a swap
+        // (never two into the same teammate), an item while the bag lasts, rarely a retreat.
+        const actions: PlayerAction[] = [];
+        const swappedIn = new Set<number>();
+        const bag: Partial<Record<ItemId, number>> = { ...st.items };
+        for (const slot of liveSlots(st, 'player')) {
+          const L = legal(st, slot);
+          const roll = r.next();
+          const sw = L.switches.map((ok, i) => (ok && !swappedIn.has(i) ? i : -1)).filter((i) => i >= 0);
+          const moves = L.moves.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
+          const foes = L.targets.map((ok, i) => (ok ? i : -1)).filter((i) => i >= 0);
+          let action: PlayerAction = { kind: 'move', slot: r.pick(moves) ?? 0, target: r.pick(foes) ?? 0 };
+          if (roll < 0.1 && sw.length) {
+            const index = r.pick(sw) ?? sw[0];
+            swappedIn.add(index);
+            action = { kind: 'switch', index };
+          } else if (roll < 0.17) {
+            const usable = L.items.filter((id) => (bag[id] ?? 0) > 0);
+            const item = r.pick(usable);
+            const targets = item ? st.player.team.map((_, i) => (itemTargetOk(st, item, i) ? i : -1)).filter((i) => i >= 0) : [];
+            if (item && targets.length) {
+              bag[item] = (bag[item] ?? 0) - 1;
+              action = { kind: 'item', item, target: r.pick(targets) ?? targets[0] };
+            }
+          } else if (roll < 0.175 && L.retreat) action = { kind: 'retreat' };
+          actions.push(action);
+        }
+        evs = submitTurn(st, actions);
       }
       firstError = validate(st, evs, `${tag} turn ${turns}`);
     }

@@ -2,7 +2,7 @@
 
 A Pokemon-style creature game where every creature is a small dragon hamster. You keep a burrow of
 them, look after them, and send squads of three on secret missions against five villain
-organisations. Battles are Pokemon single battles: four moves, sixteen types, a rock-paper-scissors
+organisations. Battles are Pokemon double battles (two of your dragons against two foes): four moves, sixteen types, a rock-paper-scissors
 type chart that applies to enemies too and is on screen for the whole fight.
 
 Companion documents: [POKEMON_RESEARCH.md](POKEMON_RESEARCH.md) (what we borrowed from Pokemon and
@@ -27,12 +27,18 @@ Burrow (feed, train, rest)  ->  Mission board  ->  briefing + squad of 3  ->  mi
      +-------------------------------- results <-------------------------- battles, rest stops, boss
 ```
 
-A **day** lasts until you choose SLEEP in the Burrow. Each dragon gets two activity slots per day;
-missions cost energy and fullness, so a squad can usually run one or two missions a day before it
-needs to sleep. Sleeping heals everyone, cures status, restores **80 energy** (capped at 100), and
-costs 25 fullness. The numbers are tuned so a full day (wheel 20 + play 15 + one mission 30 = 65
-energy) is paid back by one night with room to spare: at +60 a busy dragon slowly ran dry and had
-to spend slots napping.
+A **day** lasts until you choose SLEEP in the Burrow, and runs **one case at most**: launching a
+squad shuts the mission board until everyone has slept (the `mustSleep` flag, set at launch so a
+lost or retreated case counts too, and saved with the game). Back home the MISSIONS button sends
+Chief Nibbles' "one case a day" reminder and SLEEP glows. The day's shape is: activities, the case,
+a snack, bed. Each dragon gets two activity slots per day. Sleeping heals everyone, cures status,
+restores **all energy**, and costs **8 fullness**.
+
+The numbers are tuned so needs are easy to keep up: the most a day can spend is two activities
+(at most 20 energy each) and one case (30), well inside a full night's recharge, and the busiest
+day (night 8 + wheel 6 + dig 6 + case 10 = 30 fullness) is covered by one bag of Sunflower Seeds
+(30). An idle dragon lasts for days on one snack. (Earlier tuning, with 25 fullness a night and
+missions back to back, left dragons waking up hungry every morning and running out of energy.)
 
 ## Rule of five
 
@@ -62,6 +68,21 @@ The starter triangle is FIRE > LEAF > WATER > FIRE, and the starter screen draws
 
 ## Battle rules (Pokemon Gen V+ formulas)
 
+- **Doubles**: each side fields two at once (one when it has only one left, so a lone dragon can
+  still take on two foes). Every fight in the campaign fields at least two foes: an encounter
+  written with one gets a partner, the next minion of its org at the same level. A squad of three
+  sends its first two out and keeps the third on the bench. Each dragon on the field gets its own
+  order every turn (FIGHT / SWAP / BAG; a retreat speaks for everyone). A move aimed at a foe picks
+  which one (if that foe falls first, it hits the other); **spread** moves (Tunnel Quake, Mudslide,
+  Splish Splash, Blossom Blast, Breezy Puff, Tornado Twirl, Flurry Puff, Stardust, Brainwave,
+  Magnet Hum) hit both foes for x0.75 each (full power on a lone foe). Entry abilities that lower a
+  foe (Menacing Aura...) lower both. Seeds feed whoever planted them while it is out. A fallen
+  combatant is replaced in its own field slot at the end of the turn; the player picks one per
+  empty slot, as far as the bench goes. The engine also runs singles (`BattleSetup.fieldSlots: 1`),
+  which the rule scenarios in tools/battletest.ts use.
+- **Boss encounters** in doubles: the lieutenant leads with a minion at his side and the boss
+  steps in when one of them falls (with both leaders out from the first turn the finale was a
+  wall). The finale's last rest stop heals fully.
 - **Stats**: HP = floor((2B + G + floor(T/4)) * L / 100) + L + 10; others =
   floor((floor((2B + G + floor(T/4)) * L / 100) + 5) * personality), personality 1.1 / 0.9 / 1.
   B base, G genes (IV 0-31), T training (EV 0-252, 510 total), L level (1-50).
@@ -85,10 +106,12 @@ The starter triangle is FIRE > LEAF > WATER > FIRE, and the starter screen draws
   wouldn't worry!") and +1 crit stage; at 20 or less it has 15% to loaf around instead of obeying.
 - **Bosses**: max HP x1.5 and `isBoss` (the HP bar is drawn gold). Sabotage missions may supercharge
   them.
-- **Enemy AI**: minions pick a random usable move, leaning towards damage; elites pick the best
-  expected damage most of the time; bosses evaluate type matchups, KO chances, buffs and heals, and
-  **swap to a teammate that resists your active dragon** when their active one is badly matched
-  (at most twice a battle). That is the rock-paper-scissors played back at you.
+- **Enemy AI**: each foe on the field decides for itself. Minions pick a random dragon and a random
+  usable move, leaning towards damage; elites pick the best expected damage on either dragon most
+  of the time; bosses take a KO on either dragon, otherwise focus the one they are best matched
+  against (KO chances, buffs and heals), and **swap to a teammate that resists your dragon** when
+  they are badly matched against one (at most twice a battle). That is the rock-paper-scissors
+  played back at you.
 - **Double wipe-out**: if the last foe and your last dragon go down together (say, from recoil),
   the battle is yours. But if no rest stop comes before the next fight, nobody can go on: the
   battle ends with TUCKERED OUT! (no VICTORY!), the Chief explains, and the mission is failed.
@@ -159,7 +182,7 @@ previous org's showdown is cleared.
 | Rescue | 2 battles, rest, 1 battle, boss | the rescued captive is a dragon hamster who joins you (chance 1.0) |
 | Sabotage | battle, branch, rest, boss | branch: rush the boss while the device supercharges him (+1 ATK/SP.ATK), or take an extra battle to cut the power first |
 | Infiltrate | 2 battles, boss, no rest | the briefing scouts the exact enemy roster; +50% coins |
-| Defend | 4 waves, rest after wave 2, boss | waves of 1, 2, 1, 2 enemies; elite AI; the finale adds a second rest before the boss |
+| Defend | 4 waves, rest after wave 2, boss | waves of two enemies (one-foe waves get an org partner); elite AI; the finale adds a second rest, a full heal, before the boss |
 
 Level bands (average enemy level per mission index 1..5): cheese 5/7/8/10/13, crows 13/15/17/19/22,
 snakes 20/22/24/26/29, cats 27/29/31/33/36, ferrets 34/36/38/41/44. Minions sit at the band ±1,
@@ -233,11 +256,12 @@ Every screen works with mouse/touch alone and with keyboard alone (arrows, Enter
 
 ```
 +---------------------------------------------------------------+
-| [enemy box: NAME  Lv12  HP bar  type badges  status]           |
-|   WEAK TO: (badges)                         enemy sprite ->  o |
-|            [ MATCHUP: your types  -x2->  their types           |
-|                        <-x0.5-                         ]       |
-|  o <- player sprite          [player box: NAME Lv HP xp bar]   |
+| [foe card 1: NAME Lv HP types]  [ MATCHUP: your types -x2->    |
+| [foe card 2: NAME Lv HP types]     their types <-x0.5- ]       |
+| FOES LEFT: 3 (pips)                       foe 1 ->  o    o <- foe 2
+| WEAK TO: (badges, the focused foe)                             |
+|                               [ally card 1: NAME Lv HP xp bar] |
+|  o    o <- your two dragons    [ally card 2: NAME Lv HP xp bar] |
 +---------------------------------------------------------------+
 | message box / action menu: FIGHT  SWAP  BAG  RETREAT  [?]      |
 | FIGHT: 4 move buttons: name, type badge, PP, power, and a tag  |
@@ -245,6 +269,14 @@ Every screen works with mouse/touch alone and with keyboard alone (arrows, Enter
 |        (fixed-damage moves: x1, or NO EFFECT when immune)       |
 +---------------------------------------------------------------+
 ```
+
+Doubles: FOES LEFT counts every foe still standing in this fight, the ones not sent out yet
+included, with a pip each (fainted ones grey, the two out ringed in gold). The dragon giving its
+order has a gold frame on its card and the prompt says whose turn it is ("WHAT WILL SPROUTLING
+DO? (2/2)", with UNDO to change the first dragon's order). Picking a move aimed at a foe opens AIM:
+a button per foe with that move's SUPER / X1 / WEAK tag against it, a red frame on the foe's card
+and a red arrow over its head. The MATCHUP strip, the move tags, the tip and WEAK TO follow the
+dragon giving its order and the foe it is aiming at.
 
 The type matchup is present at all times: the MATCHUP strip (best multiplier each way, and a
 verdict that is the SWAP cards' grade for the dragon on the field, in the same words: GREAT

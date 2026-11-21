@@ -73,25 +73,36 @@ export function defaultMoves(learnset: { level: number; move: MoveId }[], level:
 
 // damage.ts
 export interface DamageResult { damage: number; effectiveness: number; crit: boolean }
-export function calcDamage(state: BattleState, attacker: BattleMon, defender: BattleMon, move: MoveDef, opts?: { forceCrit?: boolean; randomFactor?: number }): DamageResult;
+export function calcDamage(state: BattleState, attacker: BattleMon, defender: BattleMon, move: MoveDef, opts?: { forceCrit?: boolean; randomFactor?: number; spread?: boolean }): DamageResult; // spread: x0.75 (SPREAD_MULT)
 export function estimateDamage(attacker: BattleMon, defender: BattleMon, moveId: MoveId): { min: number; max: number; effectiveness: number }; // no RNG, no crit
 export function effectiveStat(mon: BattleMon, stat: 'atk' | 'def' | 'spa' | 'spd' | 'spe'): number;
 
-// battle.ts
+// battle.ts: doubles. SideState.slots holds a team index per field slot (min(fieldSlots, team size);
+// -1 once nobody is left to fill it); BattleSetup.fieldSlots: 2 (default, the game) or 1 (singles).
 export function createBattle(setup: BattleSetup): BattleState;
-export function startBattle(state: BattleState): BattleEvent[];   // both leads sent out, entry abilities
-export function activeMon(state: BattleState, side: Side): BattleMon;
-export function legal(state: BattleState): { moves: boolean[]; switches: boolean[]; items: ItemId[]; retreat: boolean; mustSwitch: boolean };
-export function submitTurn(state: BattleState, action: PlayerAction): BattleEvent[];
-export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // when phase === 'switch'; fires a waiting enemy entry ability (state.pendingEntry: a double knockout, or a foe knocked out while the player pivots)
+export function startBattle(state: BattleState): BattleEvent[];   // leads sent out (foes first, slot by slot), entry abilities by speed
+export function activeMon(state: BattleState, side: Side, slot?: number): BattleMon; // the mon in that field slot; no slot: the first one standing
+export function fieldMons(state: BattleState, side: Side): BattleMon[];   // on the field and standing, slot order
+export function liveSlots(state: BattleState, side: Side): number[];      // field slots whose mon is standing
+export function fieldSlotOf(state: BattleState, m: BattleMon): number;
+export function benchIndices(state: BattleState, side: Side): number[];   // standing and not on the field
+export function legal(state: BattleState, slot?: number): Legal; // { slot, moves, switches, items, retreat, mustSwitch, targets (foe field slots) } for that player slot (switch phase: the next slot to fill)
+export function submitTurn(state: BattleState, actions: PlayerAction | PlayerAction[]): BattleEvent[]; // one order per liveSlots('player'), in order; any retreat ends it; move orders carry target (foe field slot)
+export function submitSwitch(state: BattleState, index: number): BattleEvent[];  // phase 'switch': fills state.switchSlots[0]; once all are filled, fires the waiting enemy entry abilities (state.pendingEntry)
 export function itemTargetOk(state: BattleState, item: ItemId, index: number): boolean; // the engine's item-target rule (legal().items, submitTurn); the battle scene's target cards use it
-// Events (types.ts): { t: 'volatile'; side; uid; seeded; stuck } whenever SEEDED / STUCK change (set by a move, STUCK
+// Events (types.ts): sendOut / withdraw carry the field slot; useMove carries its targets (uids).
+// { t: 'volatile'; side; uid; seeded; stuck } whenever SEEDED / STUCK change (set by a move, STUCK
 // released when the trapper leaves). 'faint' / 'withdraw' / 'sendOut' clear volatile state (and 'faint' the status)
 // with no event of their own: a scene clears its copies when it plays them.
 
-// ai.ts
-export function chooseEnemyAction(state: BattleState): { kind: 'move'; slot: number } | { kind: 'switch'; index: number };
-export function chooseEnemyReplacement(state: BattleState, foeLeaving?: boolean): number; // best matchup vs the player's active, bosses last; foeLeaving (it pivoted or is down too): send order
+// ai.ts: one decision per enemy on the field
+export function chooseEnemyActions(state: BattleState): { slot: number; action: EnemyAction }[];
+export function chooseEnemyAction(state: BattleState, slot?: number, taken?: ReadonlySet<number>): EnemyAction; // { kind: 'move'; slot; target } | { kind: 'switch'; index }
+export function chooseEnemyReplacement(state: BattleState, slot?: number, foeLeaving?: boolean): number; // best average matchup vs the player's field, bosses last; foeLeaving: send order
+
+// ui/battle/auto.ts (the autopilot: scene autoplay, playtest, gametest)
+export function autoTurn(battle: BattleState): PlayerAction[];   // best move and target per field dragon
+export function autoSwitch(battle: BattleState): PlayerAction;   // the replacement for the next empty slot
 ```
 
 ## src/game (systems; pure, Node-safe except storage, which is injected)
@@ -146,7 +157,7 @@ export function canDoActivity(state: GameState, dragonId: string, activity: Acti
 export function doActivity(state: GameState, dragonId: string, activity: ActivityId, food?: FoodId): ActivityResult;
 export function useItemOutside(state: GameState, item: ItemId, dragonId: string): { ok: boolean; line: string };
 export interface DayReport { day: number; lines: string[] }
-export function endDay(state: GameState): DayReport;  // heals, cures, +80 energy (cap 100), -25 fullness, happiness settles, next day
+export function endDay(state: GameState): DayReport;  // heals, cures, full energy, -8 fullness, happiness settles, clears mustSleep, next day
 export const HAPPINESS_SETTLE = 50, HAPPINESS_DRIFT = 10;  // each night happiness above 50 drops by 10 (never below 50)
 // The care package: a morning with nothing in the pantry and coins < cheapest food x dragons brings
 // CARE_PACKAGE_PER_DRAGON of the cheapest food per dragon (so a broke, starving burrow is never stuck).
@@ -164,13 +175,14 @@ export function buy(state: GameState, id: FoodId | ItemId, qty?: number): { ok: 
 // missions.ts
 export type MissionStatus = 'locked' | 'available' | 'cleared';
 export function missionStatus(state: GameState, id: MissionId): MissionStatus;
-export function canLaunch(state: GameState, id: MissionId, squad: string[]): { ok: boolean; reason?: string };
+export function mustSleep(state: GameState): boolean;  // today's case has been run: the board is shut until endDay
+export function canLaunch(state: GameState, id: MissionId, squad: string[]): { ok: boolean; reason?: string }; // refuses while mustSleep
 export interface MissionRun {
   missionId: MissionId; squad: string[]; nodes: MissionNode[]; index: number;
   coins: number; defeated: VillainId[]; xp: Record<string, XpReport[]>; outcome: 'active' | 'won' | 'lost' | 'retreated';
   supercharge?: StageChanges;   // what the chosen branch routes give the boss (sabotage rush: +1 ATK / +1 SP.ATK)
 }
-export function startMission(state: GameState, id: MissionId, squad: string[]): MissionRun; // spends energy/fullness, records squad
+export function startMission(state: GameState, id: MissionId, squad: string[]): MissionRun; // spends energy/fullness, records squad, sets mustSleep
 export function currentNode(run: MissionRun): MissionNode | null;
 export function chooseBranch(run: MissionRun, option: number): void;   // splices the option's nodes in place of the branch; records the route's supercharge on run.supercharge
 export function bossSupercharge(run: MissionRun, node: MissionNode): StageChanges | undefined; // boss node's own supercharge + run.supercharge (encounterSetup applies it)

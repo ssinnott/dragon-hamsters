@@ -6,7 +6,7 @@ import {
 } from '../data/schema.ts';
 import { ACTIVITIES, getFood, getItem, getMove, getSpecies } from '../data/index.ts';
 import { xpForLevel } from '../battle/stats.ts';
-import { MAX_LEVEL, MISSION_ENERGY, SLOTS_PER_DAY, type GameState, type OwnedDragon } from './types.ts';
+import { MAX_LEVEL, MISSION_ENERGY, MUST_SLEEP_FLAG, SLOTS_PER_DAY, type GameState, type OwnedDragon } from './types.ts';
 import {
   dragonName, dragonStats, dragonTypes, findDragon, grantXp, isFainted, addTraining, type MoveSwap, type XpReport,
 } from './dragons.ts';
@@ -14,9 +14,14 @@ import { stateRng, weightedPick } from './rng.ts';
 
 /** Needs live in 0..100. */
 const NEED_MAX = 100;
-/** endDay: energy restored, fullness spent, and the happiness lost by a dragon left at 0 fullness. */
-const NIGHT_ENERGY = 80;
-const NIGHT_FULLNESS = 25;
+/**
+ * endDay: energy restored (a full night recharges everyone: with one case a day and two slots, a
+ * day never spends more than 70), fullness spent overnight, and the happiness lost by a dragon left
+ * at 0 fullness. Tuned so one bag of seeds a day keeps the busiest dragon fed (night 8 + two
+ * activities ~11 + a case 12 = ~33, a bag of seeds is 30) and an idle one lasts for days.
+ */
+export const NIGHT_ENERGY = 100;
+export const NIGHT_FULLNESS = 8;
 const STARVING_HAPPINESS = 15;
 /** At or below this fullness a dragon counts as hungry (mood line, morning report, burrow thought bubbles). */
 export const HUNGRY_AT = 30;
@@ -371,6 +376,7 @@ export function endDay(state: GameState): DayReport {
     if (d.needs.happiness <= GLUM_AT) warnings.push(`${name} is feeling glum. The Ball Pit would cheer it up.`);
   }
   state.day++;
+  delete state.flags[MUST_SLEEP_FLAG];
   if (mended && state.dragons.length) lines.push('Scrapes mended, sniffles gone: the whole burrow is healed.');
   lines.push(...warnings);
   if (state.dragons.length && !warnings.length) lines.push('Everyone woke up bright-eyed and ready for action!');

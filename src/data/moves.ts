@@ -16,14 +16,16 @@ interface Opts {
   contact?: boolean;
   effects?: MoveEffect[];
   accuracy?: number;
+  /** Hits both foes (doubles), each for 0.75x. */
+  spread?: boolean;
 }
 
 function phys(id: MoveId, name: string, type: TypeId, power: number, accuracy: number, pp: number, fx: FxKind, description: string, o: Opts = {}): MoveDef {
-  return { id, name, type, category: 'physical', power, accuracy, pp, priority: o.priority ?? 0, contact: o.contact ?? true, target: 'foe', effects: o.effects ?? [], description, fx };
+  return { id, name, type, category: 'physical', power, accuracy, pp, priority: o.priority ?? 0, contact: o.contact ?? true, target: 'foe', effects: o.effects ?? [], description, fx, ...(o.spread ? { spread: true } : {}) };
 }
 
 function spec(id: MoveId, name: string, type: TypeId, power: number, accuracy: number, pp: number, fx: FxKind, description: string, o: Opts = {}): MoveDef {
-  return { id, name, type, category: 'special', power, accuracy, pp, priority: o.priority ?? 0, contact: o.contact ?? false, target: 'foe', effects: o.effects ?? [], description, fx };
+  return { id, name, type, category: 'special', power, accuracy, pp, priority: o.priority ?? 0, contact: o.contact ?? false, target: 'foe', effects: o.effects ?? [], description, fx, ...(o.spread ? { spread: true } : {}) };
 }
 
 function stat(id: MoveId, name: string, type: TypeId, target: 'foe' | 'self', pp: number, fx: FxKind, effects: MoveEffect[], description: string, o: Opts = {}): MoveDef {
@@ -75,7 +77,7 @@ const LIST: MoveDef[] = [
   phys('puddle-pounce', 'Puddle Pounce', 'WATER', 40, 100, 25, 'splash', 'Pounces through a puddle so fast it always goes first.', { priority: 1 }),
   phys('splash-n-dash', 'Splash N Dash', 'WATER', 60, 100, 20, 'splash', 'Splashes the foe, then dashes back to swap out.', { effects: [{ kind: 'pivot' }] }),
   phys('cannonball', 'Cannonball', 'WATER', 90, 100, 10, 'splash', 'Dives in tummy first. May make the foe flinch.', { effects: [flinch(20)] }),
-  spec('splish-splash', 'Splish Splash', 'WATER', 40, 100, 30, 'splash', "Splashes the foe. May lower the foe's SPEED.", { effects: [foe({ spe: -1 }, 10)] }),
+  spec('splish-splash', 'Splish Splash', 'WATER', 40, 100, 30, 'splash', "Splashes the foe. May lower the foe's SPEED.", { effects: [foe({ spe: -1 }, 10)] , spread: true }),
   spec('sink-swirl', 'Sink Swirl', 'WATER', 35, 90, 15, 'splash', 'Spins the foe in a swirl so it cannot swap out.', { effects: [{ kind: 'trap' }] }),
   spec('hot-spring', 'Hot Spring', 'WATER', 80, 100, 15, 'splash', 'Steaming water that thaws the user. May BURN the foe.', { effects: [{ kind: 'thaw' }, inflict('burn', 30)] }),
   spec('geyser-gush', 'Geyser Gush', 'WATER', 110, 80, 5, 'beam', 'A mighty geyser of water. Hard to aim.'),
@@ -87,7 +89,7 @@ const LIST: MoveDef[] = [
   phys('thorn-swipe', 'Thorn Swipe', 'LEAF', 90, 100, 15, 'slash', 'A swipe with a thorny tail. High critical-hit ratio.', { effects: [crit] }),
   spec('petal-puff', 'Petal Puff', 'LEAF', 40, 100, 30, 'leaf', 'Blows a puff of petals at the foe.'),
   spec('sap-sip', 'Sap Sip', 'LEAF', 60, 100, 15, 'leaf', "Sips the foe's energy. Heals half the damage dealt.", { effects: [drain(0.5)] }),
-  spec('blossom-blast', 'Blossom Blast', 'LEAF', 90, 100, 10, 'leaf', "A burst of blossoms. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] }),
+  spec('blossom-blast', 'Blossom Blast', 'LEAF', 90, 100, 10, 'leaf', "A burst of blossoms. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] , spread: true }),
   stat('snoozy-spores', 'Snoozy Spores', 'LEAF', 'foe', 15, 'leaf', [inflict('snooze')], 'Sprinkles sleepy spores. The foe falls SNOOZING.', { accuracy: 75 }),
   stat('sap-sprout', 'Sap Sprout', 'LEAF', 'foe', 10, 'leaf', [{ kind: 'seed' }], "Plants a sprout that sips the foe's HP every turn.", { accuracy: 90 }),
   stat('sunsoak', 'Sunsoak', 'LEAF', 'self', 10, 'heal', [heal(0.5)], 'Soaks up the sunshine to heal half its max HP.'),
@@ -106,10 +108,10 @@ const LIST: MoveDef[] = [
   // ---- EARTH: bulky physical tanks -------------------------------------------------------------
   phys('burrow-bump', 'Burrow Bump', 'EARTH', 45, 100, 30, 'quake', 'Pops up out of a tunnel right under the foe.'),
   phys('shovel-swipe', 'Shovel Swipe', 'EARTH', 75, 100, 15, 'slash', 'Digs in with shovel claws. High critical-hit ratio.', { effects: [crit] }),
-  phys('tunnel-quake', 'Tunnel Quake', 'EARTH', 100, 100, 10, 'quake', 'Collapses every tunnel at once. The ground shakes!', { contact: false }),
+  phys('tunnel-quake', 'Tunnel Quake', 'EARTH', 100, 100, 10, 'quake', 'Collapses every tunnel at once. The ground shakes!', { contact: false , spread: true }),
   spec('mud-pie', 'Mud Pie', 'EARTH', 40, 100, 25, 'goo', "Flings a mud pie. May lower the foe's SPEED.", { effects: [foe({ spe: -1 }, 30)] }),
   spec('sand-trap', 'Sand Trap', 'EARTH', 35, 85, 15, 'quake', 'Sinks the foe in sand so it cannot swap out.', { effects: [{ kind: 'trap' }] }),
-  spec('mudslide', 'Mudslide', 'EARTH', 90, 100, 10, 'quake', "A rumbling wave of mud. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] }),
+  spec('mudslide', 'Mudslide', 'EARTH', 90, 100, 10, 'quake', "A rumbling wave of mud. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] , spread: true }),
   stat('dust-cloud', 'Dust Cloud', 'EARTH', 'foe', 15, 'debuff', [foe({ acc: -1 })], "Kicks up a cloud of dust. The foe's accuracy drops."),
   stat('mud-bath', 'Mud Bath', 'EARTH', 'self', 10, 'heal', [heal(0.5)], 'A relaxing mud bath that heals half its max HP.'),
 
@@ -129,8 +131,8 @@ const LIST: MoveDef[] = [
   phys('swoop-swap', 'Swoop Swap', 'WINGED', 70, 100, 20, 'wind', 'Swoops in to strike, then flies back to swap out.', { effects: [{ kind: 'pivot' }] }),
   phys('loop-de-loop', 'Loop De Loop', 'WINGED', 80, 100, 15, 'wind', 'Loops in from above. May make the foe flinch.', { effects: [flinch(20)] }),
   phys('comet-dive', 'Comet Dive', 'WINGED', 120, 100, 15, 'wind', 'A reckless dive from the clouds. Big recoil.', { effects: [recoil(1 / 3)] }),
-  spec('breezy-puff', 'Breezy Puff', 'WINGED', 40, 100, 35, 'wind', 'Flaps up a breezy puff of air.'),
-  spec('tornado-twirl', 'Tornado Twirl', 'WINGED', 110, 70, 10, 'wind', 'Twirls into a tornado. May confuse the foe.', { effects: [confuse(30)] }),
+  spec('breezy-puff', 'Breezy Puff', 'WINGED', 40, 100, 35, 'wind', 'Flaps up a breezy puff of air.', { spread: true }),
+  spec('tornado-twirl', 'Tornado Twirl', 'WINGED', 110, 70, 10, 'wind', 'Twirls into a tornado. May confuse the foe.', { effects: [confuse(30)] , spread: true }),
   stat('fluster-flap', 'Fluster Flap', 'WINGED', 'foe', 15, 'wind', [confuse()], "Flaps wildly in the foe's face. The foe gets confused."),
   stat('preen', 'Preen', 'WINGED', 'self', 10, 'heal', [heal(0.5)], 'Tidies its wing feathers to heal half its max HP.'),
   stat('clear-skies', 'Clear Skies', 'WINGED', 'self', 20, 'wind', [{ kind: 'resetStages' }], 'Blows every stat change away, on both sides.'),
@@ -140,7 +142,7 @@ const LIST: MoveDef[] = [
   phys('frost-flick', 'Frost Flick', 'FROST', 40, 100, 30, 'ice', 'Flicks an ice chip so fast that it always goes first.', { priority: 1, contact: false }),
   phys('snowballs', 'Snowballs', 'FROST', 25, 100, 30, 'ice', 'Throws snowballs at the foe 2 to 5 times.', { contact: false, effects: [multi] }),
   phys('glacier-slam', 'Glacier Slam', 'FROST', 90, 90, 10, 'ice', 'Slams down like a glacier. May make the foe flinch.', { effects: [flinch(20)] }),
-  spec('flurry-puff', 'Flurry Puff', 'FROST', 40, 100, 30, 'ice', 'A puff of snowflakes. May leave the foe FROZEN.', { effects: [inflict('frozen', 10)] }),
+  spec('flurry-puff', 'Flurry Puff', 'FROST', 40, 100, 30, 'ice', 'A puff of snowflakes. May leave the foe FROZEN.', { effects: [inflict('frozen', 10)] , spread: true }),
   spec('polar-beam', 'Polar Beam', 'FROST', 90, 100, 10, 'beam', 'A freezing beam. May leave the foe FROZEN.', { effects: [inflict('frozen', 10)] }),
   spec('brain-freeze', 'Brain Freeze', 'FROST', 110, 85, 5, 'ice', 'So cold it hurts to think. May confuse the foe.', { effects: [confuse(30)] }),
   stat('cold-shoulder', 'Cold Shoulder', 'FROST', 'foe', 20, 'debuff', [foe({ atk: -1, spa: -1 })], "Snubs the foe so coolly its ATK and SP. ATK drop."),
@@ -171,7 +173,7 @@ const LIST: MoveDef[] = [
   phys('twinkle-tap', 'Twinkle Tap', 'LIGHT', 40, 100, 35, 'sparkle', 'A gentle tap that leaves a twinkle behind.'),
   phys('prism-pounce', 'Prism Pounce', 'LIGHT', 90, 90, 10, 'sparkle', "A dazzling pounce. May lower the foe's ATTACK.", { effects: [foe({ atk: -1 }, 10)] }),
   spec('glimmer', 'Glimmer', 'LIGHT', 40, 100, 30, 'sparkle', 'A soft glimmer of light. May confuse the foe.', { effects: [confuse(10)] }),
-  spec('stardust', 'Stardust', 'LIGHT', 60, 100, 20, 'sparkle', 'Showers the foe in stardust. It never misses.', { effects: [{ kind: 'sureHit' }] }),
+  spec('stardust', 'Stardust', 'LIGHT', 60, 100, 20, 'sparkle', 'Showers the foe in stardust. It never misses.', { effects: [{ kind: 'sureHit' }] , spread: true }),
   spec('sunbeam', 'Sunbeam', 'LIGHT', 90, 100, 15, 'beam', "A warm beam of light. May lower the foe's SP. ATK.", { effects: [foe({ spa: -1 }, 30)] }),
   spec('rainbow-ray', 'Rainbow Ray', 'LIGHT', 120, 80, 5, 'beam', 'A blinding rainbow. Hard to aim.'),
   stat('dizzy-sparkle', 'Dizzy Sparkle', 'LIGHT', 'foe', 10, 'sparkle', [confuse()], 'Sparkles in swirly patterns. The foe gets confused.'),
@@ -195,7 +197,7 @@ const LIST: MoveDef[] = [
   phys('rivet-rap', 'Rivet Rap', 'METAL', 40, 100, 30, 'punch', 'A rapid rivet punch that always goes first.', { priority: 1 }),
   phys('scissor-snip', 'Scissor Snip', 'METAL', 70, 100, 20, 'slash', 'Snips with sharp claws. High critical-hit ratio.', { effects: [crit] }),
   phys('anvil-drop', 'Anvil Drop', 'METAL', 95, 90, 10, 'metal', 'Drops an anvil from nowhere. May make the foe flinch.', { contact: false, effects: [flinch(20)] }),
-  spec('magnet-hum', 'Magnet Hum', 'METAL', 45, 100, 25, 'metal', 'A buzzing magnetic hum that rattles the foe.'),
+  spec('magnet-hum', 'Magnet Hum', 'METAL', 45, 100, 25, 'metal', 'A buzzing magnetic hum that rattles the foe.', { spread: true }),
   spec('chrome-cannon', 'Chrome Cannon', 'METAL', 90, 100, 10, 'beam', "A blast of polished chrome. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] }),
   stat('tune-up', 'Tune Up', 'METAL', 'self', 20, 'buff', [self({ atk: 1, spe: 1 })], 'Oils its gears. ATTACK and SPEED rise.'),
   stat('tin-dome', 'Tin Dome', 'METAL', 'self', 10, 'shield', [{ kind: 'protect' }], 'Hides under a tin cup and blocks every attack.', { priority: 4 }),
@@ -207,7 +209,7 @@ const LIST: MoveDef[] = [
   phys('big-idea', 'Big Idea', 'MIND', 85, 90, 15, 'psy', 'Bonks the foe with a big idea. May make it flinch.', { effects: [flinch(20)] }),
   spec('thought-bubble', 'Thought Bubble', 'MIND', 40, 100, 30, 'psy', 'Pops a thought bubble on the foe. May confuse it.', { effects: [confuse(10)] }),
   spec('think-fast', 'Think Fast', 'MIND', 60, 100, 20, 'psy', 'A quick mind zap, then it swaps out.', { effects: [{ kind: 'pivot' }] }),
-  spec('brainwave', 'Brainwave', 'MIND', 90, 100, 10, 'psy', "A wave of brain power. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] }),
+  spec('brainwave', 'Brainwave', 'MIND', 90, 100, 10, 'psy', "A wave of brain power. May lower the foe's SP. DEF.", { effects: [foe({ spd: -1 }, 10)] , spread: true }),
   stat('counting-sheep', 'Counting Sheep', 'MIND', 'foe', 20, 'psy', [inflict('snooze')], 'Counts sheep out loud. The foe falls SNOOZING.', { accuracy: 60 }),
   stat('brain-fog', 'Brain Fog', 'MIND', 'foe', 10, 'psy', [confuse()], "Fills the foe's head with fog. The foe gets confused."),
   stat('deep-thought', 'Deep Thought', 'MIND', 'self', 20, 'buff', [self({ spa: 2 })], 'Thinks very, very hard. SP. ATK sharply rises.'),

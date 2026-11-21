@@ -165,7 +165,7 @@ export function computeDamage(attacker: BattleMon, defender: BattleMon, move: Mo
 /** Rolls crit and the random factor from the battle RNG (crit first), unless forced by `opts`. */
 export function calcDamage(
   state: BattleState, attacker: BattleMon, defender: BattleMon, move: MoveDef,
-  opts?: { forceCrit?: boolean; randomFactor?: number },
+  opts?: { forceCrit?: boolean; randomFactor?: number; spread?: boolean },
 ): DamageResult {
   const typeless = isTypeless(move);
   const immune = !typeless && (absorbs(defender, move) || typeEffectiveness(move.type, defender.types) === 0);
@@ -184,8 +184,13 @@ export function calcDamage(
     ? Math.max(85, Math.min(100, Math.round(opts.randomFactor <= 1 ? opts.randomFactor * 100 : opts.randomFactor)))
     : state.rng.int(85, 100);
   const r = computeDamage(attacker, defender, move, crit, rand);
+  // A spread move hitting more than one foe: the formula's "targets" term, 0.75 each.
+  if (opts?.spread && r.damage > 0) r.damage = Math.max(1, Math.floor(r.damage * SPREAD_MULT));
   return { ...r, crit };
 }
+
+/** Damage multiplier for a spread move that hits more than one foe. */
+export const SPREAD_MULT = 0.75;
 
 /** Damage range without RNG and without crits (multi-hit moves: min hits x min roll .. max hits x max roll). */
 export function estimateDamage(attacker: BattleMon, defender: BattleMon, moveId: MoveId): { min: number; max: number; effectiveness: number } {

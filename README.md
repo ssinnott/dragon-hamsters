@@ -2,7 +2,7 @@
 
 *Secret agents of the Burrow.* A Pokemon-style creature game where every creature is a small dragon
 hamster. Raise a burrow of them, feed and train them, and send squads of three on secret missions
-against five villain gangs. Battles are Pokemon single battles with a sixteen-type
+against five villain gangs. Battles are Pokemon double battles (two dragons against two foes) with a sixteen-type
 rock-paper-scissors chart that the enemies follow too, and that stays on screen for the whole fight.
 
 Strict TypeScript on the shared [game-engine](https://github.com/ssinnott/game-engine), vendored
@@ -29,7 +29,8 @@ Mouse, touch or keyboard: arrows to move, Enter or Space to choose, Escape to go
   FIRE > LEAF > WATER triangle, so any two of them cover each other.
 - **The Burrow** is home. Each dragon has fullness, happiness and energy, and five stations: the
   Snack Bar, the Hamster Wheel, the Treasure Tunnels, the Cozy Nest and the Ball Pit. Training there
-  raises a dragon's stats (Pokemon EVs). SLEEP ends the day.
+  raises a dragon's stats (Pokemon EVs). SLEEP ends the day. One case a day: once a squad is
+  back from a mission, the board stays shut until everyone has slept.
 - **Missions.** Five gangs: The Big Cheese's Crew (mice), Caw-sa Nostra (crows), the Sssyndicate
   (snakes and toads), the Alley Cat Cartel and F.E.R.R.E.T. (a ferret mad scientist and his
   robots). Each runs five cases, one of each type:

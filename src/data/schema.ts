@@ -159,6 +159,8 @@ export interface MoveDef {
   contact: boolean;
   /** 'self' for self-buffs/heals; 'foe' for everything aimed at the opponent. */
   target: 'foe' | 'self';
+  /** Hits every foe on the field (doubles), each for 0.75x. Only for damaging 'foe' moves. */
+  spread?: boolean;
   effects: MoveEffect[];
   /** One line, at most 60 characters, for the move info panel. */
   description: string;

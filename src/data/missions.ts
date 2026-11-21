@@ -11,7 +11,7 @@
 //        ferrets  infiltrate  retrieve    rescue      sabotage    defend
 //   - Node shapes: retrieve = 3 battles, rest, boss. Rescue = 2 battles, rest, 1 battle, boss.
 //     Sabotage = battle, branch, rest, boss. Infiltrate = 2 battles, boss, no rest. Defend = 4 waves
-//     of 1-2 enemies, rest after wave 2, boss (the finale, ferrets-5, adds a second rest before the
+//     of 2 enemies, rest after wave 2, boss (the finale, ferrets-5, adds a second rest before the
 //     boss). A boss encounter is [lieutenant, boss], with a minion in front in a few late cases; the
 //     very first case is the tutorial showdown, the boss alone at band +1.
 //   - Sabotage branch: option 1 rushes on (a story beat) and carries the route `supercharge`
@@ -22,8 +22,11 @@
 //     the lieutenant at +1 and the boss at +3, except in the first org, where a fixed +3 is a big
 //     share of a small level: cheese-2 (the first case with a lieutenant) fields Vinnie at -1 and
 //     the boss at +0, cheese-3..5 field them at +0 / +1. In simulations cheese-2 at +1 / +3 was won
-//     about 16% of the time on arrival. The first two cases use single-enemy battles (the
-//     player has two level-5 starters); after that battles field 1-2 enemies. The very first case's
+//     about 16% of the time on arrival. Battles are doubles: the first two cases list one minion
+//     per battle and the kit gives each a partner (the next minion of the org, same level); after
+//     that battles list 1-2. A boss encounter with no minions gets one in front of the lieutenant
+//     (the boss steps in when one of them falls); the tutorial's lone boss gets a sidekick at
+//     band -1. The very first case's
 //     minions all sit at band -1: the boss encounter decides that mission, and in simulations
 //     tougher minions only wore a FIRE + LEAF pair down before it got there.
 //   - Rewards: 50 + 6 * level coins (src/game/missions.ts adds +50% for infiltrate), 2 foods or
@@ -42,6 +45,7 @@ import type {
   EncounterSpec, FoodId, ItemId, LocationDef, LocationId, MissionDef, MissionNode, MissionTypeDef,
   MissionTypeId, OrgId, SpeciesId, StageChanges, VillainId,
 } from './schema.ts';
+import { VILLAINS } from './villains.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Mission types
@@ -76,7 +80,7 @@ export const MISSION_TYPES: Record<MissionTypeId, MissionTypeDef> = {
     id: 'defend',
     name: 'Defend',
     description: 'The villains are coming for something we must protect. Hold the line, wave after wave!',
-    twist: 'Four waves of 1-2 tough, clever enemies, with a snack break after wave 2. Then the boss comes in person.',
+    twist: 'Four waves of tough, clever enemies, two at a time, with a snack break after wave 2. Then the boss comes in person.',
   },
 };
 
@@ -175,6 +179,33 @@ interface Kit {
   branch(label: string, text: string, rush: Route, cut: Route): MissionNode;
 }
 
+/**
+ * Battles are doubles, so every fight fields at least two foes: an encounter written with one gets
+ * a partner, the next minion of the same org (in this order, wrapping round) at the same level, and
+ * a line in its intro. The tutorial's lone boss gets the org's first minion, a level below the band.
+ */
+const ORG_MINIONS: Record<OrgId, readonly VillainId[]> = {
+  cheese: ['crumb-snatcher', 'tunnel-rat', 'fondue-flinger', 'doormouse'],
+  crows: ['stool-pigeon', 'crowbar-crook', 'disco-pigeon', 'two-tone-magpie'],
+  snakes: ['swamp-smuggler', 'hedge-hisser', 'pendulum-python', 'chameleon-con'],
+  cats: ['alley-scrapper', 'stone-cold-cat', 'hot-tin-tom', 'chimney-cat'],
+  ferrets: ['clankbot', 'voltage-weasel', 'cryo-ferret', 'soaker-bot'],
+};
+
+function partnerFor(org: OrgId, e: Enemy): Enemy {
+  const list = ORG_MINIONS[org];
+  const at = list.indexOf(e.villain);
+  return { villain: list[(at + 1) % list.length], level: e.level };
+}
+
+/** "A Tunnel Rat", "An Icegor", "The ..." for a villain's name at the start of a sentence. */
+function aName(v: VillainId): string {
+  const name = VILLAINS[v].name;
+  if (/^the /i.test(name)) return 'The' + name.slice(3);
+  return (/^[aeiou]/i.test(name) ? 'An ' : 'A ') + name;
+}
+const backup = (v: VillainId, line = 'is right behind it!'): string => ` ${aName(v)} ${line}`;
+
 /** Default lieutenant and boss levels in a boss encounter, relative to the band (DESIGN: +1 / +3). */
 const LEADER_OFFSETS: readonly [number, number] = [1, 3];
 
@@ -183,14 +214,27 @@ function kit(org: OrgId, level: number, leaders: readonly [number, number] = LEA
   const [ltUp, bossUp] = leaders;
   return {
     m: (villain, d = 0) => ({ villain, level: level + d }),
-    battle: (label, intro, ...enemies) => ({ kind: 'battle', label, encounter: { enemies, intro } }),
-    boss: (label, intro, ...minions) => ({
-      kind: 'boss', label,
-      encounter: { enemies: [...minions, { villain: lieutenant, level: level + ltUp }, { villain: boss, level: level + bossUp }], intro },
-    }),
-    soloBoss: (label, intro, d) => ({
-      kind: 'boss', label, encounter: { enemies: [{ villain: boss, level: level + d }], intro },
-    }),
+    battle: (label, intro, ...enemies) => {
+      if (enemies.length !== 1) return { kind: 'battle', label, encounter: { enemies, intro } };
+      const partner = partnerFor(org, enemies[0]);
+      return { kind: 'battle', label, encounter: { enemies: [enemies[0], partner], intro: intro + backup(partner.villain) } };
+    },
+    // Doubles: the lieutenant leads with a minion at his side, and the boss steps in when one of
+    // them falls (with the two leaders out together from the first turn, the finale was a wall).
+    boss: (label, intro, ...minions) => {
+      const guards = minions.length ? minions : [{ villain: ORG_MINIONS[org][0], level: level - 1 }];
+      return {
+        kind: 'boss', label,
+        encounter: { enemies: [...guards, { villain: lieutenant, level: level + ltUp }, { villain: boss, level: level + bossUp }], intro },
+      };
+    },
+    soloBoss: (label, intro, d) => {
+      const sidekick = ORG_MINIONS[org][0];
+      return {
+        kind: 'boss', label,
+        encounter: { enemies: [{ villain: sidekick, level: level - 1 }, { villain: boss, level: level + d }], intro: intro + backup(sidekick, 'scurries up to help him!') },
+      };
+    },
     rest: (label, text, heal = REST_HEAL) => ({ kind: 'rest', label, text, heal }),
     story: (label, text) => ({ kind: 'story', label, text }),
     branch: (label, text, rush, cut) => ({
@@ -1069,7 +1113,9 @@ const CASES: CaseFile[] = [
         'The last wave! A Cryo Ferret and a Soaker Bot try a combo: water, then ice. The whole roof is turning into a skating rink.',
         k.m('cryo-ferret', 1), k.m('soaker-bot', 1)),
       k.rest('Roof hatch',
-        'You duck under the roof hatch for a quick breather and the last seed cakes. Above you, rockets roar. Something big is landing!'),
+        'You duck under the roof hatch for a quick breather and the last seed cakes. Above you, rockets roar. Something big is landing!',
+        // the finale's last stop heals fully: in doubles the boss's MENACING AURA hits both dragons
+        FULL_HEAL),
       k.boss('Weather Machine',
         'With a roar of rockets, the Weather Machine lands on the roof with Dr. Ferretstein at the controls. Icegor leaps out, and the sky crackles with lightning.'),
     ],

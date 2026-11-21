@@ -1,5 +1,6 @@
-// The battle screen: a Pokemon-style single battle with the rock-paper-scissors type matchup on
-// screen the whole time (docs/DESIGN.md "Battle screen and the rock-paper-scissors UI").
+// The battle screen: a Pokemon-style double battle (two of your dragons against two foes) with the
+// rock-paper-scissors type matchup on screen the whole time (docs/DESIGN.md "Battle screen and the
+// rock-paper-scissors UI"). FOES LEFT counts down every foe in the fight, the ones not out yet too.
 //
 // How it works: the engine (src/battle/battle.ts) resolves a whole turn the moment the player
 // commits and hands back that turn's events. This scene plays them back one at a time through a
@@ -9,8 +10,11 @@
 // never runs ahead of (or out of step with) what the player has been told.
 //
 // Menus (FIGHT / SWAP / BAG / RETREAT / [?] TYPES) appear only while the queue is empty and the
-// engine waits for a decision. With app.debug.autoplay on, the scene picks its own actions
-// (autoAction) and fast-forwards, so tools/playtest.ts can run whole missions.
+// engine waits for a decision. Each dragon on the field gets its order in turn (its card glows
+// gold); a move aimed at one foe asks which (AIM, the foe's card glows red); UNDO steps back to
+// the previous dragon; the turn is played once everyone has an order. With app.debug.autoplay on,
+// the scene picks its own orders (autoTurn) and fast-forwards, so tools/playtest.ts can run whole
+// missions.
 import type { Scene } from '../scene.ts';
 import type { Input } from '../input.ts';
 import { app } from '../app.ts';
@@ -22,7 +26,7 @@ import { drawText } from '../../lib/engine/text.ts';
 import { ITEM_IDS, type FxKind, type ItemId, type Stats, type StatusId, type TypeId } from '../../data/schema.ts';
 import { getAbility, getItem, getLocation, getMission, getMove, getType } from '../../data/index.ts';
 import type { BattleEvent, BattleState, PlayerAction, Side } from '../../battle/types.ts';
-import { activeMon, createBattle, itemTargetOk, legal, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
+import { activeMon, createBattle, itemTargetOk, legal, liveSlots, startBattle, submitSwitch, submitTurn } from '../../battle/battle.ts';
 import { bestTypeMultiplier, effectivenessLabel, matchupGrade, moveEffectiveness } from '../../battle/matchup.ts';
 import { xpForLevel } from '../../battle/stats.ts';
 import { encounterSetup, finishBattle, tuckeredAfterWin, type MissionRun } from '../../game/missions.ts';
@@ -31,21 +35,26 @@ import { createFx } from '../../art/fx.ts';
 import { drawDizzyStars, type Pose } from '../../art/dragon.ts';
 import { moveSfx, music, setMusic, setSound, sfx } from '../../audio/index.ts';
 import {
-  LAYOUT, battleScale, drawAbilityBanner, drawEnemyBox, drawItemFace, drawLevelCard, drawMatchup, drawMoveFace,
-  drawMoveInfo, drawOutroBanner, drawPlayerBox, drawTeamCard, drawWeakRow, verdictOf, type Matchup,
+  DOUBLES, LAYOUT, battleScale, drawAbilityBanner, drawAllyCard, drawFoeCard, drawFoesLeft, drawItemFace, drawLevelCard,
+  drawMatchup, drawMoveFace, drawMoveInfo, drawOutroBanner, drawTeamCard, drawWeakRow, verdictOf, type Matchup,
 } from '../battle/hud.ts';
 import { drawMon, hpSettled, makeView, setHp, syncViews, tickView, xpSettled, type MonView } from '../battle/view.ts';
-import { autoAction } from '../battle/auto.ts';
+import { autoSwitch, autoTurn } from '../battle/auto.ts';
 
-export { autoAction } from '../battle/auto.ts';
+/** The autopilot's next decision for the current phase (dev harnesses): a whole turn, or a swap. */
+export function autoAction(battle: BattleState): PlayerAction[] | PlayerAction {
+  return battle.phase === 'switch' ? autoSwitch(battle) : autoTurn(battle);
+}
 
 type Ctx = CanvasRenderingContext2D;
 type Outcome = 'won' | 'lost' | 'retreated';
-type MenuKind = 'main' | 'fight' | 'swap' | 'bag' | 'target' | 'retreat';
+type MenuKind = 'main' | 'fight' | 'aim' | 'swap' | 'bag' | 'target' | 'retreat';
 
 /** One combatant's place on the field: who stands there and what its sprite is doing. */
 interface Slot {
   side: Side;
+  /** Field slot (0 in front, 1 behind). */
+  pos: number;
   uid: string | null;
   /** 'enter' pop-in, 'leave' shrink-back, 'faint' flop, 'gone' nothing drawn. */
   anim: 'idle' | 'enter' | 'leave' | 'faint' | 'flee' | 'gone';
@@ -119,7 +128,17 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   let ended = false;
   let victorySide: Side | null = null;
 
-  const slots: Record<Side, Slot> = { player: newSlot('player'), enemy: newSlot('enemy') };
+  const slots: Record<Side, Slot[]> = {
+    player: [newSlot('player', 0), newSlot('player', 1)],
+    enemy: [newSlot('enemy', 0), newSlot('enemy', 1)],
+  };
+  const allSlots = (): Slot[] => [...slots.enemy, ...slots.player];
+  /** The orders given so far this turn, one per dragon standing on the field (liveSlots order). */
+  let orders: PlayerAction[] = [];
+  /** The move picked in FIGHT that is waiting for AIM. */
+  let aimMove: number | null = null;
+  /** The foe field slot the strip, the tips and the move tags are about (the AIM target while aiming). */
+  let focusFoe = 0;
 
   let matchup: Matchup | null = null;
   let matchPulse = 0;
@@ -140,9 +159,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   let lastMoveFx: { at: string; kind: FxKind } | null = null;
   const bossSeen = new Set<string>();
 
-  function newSlot(side: Side): Slot {
+  function newSlot(side: Side, pos: number): Slot {
     return {
-      side, uid: null, anim: 'gone', animT: 0, animDur: 0, landed: true, pose: null, poseT: 0, poseDur: 0,
+      side, pos, uid: null, anim: 'gone', animT: 0, animDur: 0, landed: true, pose: null, poseT: 0, poseDur: 0,
       flash: 0, dodge: 0, box: 0, boxOn: false,
     };
   }
@@ -158,41 +177,65 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     return v;
   }
 
-  function activeView(side: Side): MonView | null {
-    const uid = slots[side].uid;
-    return uid ? views.get(uid) ?? null : null;
+  /** Field slots on `side` (1 when a side has a single combatant, else 2). */
+  function fieldCount(side: Side): number {
+    return battle ? Math.max(1, battle[side].slots.length) : 1;
   }
 
-  function ground(side: Side): { x: number; y: number } {
-    return side === 'enemy' ? LAYOUT.enemyGround : LAYOUT.playerGround;
+  /** The view in field slot `pos` on `side`, if someone stands there. */
+  function viewAt(side: Side, pos: number): MonView | null {
+    const sl = slots[side][pos];
+    return sl && sl.uid && sl.anim !== 'gone' ? views.get(sl.uid) ?? null : null;
+  }
+
+  /** The player's field slot whose order is being given now (or the next slot to fill when swapping). */
+  function decidingSlot(): number {
+    if (battle.phase === 'switch') return battle.switchSlots[0] ?? 0;
+    const live = liveSlots(battle, 'player');
+    return live[Math.min(orders.length, Math.max(0, live.length - 1))] ?? 0;
+  }
+
+  /** Foe field slots with someone still standing. */
+  function liveFoes(): number[] {
+    return liveSlots(battle, 'enemy');
+  }
+
+  function ground(sl: Slot): { x: number; y: number } {
+    if (fieldCount(sl.side) <= 1) return sl.side === 'enemy' ? LAYOUT.enemyGround : LAYOUT.playerGround;
+    return (sl.side === 'enemy' ? DOUBLES.enemyGround : DOUBLES.playerGround)[sl.pos] ?? LAYOUT.enemyGround;
+  }
+
+  function scaleOf(sl: Slot, v: MonView): number {
+    return battleScale(v) * (fieldCount(sl.side) > 1 ? DOUBLES.scale : 1);
   }
 
   const facing = (side: Side): 1 | -1 => (side === 'enemy' ? -1 : 1);
 
-  /** Body centre of whoever stands on `side` (fx anchor). */
-  function bodyOf(side: Side): { x: number; y: number } {
-    const g = ground(side);
-    const v = activeView(side);
-    const h = v ? v.h1 * battleScale(v) : 70;
+  /** Body centre of whoever stands in `sl` (fx anchor). */
+  function bodyOf(sl: Slot): { x: number; y: number } {
+    const g = ground(sl);
+    const v = sl.uid ? views.get(sl.uid) : null;
+    const h = v ? v.h1 * scaleOf(sl, v) : 70;
     return { x: g.x, y: Math.round(g.y - h * 0.45) };
   }
 
-  function topOf(side: Side): number {
-    const g = ground(side);
-    const v = activeView(side);
-    return Math.round(g.y - (v ? v.h1 * battleScale(v) : 70));
+  function topOf(sl: Slot): number {
+    const g = ground(sl);
+    const v = sl.uid ? views.get(sl.uid) : null;
+    return Math.round(g.y - (v ? v.h1 * scaleOf(sl, v) : 70));
   }
 
-  function onField(uid: string): Side | null {
-    for (const s of ['player', 'enemy'] as const) {
-      const sl = slots[s];
-      if (sl.uid === uid && sl.anim !== 'gone' && sl.anim !== 'leave') return s;
-    }
-    return null;
+  /** The field slot showing `uid`, if it is on the field. */
+  function slotOf(uid: string): Slot | null {
+    return allSlots().find((sl) => sl.uid === uid && sl.anim !== 'gone' && sl.anim !== 'leave') ?? null;
   }
 
-  function playPose(side: Side, pose: Pose, dur: number): void {
-    const sl = slots[side];
+  /** Someone on `side` to aim effects at when the real one is not known: the first slot with a sprite. */
+  function anySlot(side: Side): Slot {
+    return slots[side].find((sl) => sl.uid && sl.anim !== 'gone') ?? slots[side][0];
+  }
+
+  function playPose(sl: Slot, pose: Pose, dur: number): void {
     sl.pose = pose;
     sl.poseT = 0;
     sl.poseDur = dur;
@@ -202,9 +245,15 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   // Matchup strip
   // -------------------------------------------------------------------------------------------
 
+  /** The pair the strip is about: the dragon giving its order (or the first one out) vs the focused foe. */
+  function focusPair(): { p: MonView | null; e: MonView | null } {
+    const p = viewAt('player', decidingSlot()) ?? slots.player.map((sl) => viewAt('player', sl.pos)).find(Boolean) ?? null;
+    const e = viewAt('enemy', focusFoe) ?? slots.enemy.map((sl) => viewAt('enemy', sl.pos)).find((v) => v && !v.fainted) ?? null;
+    return { p, e };
+  }
+
   function updateMatchup(): void {
-    const p = activeView('player');
-    const e = activeView('enemy');
+    const { p, e } = focusPair();
     if (!p || !e) return;
     const next: Matchup = {
       mine: [...p.types], theirs: [...e.types],
@@ -231,12 +280,12 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   }
 
   /** Who a line of text is about, by the engine's wording ("THE FOE'S X ..." / "X ..."). */
-  function sideOfLine(text: string): Side | null {
-    for (const s of ['enemy', 'player'] as const) {
-      const v = activeView(s);
-      if (!v) continue;
-      const who = s === 'enemy' && !v.name.startsWith('THE ') ? `THE FOE'S ${v.name}` : v.name;
-      if (text.startsWith(who + ' ')) return s;
+  function slotOfLine(text: string): Slot | null {
+    for (const sl of allSlots()) {
+      const v = sl.uid ? views.get(sl.uid) : null;
+      if (!v || sl.anim === 'gone') continue;
+      const who = sl.side === 'enemy' && !v.name.startsWith('THE ') ? `THE FOE'S ${v.name}` : v.name;
+      if (text.startsWith(who + ' ')) return sl;
     }
     return null;
   }
@@ -249,9 +298,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     return { left, until, text: false, skippable: false, minAge: 0, age: 0, onDone: null, ...opts };
   }
 
-  function floatOver(side: Side, text: string, color: string, dy = 0): void {
-    const b = bodyOf(side);
-    const top = topOf(side);
+  function floatOver(sl: Slot, text: string, color: string, dy = 0): void {
+    const b = bodyOf(sl);
+    const top = topOf(sl);
     fx.floatText(b.x, Math.round((b.y + top) / 2) + dy, text, color);
   }
 
@@ -261,16 +310,16 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         showText(e.text);
         // A desperate wiggle has no useMove event: animate the lunge from its line.
         if (/ USED DESPERATE WIGGLE!$/.test(e.text)) {
-          const s = sideOfLine(e.text);
-          if (s) {
-            playPose(s, 'attack', 0.5);
-            fx.move('tackle', bodyOf(s), bodyOf(otherSide(s)), 'FLUFF');
+          const sl = slotOfLine(e.text);
+          if (sl) {
+            playPose(sl, 'attack', 0.5);
+            fx.move('tackle', bodyOf(sl), bodyOf(anySlot(otherSide(sl.side))), 'FLUFF');
             sfx('fluff');
           }
         }
         const next = queue[0];
         const long = !next || next.t === 'text' || next.t === 'levelUp' || next.t === 'end'
-          || (next.t === 'xp' && !onField(next.uid));
+          || (next.t === 'xp' && !slotOf(next.uid));
         // A line followed by an animation stays up while it plays; a line followed by another line
         // (or by the menu) holds long enough to read, longer lines a little longer.
         const len = e.text.length;
@@ -279,7 +328,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       }
 
       case 'sendOut': {
-        const sl = slots[e.side];
+        const sl = slots[e.side][e.slot] ?? slots[e.side][0];
         const v = view(e.uid);
         sl.uid = e.uid;
         sl.anim = 'enter';
@@ -293,12 +342,13 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         v.confused = false;
         v.seeded = false;
         v.stuck = false;
-        const g = ground(e.side);
+        const g = ground(sl);
         fx.burst(g.x - facing(e.side) * 64, g.y - 64, getType(v.types[0]).color, 16);
         const bossEntrance = v.isBoss && !bossSeen.has(v.uid);
         if (bossEntrance) bossSeen.add(v.uid);
         sfx(bossEntrance ? 'boss' : 'swap');
         updateMatchup();
+        // A new foe in a slot the player is aiming at changes the strip.
         // The boss's grand entrance gets a banner (the mission screen already played its taunt).
         if (bossEntrance && e.side === 'enemy') {
           banners = banners.filter((x) => x.side !== 'enemy');
@@ -308,7 +358,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       }
 
       case 'withdraw': {
-        const sl = slots[e.side];
+        const sl = slots[e.side][e.slot] ?? slots[e.side].find((x) => x.uid === e.uid) ?? slots[e.side][0];
         const wv = view(e.uid);
         wv.confused = false;
         wv.seeded = false;
@@ -318,7 +368,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
           sl.animT = 0;
           sl.animDur = LEAVE_DUR;
           sl.boxOn = false;
-          const b = bodyOf(e.side);
+          const b = bodyOf(sl);
           fx.burst(b.x, b.y, '#ffffff', 10);
         }
         sfx('swap', { pitch: 0.85 });
@@ -327,14 +377,18 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
 
       case 'useMove': {
         const mv = getMove(e.move);
-        const foe = otherSide(e.side);
-        const from = bodyOf(e.side), to = bodyOf(foe);
-        playPose(e.side, mv.target === 'self' ? 'happy' : 'attack', mv.target === 'self' ? 0.55 : 0.5);
+        const me = slotOf(e.uid) ?? anySlot(e.side);
+        const from = bodyOf(me);
+        // the foes it is aimed at (both for a spread move); a self move plays on the user
+        const aimed = e.targets.map((u) => slotOf(u)).filter((x): x is Slot => !!x);
+        const targets = aimed.length ? aimed : [anySlot(otherSide(e.side))];
+        playPose(me, mv.target === 'self' ? 'happy' : 'attack', mv.target === 'self' ? 0.55 : 0.5);
         const selfFx = SELF_FX.has(mv.fx);
         const onFoe = selfFx && mv.target === 'foe';
-        fx.move(mv.fx, onFoe ? to : from, to, mv.type);
-        const foeUid = slots[foe].uid;
-        lastMoveFx = { at: selfFx ? (onFoe ? foeUid ?? '' : e.uid) : foeUid ?? '', kind: mv.fx };
+        if (mv.target === 'self' && selfFx) fx.move(mv.fx, from, from, mv.type);
+        else for (const t of targets) fx.move(mv.fx, onFoe ? bodyOf(t) : from, bodyOf(t), mv.type);
+        const foeUid = targets[0]?.uid ?? '';
+        lastMoveFx = { at: selfFx ? (onFoe ? foeUid : e.uid) : foeUid, kind: mv.fx };
         sfx(moveSfx(mv.type));
         return mkStep(0.42);
       }
@@ -344,23 +398,22 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const frac = v.maxHp > 0 ? e.amount / v.maxHp : 0;
         const dur = 0.22 + 0.45 * Math.min(1, frac);
         setHp(v, e.hp, e.maxHp, dur);
-        const side = onField(e.uid);
-        if (side) {
-          const sl = slots[side];
-          const b = bodyOf(side);
+        const sl = slotOf(e.uid);
+        if (sl) {
+          const b = bodyOf(sl);
           if (e.source === 'move' || e.source === 'confusion' || e.source === 'recoil') {
-            playPose(side, 'hurt', 0.42);
+            playPose(sl, 'hurt', 0.42);
             sl.flash = 1;
             const col = e.source === 'move' ? effectivenessLabel(e.effectiveness).color : '#ece6d6';
-            floatOver(side, '-' + e.amount, col);
-            if (e.crit) floatOver(side, 'CRIT!', UI.gold, -16);
+            floatOver(sl, '-' + e.amount, col);
+            if (e.crit) floatOver(sl, 'CRIT!', UI.gold, -16);
             if (e.source !== 'move') fx.burst(b.x, b.y, '#ffffff', 8);
           } else {
             sl.flash = 0.55;
             const col = e.source === 'seed' ? '#a8e48c' : STATUS_COLOR[v.status ?? 'burn'];
             fx.burst(b.x, b.y, col, 12);
-            floatOver(side, '-' + e.amount, col);
-            playPose(side, 'hurt', 0.35);
+            floatOver(sl, '-' + e.amount, col);
+            playPose(sl, 'hurt', 0.35);
           }
         }
         if (e.source === 'move') {
@@ -385,32 +438,32 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const dur = 0.25 + 0.4 * Math.min(1, e.amount / Math.max(1, e.maxHp));
         if (v.fainted && e.hp > 0) v.fainted = false;
         setHp(v, e.hp, e.maxHp, dur);
-        const side = onField(e.uid);
-        if (side) {
-          const b = bodyOf(side);
+        const sl = slotOf(e.uid);
+        if (sl) {
+          const b = bodyOf(sl);
           const dup = lastMoveFx && lastMoveFx.at === e.uid && lastMoveFx.kind === 'heal';
           if (!dup) fx.move('heal', b, b, 'LEAF');
-          floatOver(side, '+' + e.amount, HEAL_COLOR);
+          floatOver(sl, '+' + e.amount, HEAL_COLOR);
         }
         sfx('heal');
         return mkStep(dur + 0.08, () => hpSettled(v));
       }
 
       case 'miss': {
-        const side = onField(e.uid);
-        if (side) {
-          slots[side].dodge = DODGE_DUR;
-          floatOver(side, 'MISS', '#d8d2e6');
+        const sl = slotOf(e.uid);
+        if (sl) {
+          sl.dodge = DODGE_DUR;
+          floatOver(sl, 'MISS', '#d8d2e6');
         }
         sfx('miss');
         return mkStep(0.4);
       }
 
       case 'protect': {
-        const side = onField(e.uid);
+        const sl = slotOf(e.uid);
         const dup = lastMoveFx && lastMoveFx.at === e.uid && lastMoveFx.kind === 'shield';
-        if (side && !dup) {
-          const b = bodyOf(side);
+        if (sl && !dup) {
+          const b = bodyOf(sl);
           fx.move('shield', b, b, view(e.uid).types[0]);
         }
         sfx('sparkle');
@@ -422,16 +475,16 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const was = v.status;
         v.status = e.status;
         v.statusAge = 0;
-        const side = onField(e.uid);
+        const sl = slotOf(e.uid);
         if (e.status) {
-          if (side) {
-            const b = bodyOf(side);
+          if (sl) {
+            const b = bodyOf(sl);
             fx.burst(b.x, b.y, STATUS_COLOR[e.status], 14);
           }
           sfx('status');
         } else if (was) {
-          if (side) {
-            const b = bodyOf(side);
+          if (sl) {
+            const b = bodyOf(sl);
             fx.burst(b.x, b.y, '#ffffff', 10);
           }
           sfx('sparkle');
@@ -451,26 +504,26 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       case 'confuse': {
         const v = view(e.uid);
         v.confused = e.on;
-        const side = onField(e.uid);
-        if (side && e.on) {
-          const b = bodyOf(side);
-          fx.burst(b.x, topOf(side) + 4, '#ff9ad6', 12);
+        const sl = slotOf(e.uid);
+        if (sl && e.on) {
+          const b = bodyOf(sl);
+          fx.burst(b.x, topOf(sl) + 4, '#ff9ad6', 12);
           sfx('psy');
         }
         return mkStep(e.on ? 0.4 : 0.15);
       }
 
       case 'stages': {
-        const side = onField(e.uid);
+        const sl = slotOf(e.uid);
         const vals = Object.values(e.changes).filter((n): n is number => typeof n === 'number');
         const up = vals.some((n) => n > 0), down = vals.some((n) => n < 0);
-        if (side) {
-          const b = bodyOf(side);
+        if (sl) {
+          const b = bodyOf(sl);
           const dupUp = lastMoveFx?.at === e.uid && lastMoveFx.kind === 'buff';
           const dupDown = lastMoveFx?.at === e.uid && lastMoveFx.kind === 'debuff';
           if (up && !dupUp) fx.move('buff', b, b, 'FIRE');
           if (down && !dupDown) fx.move('debuff', b, b, 'WATER');
-          if (up && !down) playPose(side, 'happy', 0.5);
+          if (up && !down) playPose(sl, 'happy', 0.5);
         }
         if (up) sfx('statUp');
         if (down) sfx('statDown', { delay: up ? 0.15 : 0 });
@@ -487,13 +540,13 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       }
 
       case 'item': {
-        const side = onField(e.uid);
+        const sl = slotOf(e.uid);
         let x: number, y: number;
-        if (side) {
-          const b = bodyOf(side);
-          x = b.x; y = topOf(side) - 4;
+        if (sl) {
+          const b = bodyOf(sl);
+          x = b.x; y = topOf(sl) - 4;
         } else {
-          const B = LAYOUT.playerBox;
+          const B = DOUBLES.allyCard;
           x = B.x + B.w - 30; y = B.y - 6;
         }
         floats.push({ item: e.item, x, y, age: 0 });
@@ -510,9 +563,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         v.confused = false;
         v.seeded = false;
         v.stuck = false;
-        const side = onField(e.uid);
-        if (side) {
-          const sl = slots[side];
+        const sl = slotOf(e.uid);
+        if (sl) {
           sl.anim = 'faint';
           sl.animT = 0;
           sl.animDur = FAINT_DUR;
@@ -527,7 +579,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const v = view(e.uid);
         v.xp = e.total;
         const cap = Math.min(e.total, xpForLevel(v.level + 1));
-        if (onField(e.uid)) {
+        if (slotOf(e.uid)) {
           v.xpSpeed = Math.abs(cap - v.shownXp) / 0.6;
           sfx('coin', { volume: 0.5, pitch: 1.3 });
           return mkStep(0.12, () => xpSettled(v));
@@ -553,10 +605,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         const dur = 1.9 * pace();
         levelCard = { name: v.name, level: e.level, gains, age: 0, dur };
         sfx('levelUp');
-        const side = onField(e.uid);
-        if (side) {
-          const b = bodyOf(side);
-          playPose(side, 'happy', 1.1);
+        const sl = slotOf(e.uid);
+        if (sl) {
+          const b = bodyOf(sl);
+          playPose(sl, 'happy', 1.1);
           fx.move('sparkle', b, b, 'LIGHT');
         }
         return mkStep(dur, null, { skippable: true, minAge: 0.25, onDone: () => { if (levelCard) levelCard.age = Math.max(levelCard.age, levelCard.dur * 0.88); } });
@@ -588,8 +640,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         } else {
           outro = { text: 'SCURRIED TO SAFETY!', color: '#4f9be0', age: 0 };
           sfx('swap');
-          const sl = slots.player;
-          if (sl.uid && sl.anim === 'idle') { sl.anim = 'flee'; sl.animT = 0; sl.animDur = 1.1; sl.pose = null; }
+          for (const sl of slots.player) {
+            if (sl.uid && sl.anim === 'idle') { sl.anim = 'flee'; sl.animT = 0; sl.animDur = 1.1; sl.pose = null; }
+          }
         }
         return mkStep(1.8 * (0.7 + 0.3 * pace()), null, { skippable: true, minAge: 0.6, onDone: finish });
       }
@@ -619,24 +672,75 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   // Actions and menus
   // -------------------------------------------------------------------------------------------
 
-  function act(a: PlayerAction): void {
-    let evs: BattleEvent[];
-    try {
-      if (battle.phase === 'switch') {
-        if (a.kind !== 'switch') return;
-        evs = submitSwitch(battle, a.index);
-      } else {
-        evs = submitTurn(battle, a);
-      }
-    } catch (err) {
-      console.warn('[battle] action rejected', a, err);
-      sfx('error');
-      return;
-    }
-    if (a.kind === 'move') lastMoveSlot = a.slot;
+  /** Hand events to the queue after the engine accepted a decision. */
+  function play(evs: BattleEvent[]): void {
+    orders = [];
+    aimMove = null;
     closeMenu();
     lastMoveFx = null;
     queue.push(...evs);
+  }
+
+  function rejected(what: unknown, err: unknown): void {
+    console.warn('[battle] action rejected', what, err);
+    sfx('error');
+  }
+
+  /** Submit a whole turn (or a retreat). */
+  function submit(list: PlayerAction[]): void {
+    let evs: BattleEvent[];
+    try {
+      evs = submitTurn(battle, list);
+    } catch (err) {
+      rejected(list, err);
+      orders = [];
+      openMenu('main');
+      return;
+    }
+    play(evs);
+  }
+
+  /** In the 'switch' phase: send `index` into the next empty slot. */
+  function replace(index: number): void {
+    let evs: BattleEvent[];
+    try {
+      evs = submitSwitch(battle, index);
+    } catch (err) {
+      rejected(index, err);
+      return;
+    }
+    play(evs);
+  }
+
+  /**
+   * One dragon's order. A retreat ends the turn for everyone; otherwise the next dragon on the
+   * field gets its menu, and the turn is played once every dragon standing has an order.
+   */
+  function order(a: PlayerAction): void {
+    if (battle.phase === 'switch') {
+      if (a.kind === 'switch') replace(a.index);
+      return;
+    }
+    if (a.kind === 'retreat') { submit([a]); return; }
+    if (a.kind === 'move') lastMoveSlot = a.slot;
+    orders.push(a);
+    aimMove = null;
+    if (orders.length >= liveSlots(battle, 'player').length) {
+      submit(orders);
+      return;
+    }
+    sfx('select', { pitch: 1.15 });
+    openMenu('main');
+    updateMatchup();
+  }
+
+  /** UNDO: take back the previous dragon's order and give it again. */
+  function undo(): void {
+    if (!orders.length) return;
+    sfx('back');
+    orders.pop();
+    openMenu('main');
+    updateMatchup();
   }
 
   function closeMenu(): void {
@@ -649,27 +753,62 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
 
   function back(to: MenuKind = 'main'): void {
     sfx('back');
+    aimMove = null;
     openMenu(to);
   }
 
+  /** The dragon whose order is being given. */
+  function decider(): BattleState['player']['team'][number] {
+    return activeMon(battle, 'player', decidingSlot());
+  }
+
   function myName(): string {
-    return activeView('player')?.name ?? 'YOUR DRAGON';
+    return viewAt('player', decidingSlot())?.name ?? 'YOUR DRAGON';
   }
 
   function foeTypes(): readonly TypeId[] {
-    return activeView('enemy')?.types ?? [];
+    return viewAt('enemy', focusFoe)?.types ?? liveFoes().map((k) => viewAt('enemy', k)).find(Boolean)?.types ?? [];
+  }
+
+  /** Team indices already called in by an earlier order this turn. */
+  function claimed(): Set<number> {
+    return new Set(orders.filter((o) => o.kind === 'switch').map((o) => (o.kind === 'switch' ? o.index : -1)));
+  }
+
+  /** The bag as it will be once the earlier orders this turn have used their items. */
+  function bagLeft(id: ItemId): number {
+    const used = orders.filter((o) => o.kind === 'item' && o.item === id).length;
+    return Math.max(0, (battle.items[id] ?? 0) - used);
+  }
+
+  /** Pick a move: aimed at one of two foes asks which (AIM); anything else is the order. */
+  function chooseMove(i: number): void {
+    const me = decider();
+    const ms = me.moves[i];
+    const mv = ms ? getMove(ms.id) : null;
+    const foes = liveFoes();
+    if (mv && mv.target === 'foe' && !mv.spread && foes.length > 1) {
+      aimMove = i;
+      if (!foes.includes(focusFoe)) focusFoe = foes[0];
+      openMenu('aim');
+      return;
+    }
+    order({ kind: 'move', slot: i, target: foes.includes(focusFoe) ? focusFoe : foes[0] ?? 0 });
   }
 
   function openMenu(kind: MenuKind): void {
     menu = kind;
     group.clear();
     group.keyboard = true;
-    const L = legal(battle);
-    const me = activeMon(battle, 'player');
+    const slot = decidingSlot();
+    const L = legal(battle, slot);
+    const me = activeMon(battle, 'player', slot);
+    const taken = claimed();
     switch (kind) {
       case 'main': {
-        const anySwitch = L.switches.some(Boolean);
-        const bagCount = ITEM_IDS.reduce((n, id) => n + (battle.items[id] ?? 0), 0);
+        const anySwitch = L.switches.some((ok, i) => ok && !taken.has(i));
+        const bagCount = ITEM_IDS.reduce((n, id) => n + bagLeft(id), 0);
+        const usable = L.items.some((id) => bagLeft(id) > 0);
         group.add({
           label: 'FIGHT', sub: 'PICK A MOVE', size: 2, rect: { x: 342, y: 266, w: 106, h: 88 }, color: UI.accent, hotkey: 'f',
           icon: (g, cx, cy) => drawTypeIcon(g, me.types[0], cx, cy, 7),
@@ -682,7 +821,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         });
         group.add({
           label: 'BAG', sub: bagCount > 0 ? `${bagCount} ITEM${bagCount === 1 ? '' : 'S'}` : 'EMPTY', rect: { x: 454, y: 312, w: 88, h: 42 },
-          hotkey: 'b', enabled: () => bagCount > 0, icon: (g, cx, cy) => drawItemIcon(g, 'seedcake', cx, cy, 12),
+          hotkey: 'b', enabled: () => usable, icon: (g, cx, cy) => drawItemIcon(g, 'seedcake', cx, cy, 12),
           onClick: () => { sfx('click'); openMenu('bag'); },
         });
         group.add({
@@ -694,27 +833,52 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
           label: 'TYPES', sub: 'CHART', rect: { x: 548, y: 312, w: 88, h: 42 }, color: '#a9d2f2', hotkey: 't', icon: helpIcon,
           onClick: () => {
             sfx('click');
-            const p = activeView('player'), e = activeView('enemy');
+            const { p, e } = focusPair();
             app.nav.typeChart({ attack: p ? [...p.types] : [], defend: e ? [...e.types] : [] });
           },
         });
+        if (orders.length) {
+          group.add({ label: 'UNDO', rect: { x: 268, y: 334, w: 62, h: 18 }, hotkey: 'Escape', color: UI.panelDark, onClick: () => undo() });
+        }
         group.focus = 0;
         break;
       }
       case 'fight': {
         const ft = [...foeTypes()];
-        me.moves.forEach((slot, i) => {
-          const mv = getMove(slot.id);
+        me.moves.forEach((ms, i) => {
+          const mv = getMove(ms.id);
           const key = String(i + 1);
           group.add({
             label: '', rect: { x: 6 + (i % 2) * 218, y: 266 + Math.floor(i / 2) * 46, w: 212, h: 43 },
             color: getType(mv.type).color, hotkey: key, enabled: () => L.moves[i] === true,
-            decorate: (g, face, en) => drawMoveFace(g, face, en, slot, ft, key),
-            onClick: () => { sfx('select'); act({ kind: 'move', slot: i }); },
+            decorate: (g, face, en) => drawMoveFace(g, face, en, ms, ft, key),
+            onClick: () => { sfx('select'); chooseMove(i); },
           });
         });
         group.add({ label: 'BACK', rect: SMALL_BACK, hotkey: 'Escape', color: UI.panelDark, onClick: () => back() });
         group.focus = lastMoveSlot < me.moves.length && L.moves[lastMoveSlot] ? lastMoveSlot : Math.max(0, L.moves.indexOf(true));
+        break;
+      }
+      case 'aim': {
+        // one big button per foe standing, with how hard the picked move hits it
+        const ms = me.moves[aimMove ?? 0];
+        const foes = liveFoes();
+        foes.forEach((k, n) => {
+          const v = viewAt('enemy', k);
+          if (!v) return;
+          const mult = ms ? moveEffectiveness(ms.id, v.types) : 1;
+          const lab = getMove(ms?.id ?? '').power > 0 ? effectivenessLabel(mult) : { text: 'TARGET', color: UI.textLight };
+          group.add({
+            label: v.name, sub: lab.text, rect: { x: 6 + n * 218, y: 270, w: 212, h: 80 }, color: '#f3c9b8', hotkey: String(n + 1),
+            decorate: (g, face) => {
+              fillRoundRect(g, face.x + face.w - 34, face.y + 6, 28, 12, 3, tint(lab.color, -0.35));
+              drawText(g, k === 0 ? 'FRONT' : 'BACK', face.x + face.w - 32, face.y + 9, { color: '#ffffff', shadow: false });
+            },
+            onClick: () => { sfx('select'); order({ kind: 'move', slot: aimMove ?? 0, target: k }); },
+          });
+        });
+        group.add({ label: 'BACK', rect: SMALL_BACK, hotkey: 'Escape', color: UI.panelDark, onClick: () => back('fight') });
+        group.focus = Math.max(0, foes.indexOf(focusFoe));
         break;
       }
       case 'swap':
@@ -723,9 +887,9 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         break;
       }
       case 'bag': {
-        const usable = new Set(L.items);
+        const usable = new Set(L.items.filter((id) => bagLeft(id) > 0));
         ITEM_IDS.forEach((id, k) => {
-          const count = battle.items[id] ?? 0;
+          const count = bagLeft(id);
           const ok = usable.has(id);
           group.add({
             label: '', rect: { x: 6 + Math.floor(k / 3) * 156, y: 266 + (k % 3) * 30, w: 150, h: 28 },
@@ -742,7 +906,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       case 'retreat': {
         group.add({
           label: 'YES, RUN!', sub: 'END THE MISSION', size: 2, rect: { x: 342, y: 266, w: 144, h: 88 }, color: UI.bad, hotkey: 'y',
-          onClick: () => { sfx('select'); act({ kind: 'retreat' }); },
+          onClick: () => { sfx('select'); order({ kind: 'retreat' }); },
         });
         group.add({
           label: 'NO WAY!', sub: 'KEEP FIGHTING', size: 2, rect: { x: 492, y: 266, w: 144, h: 88 }, color: UI.good, hotkey: 'Escape',
@@ -763,7 +927,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     }
     sfx('click');
     if (getItem(id).effect.kind === 'stages') {
-      act({ kind: 'item', item: id, target: battle.player.active });
+      order({ kind: 'item', item: id, target: battle.player.slots[decidingSlot()] ?? 0 });
       return;
     }
     pickedItem = id;
@@ -773,12 +937,13 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   /** Why a team member can or cannot be picked for the current menu. */
   function cardState(kind: 'swap' | 'target', i: number): { ok: boolean; reason: string | null } {
     const m = battle.player.team[i];
-    const active = i === battle.player.active;
+    const out = battle.player.slots.includes(i);
     if (kind === 'swap') {
-      const L = legal(battle);
+      const L = legal(battle, decidingSlot());
+      if (claimed().has(i)) return { ok: false, reason: 'ALREADY CALLED IN' };
       if (L.switches[i]) return { ok: true, reason: null };
       if (m.hp <= 0) return { ok: false, reason: 'FAINTED' };
-      if (active) return { ok: false, reason: 'ALREADY OUT!' };
+      if (out) return { ok: false, reason: 'ALREADY OUT!' };
       return { ok: false, reason: "STUCK! CAN'T SWAP" };
     }
     const item = pickedItem;
@@ -790,7 +955,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       case 'heal': return { ok: false, reason: m.hp <= 0 ? 'FAINTED' : 'ALREADY FULL HP' };
       case 'revive': return { ok: false, reason: 'NOT FAINTED' };
       case 'cure': return { ok: false, reason: m.hp <= 0 ? 'FAINTED' : 'FEELING FINE' };
-      case 'stages': return { ok: false, reason: active && m.hp > 0 ? 'MAXED OUT!' : 'NOT IN BATTLE' };
+      case 'stages': return { ok: false, reason: out && m.hp > 0 ? 'MAXED OUT!' : 'NOT IN BATTLE' };
     }
   }
 
@@ -825,8 +990,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         }),
         onClick: () => {
           sfx('select');
-          if (kind === 'swap') act({ kind: 'switch', index: i });
-          else if (pickedItem) act({ kind: 'item', item: pickedItem, target: i });
+          if (kind === 'swap') order({ kind: 'switch', index: i });
+          else if (pickedItem) order({ kind: 'item', item: pickedItem, target: i });
         },
       });
     });
@@ -852,17 +1017,28 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       finish();
       return;
     }
+    // aim at a foe still standing
+    const foes = liveFoes();
+    if (foes.length && !foes.includes(focusFoe)) focusFoe = foes[0];
     if (autoplay()) {
       if (menu) closeMenu();
-      act(autoAction(battle));
+      orders = [];
+      if (battle.phase === 'switch') {
+        const a = autoSwitch(battle);
+        if (a.kind === 'switch') replace(a.index);
+      } else {
+        submit(autoTurn(battle));
+      }
       return;
     }
     if (battle.phase === 'switch') {
       forced = true;
       openMenu('swap');
     } else {
+      orders = [];
       openMenu('main');
     }
+    updateMatchup();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -880,7 +1056,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       sl.animT += dt;
       if (sl.anim === 'enter' && !sl.landed && sl.animT >= sl.animDur * 0.72) {
         sl.landed = true;
-        const g = ground(sl.side);
+        const g = ground(sl);
         fx.burst(g.x, g.y - 3, '#f4e3c0', 8);
         const v = sl.uid ? views.get(sl.uid) : null;
         if (v?.isBoss) fx.shake(4);
@@ -904,8 +1080,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     introT += dt;
     fx.update(dt);
     for (const v of views.values()) tickView(v, dt);
-    tickSlot(slots.player, dt);
-    tickSlot(slots.enemy, dt);
+    for (const sl of allSlots()) tickSlot(sl, dt);
     tw.update(dt);
     matchPulse = Math.max(0, matchPulse - dt / 0.9);
     if (matchup) stripAppear = Math.min(1, stripAppear + dt / 0.3);
@@ -953,10 +1128,10 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   function drawSlot(ctx: Ctx, sl: Slot): void {
     if (!sl.uid || sl.anim === 'gone') return;
     const v = view(sl.uid);
-    const g = ground(sl.side);
+    const g = ground(sl);
     const f = facing(sl.side);
     let x = g.x, y = g.y;
-    let scale = battleScale(v);
+    let scale = scaleOf(sl, v);
     let alpha = 1;
     let pose: Pose = 'idle';
     let poseT = 0;
@@ -1010,6 +1185,18 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
     }
   }
 
+  /** A bouncing red arrow over the foe being aimed at. */
+  function drawAimArrow(ctx: Ctx): void {
+    const sl = slots.enemy[focusFoe];
+    if (!sl || !sl.uid || sl.anim === 'gone') return;
+    const x = Math.round(ground(sl).x), y = topOf(sl) - 12 - Math.round(Math.abs(Math.sin(time * 5)) * 4);
+    ctx.fillStyle = UI.ink;
+    for (let k = 0; k < 7; k++) ctx.fillRect(x - 7 + k, y + k, 15 - k * 2, 1);
+    ctx.fillRect(x - 8, y - 1, 17, 1);
+    ctx.fillStyle = '#ff6a5c';
+    for (let k = 0; k < 6; k++) ctx.fillRect(x - 6 + k, y + k, 13 - k * 2, 1);
+  }
+
   function drawFloats(ctx: Ctx): void {
     for (const f of floats) {
       const u = f.age;
@@ -1039,7 +1226,7 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         drawPrompt(ctx);
         break;
       case 'fight': {
-        const me = activeMon(battle, 'player');
+        const me = decider();
         const noPp = !me.moves.some((m) => m.pp > 0);
         const f = group.focus;
         drawMoveInfo(ctx, MOVE_INFO, f >= 0 && f < me.moves.length ? me.moves[f] : null, noPp);
@@ -1051,8 +1238,14 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         break;
       }
       case 'swap':
-        drawPlaque(ctx, forced ? 'WHO WILL YOU SEND OUT NEXT?' : 'SWAP: WHO SHOULD GO IN?', 10, top - 9);
+        drawPlaque(ctx, forced ? 'WHO WILL YOU SEND OUT NEXT?' : `SWAP: WHO SHOULD GO IN FOR ${myName()}?`, 10, top - 9);
         break;
+      case 'aim': {
+        const ms = decider().moves[aimMove ?? 0];
+        drawPlaque(ctx, `AIM ${ms ? getMove(ms.id).name.toUpperCase() : 'IT'} AT WHICH FOE?`, 10, top - 9);
+        drawMoveInfo(ctx, { x: 442, y: 264, w: 194, h: 66 }, ms ?? null, false);
+        break;
+      }
       case 'target':
         drawPlaque(ctx, `WHO GETS THE ${getItem(pickedItem ?? 'seedcake').name.toUpperCase()}?`, 10, top - 9);
         break;
@@ -1071,7 +1264,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
   function drawPrompt(ctx: Ctx): void {
     const r = MSG_LEFT;
     drawMessageBox(ctx, r.x, r.y, r.w, r.h, '', { arrow: false });
-    const q = `WHAT WILL ${myName()} DO?`;
+    const live = liveSlots(battle, 'player').length;
+    const q = live > 1 ? `WHAT WILL ${myName()} DO? (${Math.min(orders.length + 1, live)}/${live})` : `WHAT WILL ${myName()} DO?`;
     const qh = drawWrapped(ctx, q, r.x + 12, r.y + 12, r.w - 28, { size: 2, color: UI.text, shadowColor: tint(UI.panelLight, -0.16) });
     const tip = tipText();
     if (tip) drawWrapped(ctx, tip, r.x + 12, Math.max(r.y + 14 + qh, r.y + r.h - 31), r.w - 28, { color: UI.textDim, shadow: false });
@@ -1084,13 +1278,13 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
    */
   function tipText(): string {
     if (!matchup) return '';
-    const canSwap = legal(battle).switches.some(Boolean);
+    const canSwap = legal(battle, decidingSlot()).switches.some((ok, i) => ok && !claimed().has(i));
     const { fwd, back } = matchup;
     if (back > 1 && fwd > 1) return 'TIP: YOU BOTH HIT HARD HERE. STRIKE FIRST!';
     if (back > 1) return canSwap ? 'TIP: THEIR TYPE BEATS YOURS. A SWAP COULD HELP!' : 'TIP: THEIR TYPE BEATS YOURS. HIT HARD AND FAST!';
     if (fwd > 1) return 'TIP: YOUR TYPE BEATS THEIRS. GO GET THEM!';
-    const me = activeMon(battle, 'player');
-    const foe = activeView('enemy');
+    const me = decider();
+    const foe = viewAt('enemy', focusFoe);
     const superMove = !!foe && me.moves.some((m) => m.pp > 0 && moveEffectiveness(m.id, foe.types) > 1 && getMove(m.id).power > 0);
     if (superMove) return fwd < 1 ? 'TIP: YOUR TYPE BOUNCES OFF THEIRS, BUT A MOVE WITH A SUPER TAG HITS HARD!' : 'TIP: A MOVE WITH A SUPER TAG HITS TWICE AS HARD!';
     if (fwd === 0) return canSwap ? 'TIP: YOUR TYPE HAS NO EFFECT ON THEIRS. TRY ANOTHER MOVE OR SWAP!' : 'TIP: YOUR TYPE HAS NO EFFECT ON THEIRS. TRY ANOTHER MOVE!';
@@ -1149,6 +1343,8 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         /** The message box's line (full text) and whether it has finished typing. */
         text: () => tw.text,
         textDone: () => tw.done,
+        /** Orders given so far this turn (doubles: one per dragon on the field). */
+        orders: () => orders.length,
         focus: () => group.focus,
         levelCard: () => (levelCard ? levelCard.age : -1),
         outro: () => (outro ? outro.age : -1),
@@ -1174,6 +1370,12 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
         if (input.confirm() || input.pointer.pressed) skipRequested = true;
       } else if (!auto) {
         group.update(input);
+        // while aiming, the focused button is the target: its card glows red and the strip follows
+        if (menu === 'aim') {
+          const foes = liveFoes();
+          const k = foes[group.focus];
+          if (k !== undefined && k !== focusFoe) { focusFoe = k; updateMatchup(); }
+        }
       }
       const n = auto ? 12 : 1;
       for (let i = 0; i < n && !finished; i++) tick(dt);
@@ -1187,22 +1389,43 @@ export function createBattleScene(run: MissionRun, onEnd: (outcome: Outcome) => 
       ctx.save();
       ctx.translate(fx.offsetX, fx.offsetY);
       drawBattleBackdrop(ctx, loc, time);
-      const EP = LAYOUT.enemyPlatform, PP = LAYOUT.playerPlatform;
+      const EP = fieldCount('enemy') > 1 ? DOUBLES.enemyPlatform : LAYOUT.enemyPlatform;
+      const PP = fieldCount('player') > 1 ? DOUBLES.playerPlatform : LAYOUT.playerPlatform;
       drawPlatform(ctx, EP.x, EP.y, EP.w, loc);
       drawPlatform(ctx, PP.x, PP.y, PP.w, loc);
-      drawSlot(ctx, slots.enemy);
-      drawSlot(ctx, slots.player);
+      // back to front
+      for (const sl of [...allSlots()].sort((a, b) => ground(a).y - ground(b).y)) drawSlot(ctx, sl);
+      if (menu === 'aim') drawAimArrow(ctx);
       fx.draw(ctx);
       drawFloats(ctx);
-      const ev = activeView('enemy');
-      if (ev && slots.enemy.box > 0) {
-        const k = outQuad(slots.enemy.box);
-        drawWeakRow(ctx, ev, k);
-        drawEnemyBox(ctx, ev, enemyTeam, slots.enemy.uid, k);
+      // foes: a card per field slot, FOES LEFT (every foe in this fight), WEAK TO for the focused one
+      const outUids = (side: Side): string[] => slots[side].filter((sl) => sl.uid && sl.anim !== 'gone').map((sl) => sl.uid as string);
+      let foeSlide = 0;
+      for (const sl of slots.enemy) {
+        const v = sl.uid ? views.get(sl.uid) : null;
+        if (!v || sl.box <= 0) continue;
+        const k = outQuad(sl.box);
+        foeSlide = Math.max(foeSlide, k);
+        const pos = fieldCount('enemy') > 1 ? sl.pos : 0;
+        drawFoeCard(ctx, v, pos, k, time, { target: (menu === 'aim' || menu === 'fight') && sl.pos === focusFoe && !v.fainted });
+      }
+      if (foeSlide > 0) {
+        drawFoesLeft(ctx, enemyTeam, outUids('enemy'), foeSlide);
+        const fv = viewAt('enemy', focusFoe) ?? viewAt('enemy', liveFoes()[0] ?? 0);
+        if (fv && !fv.fainted) drawWeakRow(ctx, fv, foeSlide, DOUBLES.weakRow);
       }
       if (stripAppear > 0) drawMatchup(ctx, matchup, matchPulse, outQuad(stripAppear), time);
-      const pv = activeView('player');
-      if (pv && slots.player.box > 0) drawPlayerBox(ctx, pv, playerTeam, slots.player.uid, outQuad(slots.player.box), time);
+      const deciding = menu !== null && battle.phase === 'choose' && liveSlots(battle, 'player').length > 1 ? decidingSlot() : -1;
+      let pipsDone = false;
+      for (const sl of slots.player) {
+        const v = sl.uid ? views.get(sl.uid) : null;
+        if (!v || sl.box <= 0) continue;
+        const pos = fieldCount('player') > 1 ? sl.pos : 0;
+        drawAllyCard(ctx, v, pos, outQuad(sl.box), time, {
+          focus: sl.pos === deciding, team: pipsDone ? undefined : playerTeam, activeUids: outUids('player'),
+        });
+        pipsDone = true;
+      }
       for (const b of banners) drawAbilityBanner(ctx, b.text, b.side, b.age / b.dur);
       ctx.restore();
       if (levelCard) drawLevelCard(ctx, levelCard.name, levelCard.level, levelCard.gains, levelCard.age / levelCard.dur, time);
